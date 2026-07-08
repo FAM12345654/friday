@@ -68,6 +68,7 @@ def show_menu() -> str:
     print("\n" + "=" * 40)
     print(MENU_TITLE)
     print("=" * 40)
+    print("Hinweis: Friday bleibt lokal. Externe Aktionen sind deaktiviert.")
     for option, label in MENU_OPTIONS:
         print(f"{option}. {label}")
     return input("Auswahl (1-13): ").strip()
@@ -88,6 +89,8 @@ def show_backup_restore_menu() -> str:
     print("\n" + "-" * 40)
     print("Backup / Restore")
     print("-" * 40)
+    print("Hinweis: Backup/Restore bleibt lokal und nutzt harte Freigabe-Tokens.")
+    print("9 führt zurück zum Hauptmenü.")
     for option, label in BACKUP_RESTORE_MENU_OPTIONS:
         print(f"{option}. {label}")
     return input("Auswahl (1-10): ").strip()
@@ -98,6 +101,8 @@ def show_privacy_dashboard_menu() -> str:
     print("\n" + "-" * 40)
     print("Privacy Dashboard")
     print("-" * 40)
+    print("Hinweis: Anzeigen sind read-only; Cleanup braucht harte Freigabe-Tokens.")
+    print("11 führt zurück zum Hauptmenü.")
     for option, label in PRIVACY_DASHBOARD_MENU_OPTIONS:
         print(f"{option}. {label}")
     return input("Auswahl (1-11): ").strip()

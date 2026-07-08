@@ -49,3 +49,34 @@ Sie sind keine Release-Blocker fuer Friday 1.0 lokal.
 
 Alle aktuellen Produktfunktionen bleiben lokal oder hart gegatet.
 Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lokal nicht freigegeben.
+
+
+## Friday 1.0 Baseline Commit
+
+| Feld | Wert |
+|---|---|
+| Commit | 7e9580 |
+| Message | Initial baseline: Friday local product v1.0.0 |
+| Status | lokale 1.0 Baseline committed |
+| Naechster Schritt | Post-1.0 Planning Gate |
+
+## Friday 1.1E
+
+| Bereich | Ergebnis |
+|---|---|
+| Ziel | Post-1.0-Dokumentationsbereinigung |
+| Produktlogik | unveraendert |
+| Tests | nicht ausgefuehrt; nur Doku-Schritt |
+| Commit | keiner |
+| Naechster Schritt | 1.1F Validierung nach Freigabe |
+
+## Friday 1.1G
+
+| Bereich | Ergebnis |
+|---|---|
+| Ziel | Full Regression fuer offene Post-1.0-Aenderungen |
+| Tests | `1084 passed, 4 skipped` |
+| Compilecheck | erfolgreich |
+| Safety Smoke | `Overall: PASS` |
+| Diff-Check | sauber |
+| Commit | keiner |

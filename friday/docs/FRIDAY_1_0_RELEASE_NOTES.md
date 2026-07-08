@@ -127,3 +127,12 @@ Die vier Skips betreffen bekannte Windows-Symlink-Rechte und blockieren Friday 1
 ## Ergebnis
 
 Friday 1.0 ist lokal fertiggestellt. Jede weitere Arbeit ist Post-1.0 und braucht eigene Gates, insbesondere fuer echte externe Aktionen.
+
+
+## Baseline Commit
+
+| Feld | Wert |
+|---|---|
+| Commit | 7e9580 |
+| Message | Initial baseline: Friday local product v1.0.0 |
+| Status | lokale 1.0 Baseline committed |

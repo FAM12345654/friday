@@ -812,3 +812,62 @@ PERSON VERGESSEN
 `KONTAKT LÖSCHEN`, `ja`, `JA`, `ok`, Leerwerte und Tokens mit zusaetzlichen Leerzeichen geben Forget Person nicht frei.
 
 Der Flow schreibt keine Obsidian-Dateien, ruft keine Provider auf, aendert kein Schema und loescht keine Aufgaben, Nachrichten, Kalenderdaten oder Vault-Dateien.
+
+
+## Friday 1.0 Abschluss
+
+Friday ist lokal als Version `1.0.0` abgeschlossen. Der lokale Baseline-Commit ist `e7e9580` mit der Message `Initial baseline: Friday local product v1.0.0`.
+
+Wichtig:
+- Friday bleibt lokal.
+- E-Mail-Drafts sind nur lokale Vorschauen.
+- Es wird nichts echt gesendet.
+- Externe Integrationen bleiben deaktiviert.
+- Weitere Produktarbeit ist Post-1.0 und braucht ein eigenes Gate.
+
+Siehe auch: `FRIDAY_1_0_COMPLETION_GATE.md`.
+
+## Friday 1.1A CLI-Polish
+
+Die Hilfe im Hauptmenue zeigt jetzt zusaetzlich:
+- die Friday-Version,
+- den Startbefehl `python -m friday.main`,
+- die Local-Only-Grundregel,
+- einen Rueckkehrhinweis fuer Untermenues.
+
+Siehe auch: `FRIDAY_1_1A_CLI_POLISH.md`.
+
+## Friday 1.1B Rueckkehrhinweise
+
+Friday zeigt in ersten Untermenues klarere Hinweise:
+
+- Kontakt-Kontext: Aktionen bleiben lokal, Rueckkehr mit `5`.
+- E-Mail-Entwurf Preview: Entwuerfe bleiben nur in der Session, Rueckkehr mit `6` oder Enter.
+
+Siehe auch: `FRIDAY_1_1B_CLI_TERMS_AND_RETURN_HINTS.md`.
+
+## Friday 1.1C Backup-/Privacy-Hinweise
+
+Friday zeigt in weiteren Untermenues klarere Hinweise:
+
+- Backup / Restore: bleibt lokal, Rueckkehr mit `9`, Write-Pfade brauchen harte Tokens.
+- Privacy Dashboard: Anzeige-Bereiche sind read-only, Rueckkehr mit `11`, Cleanup braucht harte Tokens.
+
+Siehe auch: `FRIDAY_1_1C_BACKUP_PRIVACY_CLI_HINTS.md`.
+
+## Friday 1.1D CLI-Hilfe Safety-Hinweise
+
+Die zentrale Hilfe im Hauptmenue zeigt jetzt einen gemeinsamen Block fuer lokale Safety-Hinweise:
+
+- Kontakt-Kontext bleibt lokal und braucht fuer Speichern/Loeschen harte Tokens.
+- E-Mail-Entwuerfe bleiben Session-only und werden nicht gesendet.
+- Backup / Restore schreibt nur lokal und nur nach hartem Token.
+- Privacy Dashboard zeigt read-only Informationen; Cleanup bleibt hart gegated.
+
+Siehe auch: `FRIDAY_1_1D_CLI_HELP_SAFETY_CONSOLIDATION.md`.
+
+## Friday 1.1E Post-1.0-Doku
+
+Die offenen Post-1.0-Dokumente sind als eigener Doku-Block eingeordnet. Sie bleiben nach dem lokalen 1.0-Baseline-Commit bewusst uncommitted, bis ein separates Commit-Gate dafuer freigegeben wird.
+
+Siehe auch: `FRIDAY_1_1E_POST_1_0_DOC_CLEANUP.md`.

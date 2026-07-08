@@ -219,3 +219,12 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 - `"JA"` loescht nur im bestehenden Delete-Flow.
 - `" JA "` bleibt durch `strip()` im bestehenden Delete-Flow erlaubt.
 - `"JA"` ist im Contact-Context-Prompt invalid.
+
+
+## Friday 1.0 Completion Gate
+
+| Bereich | Status | Hinweis |
+|---|---|---|
+| Friday 1.0 lokal | abgeschlossen | Baseline Commit 7e9580; externe Aktionen bleiben deaktiviert |
+| E-Mail-Draft | lokal erlaubt | kein Provider, kein Login, kein Versand |
+| Post-1.0 Arbeit | gated | neue Produktlogik, externe Dienste oder weitere Commits brauchen eigenes Gate |

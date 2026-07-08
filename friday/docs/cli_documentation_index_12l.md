@@ -21,8 +21,9 @@ Historische Build-Gates und Detailplaene liegen im Archiv unter `archive/`.
 | `FRIDAY_LIVE_READINESS_MATRIX.md` | offene Punkte bis zu echten Live-Funktionen | aktiv |
 | `FRIDAY_LIVE_ROADMAP_GATE.md` | sichere Reihenfolge fuer spaetere Live-Vorbereitung | aktiv |
 | `EMAIL_DRAFT_ONLY_PLAN.md` | Plan fuer lokale E-Mail-Entwuerfe ohne Versand | aktiv |
-| `FRIDAY_1_0_RELEASE_NOTES.md` | finale 1.0 Release Notes | geplant in Abschlusslauf |
-| `FRIDAY_1_0_COMPLETION_GATE.md` | finales 1.0 Abschlussgate | geplant in Abschlusslauf |
+| `FRIDAY_1_0_RELEASE_NOTES.md` | finale 1.0 Release Notes | aktiv |
+| FRIDAY_1_0_COMPLETION_GATE.md | finales 1.0 Abschlussgate | abgeschlossen |
+| FRIDAY_1_1_PLANNING_GATE.md | Post-1.0 Planung fuer Friday 1.1 | aktiv |
 
 ## Archiv-Regel
 
@@ -47,4 +48,22 @@ Historische Build-Gates und Detailplaene liegen im Archiv unter `archive/`.
 
 ## Empfehlung fuer naechsten Build Step
 
-Naechster sinnvoller Build Step: Friday 1.0 Completion Gate nach finaler Validierung und Baseline-Commit.
+Naechster sinnvoller Build Step: Build Step 1.1J - Post-1.0 Commit Gate nur nach ausdruecklicher Freigabe ausfuehren.
+
+
+| FRIDAY_1_1B_CLI_TERMS_AND_RETURN_HINTS.md | CLI-Begriffe und Rueckkehrhinweise nach 1.0 | aktiv |
+
+
+| FRIDAY_1_1C_BACKUP_PRIVACY_CLI_HINTS.md | Backup-/Privacy-CLI-Hinweise nach 1.0 | aktiv |
+
+| FRIDAY_1_1D_CLI_HELP_SAFETY_CONSOLIDATION.md | konsolidierte lokale Safety-Hinweise in der CLI-Hilfe | aktiv |
+
+| FRIDAY_1_1E_POST_1_0_DOC_CLEANUP.md | Post-1.0-Dokumentationsbereinigung | aktiv |
+
+| FRIDAY_1_1F_POST_1_0_UX_VALIDATION.md | fokussierte Post-1.0-UX-Validierung | aktiv |
+
+| FRIDAY_1_1G_FULL_REGRESSION_VALIDATION.md | Full Regression fuer offene Post-1.0-Aenderungen | aktiv |
+
+| FRIDAY_1_1H_POST_1_0_COMMIT_GATE_PLAN.md | Plan fuer spaeteren Post-1.0-Commit | aktiv |
+
+| FRIDAY_1_1I_STAGED_COMMIT_READINESS_CHECK.md | Readiness Check fuer spaeteren Post-1.0-Commit | aktiv |

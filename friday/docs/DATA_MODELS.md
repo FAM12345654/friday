@@ -307,3 +307,15 @@ Felder:
 - `relative_path`
 - `source_path`
 - `bytes_written`
+
+
+## E-Mail-Draft Session-Modell
+
+| Feld | Beschreibung |
+|---|---|
+| ecipient | lokaler Entwurfs-Empfaengertext |
+| subject | lokaler Betreff |
+| ody | lokaler Entwurfstext |
+| status | nur drafted, dited, discarded oder locked |
+| Persistenz | keine; Session-only in der CLI |
+| Provider | keiner |

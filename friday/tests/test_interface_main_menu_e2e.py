@@ -295,6 +295,8 @@ def test_handle_menu_choice_backup_restore_menu_returns(tmp_path, monkeypatch, c
     output = capsys.readouterr().out
 
     assert "Backup / Restore" in output
+    assert "Backup/Restore bleibt lokal" in output
+    assert "9 führt zurück zum Hauptmenü." in output
 
 
 def test_handle_menu_choice_email_draft_preview_stays_local(monkeypatch, capsys) -> None:
@@ -352,6 +354,28 @@ def test_email_draft_preview_back_without_draft_is_stable(monkeypatch, capsys) -
     assert interface.email_drafts == []
 
 
+def test_email_draft_preview_shows_return_and_session_hint(monkeypatch, capsys) -> None:
+    interface = _build_interface()
+    _set_inputs(monkeypatch, [""])
+
+    interface.show_email_draft_preview()
+    output = capsys.readouterr().out
+
+    assert "Entwürfe bleiben nur in dieser Session." in output
+    assert "6 oder Enter führt zurück." in output
+
+
+def test_contact_context_menu_shows_local_return_hint(monkeypatch, capsys) -> None:
+    interface = _build_interface()
+    _set_inputs(monkeypatch, ["5"])
+
+    interface.open_contact_context_menu()
+    output = capsys.readouterr().out
+
+    assert "Alle Kontakt-Aktionen bleiben lokal." in output
+    assert "5 führt zurück zum Hauptmenü." in output
+
+
 def test_backup_restore_menu_backup_rotation_deletes_old_backups_only(
     tmp_path,
     monkeypatch,
@@ -391,6 +415,8 @@ def test_handle_menu_choice_privacy_dashboard_menu_returns(monkeypatch, capsys) 
     assert "Privacy Dashboard" in output
     assert "Friday arbeitet lokal." in output
     assert "Externe Aktionen sind deaktiviert." in output
+    assert "Anzeigen sind read-only" in output
+    assert "11 führt zurück zum Hauptmenü." in output
 
 
 def test_privacy_dashboard_menu_shows_local_data_areas(monkeypatch, capsys) -> None:
@@ -2052,6 +2078,24 @@ def test_run_can_open_help_then_exit(monkeypatch, capsys) -> None:
     assert "!hoch @morgen #taeglich" in output
     assert "Wiederkehrende Aufgaben" in output
     assert "Friday wird beendet." in output
+
+
+def test_help_overview_shows_version_start_command_and_local_boundary(capsys) -> None:
+    interface = _build_interface()
+
+    interface._show_help_overview()
+    output = capsys.readouterr().out
+
+    assert "Friday Version: 1.0.0" in output
+    assert "Startbefehl: python -m friday.main" in output
+    assert "Alles bleibt lokal" in output
+    assert "Zurück" in output
+    assert "Lokale Safety-Hinweise:" in output
+    assert "Kontakt-Kontext: bleibt lokal" in output
+    assert "E-Mail-Entwurf Preview: Session-only" in output
+    assert "Backup / Restore: schreibt nur lokal" in output
+    assert "Privacy Dashboard: Anzeigen sind read-only" in output
+    assert "Es werden keine echten Nachrichten gesendet." in output
 
 
 def test_startup_notification_preview_is_silent_when_flag_disabled(

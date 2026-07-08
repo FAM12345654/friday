@@ -2672,6 +2672,9 @@ class FridayInterface:
     def _show_help_overview(self) -> None:
         """Show a short local command overview and safety boundaries."""
         self._section_title("Hilfe / Übersicht")
+        print(f"Friday Version: {config.APP_VERSION}")
+        print("Startbefehl: python -m friday.main")
+        print("Grundregel: Alles bleibt lokal, bis ein eigenes Safety-Gate etwas anderes erlaubt.")
         print("Lokaler CLI-Überblick:")
         print(" - Aufgaben: anzeigen, erstellen, bearbeiten, erledigen, suchen, archivieren, löschen")
         print(" - Aufgabe schnell erfassen: eine Zeile mit Markern, z. B. !hoch @morgen #taeglich")
@@ -2686,6 +2689,12 @@ class FridayInterface:
         print(" - Backup / Restore: lokale Backup-Vorschau und Restore-Dry-Run")
         print(" - E-Mail-Entwurf Preview: lokaler Entwurf, kein Provider, kein Versand")
         print(" - Beenden: beendet den Lauf sauber")
+        print(" - Zurück: Untermenüs bieten eine eigene Zurück-Option oder Enter/z im Review.")
+        print("Lokale Safety-Hinweise:")
+        print(" - Kontakt-Kontext: bleibt lokal; Speichern/Löschen braucht harte Tokens.")
+        print(" - E-Mail-Entwurf Preview: Session-only; kein Provider, kein Versand.")
+        print(" - Backup / Restore: schreibt nur lokal und nur nach hartem Token.")
+        print(" - Privacy Dashboard: Anzeigen sind read-only; Cleanup ist hart gegated.")
         print(" - Lokale Modell-Diagnose: siehe Sicherheitsstatus. Es werden keine externen Modellaufrufe genutzt.")
         print(" - Help ist lokal, es werden nur Informationen angezeigt.")
         print("Es werden keine echten Nachrichten gesendet.")
@@ -2885,6 +2894,7 @@ class FridayInterface:
             print("\n" + "-" * 40)
             print("Kontakt-Kontext")
             print("-" * 40)
+            print("Hinweis: Alle Kontakt-Aktionen bleiben lokal. 5 führt zurück zum Hauptmenü.")
             print("1. Kontakte anzeigen")
             print("2. Kontakt suchen")
             print("3. Kontakt bearbeiten (Vorschau)")
@@ -3006,6 +3016,7 @@ class FridayInterface:
         """Manage local in-memory email draft previews without provider or external delivery."""
         while True:
             self._section_title("E-Mail-Entwurf Preview")
+            print("Hinweis: Entwürfe bleiben nur in dieser Session. 6 oder Enter führt zurück.")
             print("1. Entwurf aus lokaler Nachricht erstellen")
             print("2. Freien lokalen Entwurf erstellen")
             print("3. Session-Entwürfe anzeigen")

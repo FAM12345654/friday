@@ -2,11 +2,11 @@
 
 ## Ziel
 
-Uebersicht ueber relevante Testbereiche nach dem Stand `1081 passed, 4 skipped`.
+Uebersicht ueber relevante Testbereiche nach dem Stand `1084 passed, 4 skipped`.
 
 ## Teststand
 
-- Full Regression: `1081 passed, 4 skipped`
+- Full Regression: `1084 passed, 4 skipped`
 - `python -m compileall friday`: erfolgreich
 - `python scripts/friday_safety_smoke.py`: `Overall: PASS`
 - `git diff --check`: sauber
@@ -46,3 +46,28 @@ Uebersicht ueber relevante Testbereiche nach dem Stand `1081 passed, 4 skipped`.
 ## Hinweis
 
 Historische Detail-Gates liegen unter `friday/docs/archive/` und werden nicht mehr als aktive Steuerungsdokumente gefuehrt.
+
+
+## 1.0 User Acceptance
+
+| Test | Status |
+|---|---|
+| riday/tests/test_user_acceptance_journey.py | lokale End-to-End-Akzeptanzreise vorhanden |
+| Full Regression | 1084 passed, 4 skipped |
+
+## Post-1.0 UX-Doku
+
+| Bereich | Empfehlung |
+|---|---|
+| CLI-Hilfe und Rueckkehrhinweise | `python -m pytest friday/tests/test_interface_main_menu_e2e.py` |
+| Basis-CLI-Flows | `python -m pytest friday/tests/test_cli_flow.py` |
+| Vollstaendige lokale Regression | `python -m pytest friday/tests` |
+
+## 1.1G Full Regression
+
+| Command | Ergebnis |
+|---|---|
+| `python -m pytest friday/tests` | `1084 passed, 4 skipped` |
+| `python -m compileall friday` | erfolgreich |
+| `python scripts\friday_safety_smoke.py` | `Overall: PASS` |
+| `git diff --check` | sauber |
