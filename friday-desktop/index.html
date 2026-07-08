@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Friday Desktop</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1220;
+      --card: #111827;
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --line: #1f2937;
+      --accent: #2563eb;
+      --danger: #991b1b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 250px 1fr;
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      padding: 16px;
+      background: #0f172a;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .sidebar h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .menu-btn {
+      appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #1e293b;
+      color: var(--text);
+      padding: 10px 12px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .menu-btn.active {
+      background: var(--accent);
+      border-color: #60a5fa;
+    }
+
+    .content {
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .title {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .status {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px;
+    }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .list-item {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #0b1220;
+      padding: 10px;
+      margin-bottom: 8px;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 4px;
+    }
+
+    .error {
+      color: #f87171;
+    }
+
+    .small-btn {
+      border: 1px solid var(--line);
+      background: #334155;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 10px;
+    }
+
+    .danger-btn {
+      background: var(--danger);
+      border-color: #b91c1c;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    .refresh {
+      border: 1px solid #60a5fa;
+      border-radius: 10px;
+      background: #2563eb;
+      color: #fff;
+      padding: 9px 12px;
+    }
+
+    h2, h3 {
+      margin: 0 0 6px;
+    }
+
+    .empty {
+      color: var(--muted);
+      margin: 6px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <nav class="sidebar">
+      <h1>Friday Desktop</h1>
+      <p class="muted">Dark UI • 6 Bereiche</p>
+      <button class="menu-btn active" data-screen="dashboard">Dashboard</button>
+      <button class="menu-btn" data-screen="tasks">Tasks</button>
+      <button class="menu-btn" data-screen="messages">Nachrichten</button>
+      <button class="menu-btn" data-screen="calendar">Kalender</button>
+      <button class="menu-btn" data-screen="contacts">Kontakte</button>
+      <button class="menu-btn" data-screen="privacy">Datenschutz</button>
+    </nav>
+
+    <main class="content">
+      <div class="header">
+        <h2 class="title" id="screen-title">Dashboard</h2>
+        <div>
+          <div class="status" id="status">Bereit</div>
+          <button class="refresh" id="refresh">Aktualisieren</button>
+        </div>
+      </div>
+      <div id="content"></div>
+    </main>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const API_HOST = params.get("apiHost") || "127.0.0.1";
+    const API_PORT = params.get("apiPort") || "8000";
+    const API_BASE = `http://${API_HOST}:${API_PORT}`;
+
+    const state = {
+      active: "dashboard",
+      loading: false,
+      error: "",
+      data: {
+        dashboard: null,
+        tasks: [],
+        messages: [],
+        messageSuggestions: [],
+        taskSuggestions: [],
+        calendar: null,
+        contacts: [],
+        privacy: null,
+      },
+    };
+
+    function setStatus(text) {
+      document.getElementById("status").textContent = text;
+    }
+
+    function escapeHtml(value) {
+      const fallback = value == null ? "" : String(value);
+      return fallback
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll("\"", "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function renderTitle() {
+      const map = {
+        dashboard: "Dashboard",
+        tasks: "Tasks",
+        messages: "Nachrichten / Vorschläge",
+        calendar: "Kalender",
+        contacts: "Kontakte",
+        privacy: "Datenschutz",
+      };
+      document.getElementById("screen-title").textContent = map[state.active];
+    }
+
+    async function callApi(path, options = {}) {
+      const response = await fetch(API_BASE + path, {
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {}),
+        },
+        ...options,
+      });
+
+      const payload = await response.json().catch(() => ({
+        ok: false,
+        message: "Ungültiges JSON",
+      }));
+      if (!response.ok || payload?.ok === false) {
+        throw new Error(payload?.detail || payload?.message || `HTTP ${response.status}`);
+      }
+      return payload.data;
+    }
+
+    function renderScreenDashboard() {
+      const dashboard = state.data.dashboard || {};
+      const summary = dashboard.summary || {};
+
+      return `
+        <div class="card">
+          <h3>Übersicht ${escapeHtml(dashboard.date || "-")}</h3>
+          <div class="list-item">
+            <div>Offene Tasks: ${summary.open_tasks || 0}</div>
+            <div class="muted">Nachrichten: ${summary.messages || 0}</div>
+            <div class="muted">Kalender heute: ${summary.calendar_items_today || 0}</div>
+            <div class="muted">Kontakte: ${summary.contacts || 0}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderScreenTasks() {
+      const tasks = Array.isArray(state.data.tasks) ? state.data.tasks : [];
+      return `
+        <div class="card">
+          <h3>Tasks (${tasks.length})</h3>
+          ${tasks.length === 0 ? '<div class="empty">Keine Tasks.</div>' : ""}
+          ${tasks
+            .map(
+              (task) => `
+                <div class="list-item">
+                  <div>${escapeHtml(task.title || "Ohne Titel")}</div>
+                  <div class="muted">
+                    ID ${escapeHtml(task.id)} • ${escapeHtml(task.category || "allgemein")}
+                    • ${escapeHtml(task.status || "open")} • ${escapeHtml(task.priority || "normal")}
+                    • Fällig: ${escapeHtml(task.due_date || "-")}
+                  </div>
+                  <div class="row">
+                    <button class="small-btn" data-action="task-done" data-task-id="${escapeHtml(task.id)}">
+                      Erledigt
+                    </button>
+                    <button class="small-btn" data-action="task-archive" data-task-id="${escapeHtml(task.id)}">
+                      Archiv
+                    </button>
+                    <button class="small-btn danger-btn" data-action="task-delete" data-task-id="${escapeHtml(task.id)}">
+                      Löschen
+                    </button>
+                  </div>
+                </div>
+              `
+            )
+            .join("")}
+        </div>
+      `;
+    }
+
+    function renderScreenMessages() {
+      const messages = Array.isArray(state.data.messages) ? state.data.messages : [];
+      const msgSuggestions = Array.isArray(state.data.messageSuggestions) ? state.data.messageSuggestions : [];
+      const taskSuggestions = Array.isArray(state.data.taskSuggestions) ? state.data.taskSuggestions : [];
+      return `
+        <div class="card">
+          <h3>Nachrichten (${messages.length})</h3>
+          ${messages.length === 0 ? '<div class="empty">Keine Nachrichten.</div>' : ""}
+          ${messages
+            .map(
+              (message) => `
+                <div class="list-item">
+                  <div><strong>${escapeHtml(message.sender || "Unbekannt")}</strong> • #${escapeHtml(message.id)}</div>
+                  <div class="muted">${escapeHtml(message.text || "")}</div>
+                  <div class="row">
+                    <button class="small-btn" data-action="message-reply-hint" data-message-id="${escapeHtml(message.id)}">
+                      Reply-Vorschlag
+                    </button>
+                    <button class="small-btn" data-action="message-task-hint" data-message-id="${escapeHtml(message.id)}">
+                      Task-Vorschlag starten
+                    </button>
+                  </div>
+                </div>
+              `
+            )
+            .join("")}
+
+          <h3>Nachrichten-Vorschläge (${msgSuggestions.length})</h3>
+          ${msgSuggestions.length === 0 ? '<div class="empty">Keine Nachrichtenvorschläge.</div>' : ""}
+          ${msgSuggestions
+            .map(
+              (suggestion) => `
+                <div class="list-item">
+                  <div>${escapeHtml(suggestion.draft_text || "(leer)")}</div>
+                  <div class="muted">Message #${escapeHtml(suggestion.message_id || "-")} • ${escapeHtml(suggestion.status || "")}</div>
+                  <div class="row">
+                    <button class="small-btn" data-action="approve-message" data-suggestion-id="${escapeHtml(suggestion.id)}">
+                      Annehmen
+                    </button>
+                    <button class="small-btn danger-btn" data-action="reject-message" data-suggestion-id="${escapeHtml(suggestion.id)}">
+                      Ablehnen
+                    </button>
+                  </div>
+                </div>
+              `
+            )
+            .join("")}
+
+          <h3>Task-Vorschläge (${taskSuggestions.length})</h3>
+          ${taskSuggestions.length === 0 ? '<div class="empty">Keine Task-Vorschläge.</div>' : ""}
+          ${taskSuggestions
+            .map(
+              (suggestion) => `
+                <div class="list-item">
+                  <div><strong>${escapeHtml(suggestion.title || "Task Vorschlag")}</strong></div>
+                  <div class="muted">Message #${escapeHtml(suggestion.message_id || "-")} • Priorität ${escapeHtml(suggestion.priority || "normal")} • ${escapeHtml(suggestion.status || "")}</div>
+                  <div class="muted">${escapeHtml(suggestion.notes || "")}</div>
+                  <div class="row">
+                    <button class="small-btn" data-action="approve-task-suggestion" data-suggestion-id="${escapeHtml(suggestion.id)}">
+                      Annehmen
+                    </button>
+                    <button class="small-btn danger-btn" data-action="reject-task-suggestion" data-suggestion-id="${escapeHtml(suggestion.id)}">
+                      Ablehnen
+                    </button>
+                  </div>
+                </div>
+              `
+            )
+            .join("")}
+        </div>
+      `;
+    }
+
+    function renderScreenCalendar() {
+      const calendar = state.data.calendar || {};
+      const items = Array.isArray(calendar.items) ? calendar.items : [];
+      const slots = Array.isArray(calendar.free_slots) ? calendar.free_slots : [];
+      return `
+        <div class="card">
+          <h3>Kalender (${escapeHtml(calendar.date || "-")})</h3>
+          <h3>Termine (${items.length})</h3>
+          ${items.length === 0 ? '<div class="empty">Keine Termine.</div>' : ""}
+          ${items
+            .map(
+              (item) => `
+                <div class="list-item">
+                  <div>${escapeHtml(item.title || "Termin")}</div>
+                  <div class="muted">
+                    ${escapeHtml(item.date || "")} • ${escapeHtml(item.start || "-")} - ${escapeHtml(item.end || "-")}
+                    • ${escapeHtml(item.item_type || "busy")}
+                  </div>
+                </div>
+              `
+            )
+            .join("")}
+
+          <h3>Freie Slots (${slots.length})</h3>
+          ${slots.length === 0 ? '<div class="empty">Keine freien Slots.</div>' : ""}
+          ${slots
+            .map(
+              (slot) => `
+                <div class="list-item">
+                  <div>${escapeHtml(slot.start || "?")} bis ${escapeHtml(slot.end || "?")}</div>
+                </div>
+              `
+            )
+            .join("")}
+        </div>
+      `;
+    }
+
+    function renderScreenContacts() {
+      const contacts = Array.isArray(state.data.contacts) ? state.data.contacts : [];
+      return `
+        <div class="card">
+          <h3>Kontakte (${contacts.length})</h3>
+          ${contacts.length === 0 ? '<div class="empty">Keine Kontakte.</div>' : ""}
+          ${contacts
+            .map(
+              (contact) => `
+                <div class="list-item">
+                  <div>${escapeHtml(contact.name || "Unbekannt")}</div>
+                  <div class="muted">
+                    ${escapeHtml(contact.contact_type || "other")}
+                    • ID ${escapeHtml(contact.id || "-")}
+                  </div>
+                  <div class="muted">${escapeHtml(contact.notes || "")}</div>
+                </div>
+              `
+            )
+            .join("")}
+        </div>
+      `;
+    }
+
+    function renderScreenPrivacy() {
+      const privacy = state.data.privacy || {};
+      const external = privacy.external_services || {};
+      const writes = privacy.writes || {};
+      return `
+        <div class="card">
+          <h3>Datenschutz</h3>
+          <div class="list-item">
+            <div>Mode: ${escapeHtml(privacy.mode || "local")}</div>
+            <div class="muted">Email: ${escapeHtml(external.email || false)}</div>
+            <div class="muted">WhatsApp: ${escapeHtml(external.whatsapp || false)}</div>
+            <div class="muted">SMS: ${escapeHtml(external.sms || false)}</div>
+            <div class="muted">Calendar: ${escapeHtml(external.calendar || false)}</div>
+            <div class="muted">Weather: ${escapeHtml(external.weather || false)}</div>
+            <div class="muted">Music: ${escapeHtml(external.music || false)}</div>
+            <div class="muted">Exports schreiben: ${escapeHtml(writes.exports || false)}</div>
+            <div class="muted">Nachrichten senden: ${escapeHtml(writes.messages_send || false)}</div>
+            <div class="muted">Kontakte schreiben: ${escapeHtml(writes.contacts_write || false)}</div>
+            <div style="margin-top:8px;color:#cbd5e1">${escapeHtml(privacy.notes || "")}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderContent() {
+      const content = document.getElementById("content");
+      const map = {
+        dashboard: renderScreenDashboard,
+        tasks: renderScreenTasks,
+        messages: renderScreenMessages,
+        calendar: renderScreenCalendar,
+        contacts: renderScreenContacts,
+        privacy: renderScreenPrivacy,
+      };
+      const renderer = map[state.active];
+      content.innerHTML = renderer ? renderer() : "<p>Unbekannter Bereich.</p>";
+      bindActions();
+      setStatus(state.loading ? "Lade..." : state.error ? `Fehler: ${state.error}` : "Bereit");
+    }
+
+    async function loadCurrentScreen() {
+      try {
+        state.loading = true;
+        state.error = "";
+        setStatus("Lade...");
+        if (state.active === "dashboard") {
+          state.data.dashboard = await callApi("/api/dashboard");
+        } else if (state.active === "tasks") {
+          state.data.tasks = await callApi("/api/tasks");
+        } else if (state.active === "messages") {
+          const messages = await callApi("/api/messages");
+          const suggestionPayload = await callApi("/api/messages/suggestions");
+          state.data.messages = messages?.items || [];
+          state.data.messageSuggestions = suggestionPayload?.message_suggestions || [];
+          state.data.taskSuggestions = suggestionPayload?.task_suggestions || [];
+        } else if (state.active === "calendar") {
+          state.data.calendar = await callApi("/api/calendar");
+        } else if (state.active === "contacts") {
+          state.data.contacts = await callApi("/api/contacts");
+        } else if (state.active === "privacy") {
+          state.data.privacy = await callApi("/api/privacy");
+        }
+      } catch (error) {
+        state.error = error?.message || "Fehler beim Laden.";
+      } finally {
+        state.loading = false;
+        renderTitle();
+        renderContent();
+      }
+    }
+
+    function setActiveScreen(screen) {
+      state.active = screen;
+      document.querySelectorAll(".menu-btn").forEach((button) => {
+        button.classList.toggle("active", button.dataset.screen === screen);
+      });
+      renderTitle();
+      loadCurrentScreen();
+    }
+
+    async function onActionClick(event) {
+      const target = event.target.closest("button[data-action]");
+      if (!target || state.loading) {
+        return;
+      }
+
+      const action = target.getAttribute("data-action");
+      const taskId = target.getAttribute("data-task-id");
+      const messageId = target.getAttribute("data-message-id");
+      const suggestionId = target.getAttribute("data-suggestion-id");
+
+      try {
+        if (action === "task-done" && taskId) {
+          await callApi(`/api/tasks/${taskId}/done`, { method: "POST" });
+        } else if (action === "task-archive" && taskId) {
+          await callApi(`/api/tasks/${taskId}/archive`, { method: "POST" });
+        } else if (action === "task-delete" && taskId) {
+          await callApi(`/api/tasks/${taskId}`, { method: "DELETE" });
+        } else if (action === "approve-message" && suggestionId) {
+          await callApi(`/api/messages/suggestions/${suggestionId}/approve`, { method: "POST" });
+        } else if (action === "reject-message" && suggestionId) {
+          await callApi(`/api/messages/suggestions/${suggestionId}/reject`, { method: "POST" });
+        } else if (action === "approve-task-suggestion" && suggestionId) {
+          await callApi(`/api/messages/task-suggestions/${suggestionId}/approve`, { method: "POST" });
+        } else if (action === "reject-task-suggestion" && suggestionId) {
+          await callApi(`/api/messages/task-suggestions/${suggestionId}/reject`, { method: "POST" });
+        } else if (action === "message-reply-hint" && messageId) {
+          const suggestion = await callApi(`/api/messages/${messageId}/reply`);
+          const note = `Reply-Hinweis: ${suggestion?.draft_text || ""}`;
+          window.alert(note);
+        } else if (action === "message-task-hint" && messageId) {
+          await callApi(`/api/messages/${messageId}/task-suggestions`, { method: "POST" });
+          state.active = "messages";
+          setActiveScreen("messages");
+        }
+      } catch (error) {
+        state.error = error?.message || "Aktion fehlgeschlagen.";
+      }
+
+      await loadCurrentScreen();
+    }
+
+    function bindActions() {
+      const content = document.getElementById("content");
+      content.removeEventListener("click", onActionClick);
+      content.addEventListener("click", onActionClick);
+    }
+
+    function initNavigation() {
+      document.querySelectorAll(".menu-btn").forEach((button) => {
+        button.addEventListener("click", () => {
+          setActiveScreen(button.dataset.screen);
+        });
+      });
+      document.getElementById("refresh").addEventListener("click", () => {
+        loadCurrentScreen();
+      });
+    }
+
+    renderTitle();
+    initNavigation();
+    loadCurrentScreen();
+  </script>
+</body>
+</html>

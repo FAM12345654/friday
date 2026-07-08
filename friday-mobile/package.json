@@ -1,0 +1,36 @@
+{
+  "name": "friday-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "eas:login": "npx eas-cli@latest login",
+    "eas:whoami": "npx eas-cli@latest whoami",
+    "eas:configure": "npx eas-cli@latest update:configure",
+    "release:check": "powershell -ExecutionPolicy Bypass -NoProfile -File ..\\verify_friday_mobile_release.ps1",
+    "live:preview": "powershell -ExecutionPolicy Bypass -NoProfile -File ..\\go_live_friday_mobile.ps1 -Channel preview -NoPause",
+    "live:preview:build": "powershell -ExecutionPolicy Bypass -NoProfile -File ..\\go_live_friday_mobile.ps1 -Channel preview -BuildAndroid -NoPause",
+    "build:android:preview": "npx eas-cli@latest build --platform android --profile preview",
+    "build:android:sdk54": "npx eas-cli@latest build --platform android --profile preview",
+    "build:android:production": "npx eas-cli@latest build --platform android --profile production",
+    "build:ios:preview": "npx eas-cli@latest build --platform ios --profile preview",
+    "build:ios:production": "npx eas-cli@latest build --platform ios --profile production",
+    "update:preview": "npx eas-cli@latest update --channel preview --message \"Friday preview update\"",
+    "update:production": "npx eas-cli@latest update --channel production --message \"Friday production update\""
+  },
+  "dependencies": {
+    "expo": "~54.0.35",
+    "expo-constants": "~18.0.13",
+    "expo-updates": "~29.0.18",
+    "react": "^19.1.0",
+    "react-native": "^0.81.5"
+  },
+  "devDependencies": {
+    "@expo/ngrok": "^4.1.0",
+    "@types/react": "~19.1.10"
+  }
+}

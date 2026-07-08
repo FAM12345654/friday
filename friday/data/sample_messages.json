@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "sender": "Kundenbetreuung Blau",
+    "text": "Hallo, können wir morgen einen Termin für ein kurzes Treffen wegen unseres Projekts einplanen?",
+    "received_at": "2026-07-05T08:30:00"
+  },
+  {
+    "id": 2,
+    "sender": "Jonas",
+    "text": "Hey, wie war dein Wochenende? Lass später quatschen.",
+    "received_at": "2026-07-05T09:10:00"
+  },
+  {
+    "id": 3,
+    "sender": "Unbekannt",
+    "text": "Ich habe eine kurze Frage zum neuen Aufbau.",
+    "received_at": "2026-07-05T10:00:00"
+  }
+]

@@ -1,0 +1,13 @@
+{
+  "name": "friday-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^31.0.2"
+  }
+}

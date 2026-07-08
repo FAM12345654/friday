@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "title": "Team-Standup",
+    "date": "2026-07-05",
+    "start": "09:00",
+    "end": "09:30"
+  },
+  {
+    "id": 2,
+    "title": "Projekt-Review",
+    "date": "2026-07-05",
+    "start": "13:00",
+    "end": "14:00"
+  },
+  {
+    "id": 3,
+    "title": "Fitness",
+    "date": "2026-07-05",
+    "start": "18:30",
+    "end": "19:00"
+  }
+]

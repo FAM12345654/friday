@@ -1,0 +1,66 @@
+"""Configuration constants for the local Friday assistant."""
+
+from pathlib import Path
+
+
+# Der sichtbare Name in der Oberfläche.
+APP_NAME = "Friday"
+APP_VERSION = "1.0.0"
+
+# Friday läuft in dieser Phase nur lokal auf dem Rechner.
+LOCAL_MODE = True
+
+# Alle externen Services sind absichtlich deaktiviert.
+ENABLE_REAL_EMAIL = False
+ENABLE_REAL_WHATSAPP = False
+ENABLE_REAL_SMS = False
+ENABLE_REAL_CALENDAR = False
+ENABLE_REAL_WEATHER = False
+ENABLE_REAL_MUSIC = False
+
+# Jede Aktion braucht eine Nutzerfreigabe im Vorschaumodus.
+REQUIRE_USER_APPROVAL = True
+
+# Feste Demo-Daten für die lokale Anzeige.
+DEMO_DATE = "2026-07-05"
+USE_REAL_TODAY = True
+
+# Speicherstrategie für diese Version: nur lokale SQLite-Daten.
+USE_SQLITE_STORAGE = True
+
+# Demo-Modus nutzt eine getrennte Datenbank mit Seed-Daten.
+DEMO_MODE = False
+
+# Obsidian bleibt standardmäßig deaktiviert. Writes brauchen ein eigenes Gate.
+OBSIDIAN_VAULT_PATH = ""
+OBSIDIAN_WRITE_ENABLED = False
+OBSIDIAN_ALLOWED_SUBDIR = "Friday"
+
+# Lokale Modelladapter bleiben standardmäßig deaktiviert.
+ENABLE_LOCAL_OLLAMA = False
+OLLAMA_BASE_URL = "http://localhost:11434"
+OLLAMA_MODEL = ""
+OLLAMA_TIMEOUT_SECONDS = 5
+
+# Lokale Benachrichtigungen bleiben standardmäßig deaktiviert.
+ENABLE_LOCAL_NOTIFICATIONS = False
+
+PACKAGE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = PACKAGE_DIR.parent
+
+# Nur die Seed-Dateien liegen im Paket.
+DATA_DIR = PACKAGE_DIR / "data"
+
+# Die eigentliche Arbeitsdatenbank liegt im Projektordner.
+LOCAL_DATA_DIR = PROJECT_ROOT / "local_data"
+DATABASE_NAME = "friday.db"
+DATABASE_PATH = LOCAL_DATA_DIR / DATABASE_NAME
+DEMO_DATABASE_NAME = "friday_demo.db"
+DEMO_DATABASE_PATH = LOCAL_DATA_DIR / DEMO_DATABASE_NAME
+
+
+def get_database_path() -> Path:
+    """Return the active local database path for the current mode."""
+    if DEMO_MODE:
+        return DEMO_DATABASE_PATH
+    return DATABASE_PATH

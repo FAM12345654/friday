@@ -1,0 +1,29 @@
+[
+  {
+    "id": 1,
+    "title": "Bankkonto prüfen",
+    "category": "private",
+    "notes": "Persönliche Aufgaben ohne Zeitdruck",
+    "status": "open",
+    "priority": "normal",
+    "due_date": "2026-07-05"
+  },
+  {
+    "id": 2,
+    "title": "Abschlussbericht für Projekt Alpha fertigstellen",
+    "category": "work",
+    "notes": "Wichtige Deadline am Freitag",
+    "status": "open",
+    "priority": "high",
+    "due_date": "2026-07-05"
+  },
+  {
+    "id": 3,
+    "title": "Kunden-Onboarding Call mit Firma Blau planen",
+    "category": "customer",
+    "notes": "Neue Anfrage vom Kunden, Termin nötig",
+    "status": "open",
+    "priority": "urgent",
+    "due_date": "2026-07-05"
+  }
+]

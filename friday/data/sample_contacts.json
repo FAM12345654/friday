@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Kundenbetreuung Blau",
+    "category": "customer",
+    "notes": "Ansprechpartner für Projektanfragen"
+  },
+  {
+    "name": "Jonas",
+    "category": "friend",
+    "notes": "Freund aus dem Sportverein"
+  },
+  {
+    "name": "Mama",
+    "category": "family",
+    "notes": "Family-Kontakt"
+  },
+  {
+    "name": "Lena",
+    "category": "work",
+    "notes": "Teamleitung im Büro"
+  }
+]
