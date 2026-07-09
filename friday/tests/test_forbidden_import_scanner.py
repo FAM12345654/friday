@@ -110,3 +110,18 @@ def test_forbidden_import_scanner_allows_imap_only_in_reader_module() -> None:
     assert allowed.passed is True
     assert blocked.passed is False
     assert blocked.findings[0].module == "imaplib"
+
+
+def test_forbidden_import_scanner_allows_google_only_in_calendar_provider() -> None:
+    allowed = scan_python_source_for_forbidden_imports(
+        "import googleapiclient.discovery\n",
+        path="friday/app/calendar_provider_google.py",
+    )
+    blocked = scan_python_source_for_forbidden_imports(
+        "import googleapiclient.discovery\n",
+        path="friday/app/other_module.py",
+    )
+
+    assert allowed.passed is True
+    assert blocked.passed is False
+    assert blocked.findings[0].module == "googleapiclient"

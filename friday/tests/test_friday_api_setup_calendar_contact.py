@@ -6,6 +6,7 @@ import importlib.util
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from friday.app.account_policy_store import AccountPolicy
 
 
 def _load_api_module():
@@ -79,3 +80,43 @@ def test_contact_category_preview_endpoint_is_local_preview_only() -> None:
     assert payload["preview_only"] is True
     assert payload["persisted"] is False
     assert payload["external_lookup_used"] is False
+
+
+def test_account_policies_endpoint_returns_policy_context(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    policy = AccountPolicy(
+        id=1,
+        provider="outlook_graph",
+        label="Arbeit Outlook PH",
+        role="source",
+        access="read",
+        include_filters={"title_contains": ["PH"]},
+        exclude_filters={},
+        notes="PH = Dienst = belegt.",
+        enabled=True,
+        created_at="2026-07-09T00:00:00+00:00",
+    )
+    monkeypatch.setattr(api, "list_account_policies", lambda: [policy])
+
+    response = client.get("/api/accounts/policies")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["count"] == 1
+    assert "PH = Dienst = belegt" in payload["ai_context"]
+
+
+def test_calendar_activation_gate_endpoint_blocks_without_account() -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+
+    response = client.post(
+        "/api/accounts/calendar/activation-gate",
+        json={"approval_token": "KALENDER AKTIVIEREN", "scanner_smoke_passed": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["allowed"] is False
+    assert "calendar_account_missing" in payload["blocked_reasons"]

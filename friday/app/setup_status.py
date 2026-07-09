@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from friday import config
+from friday.app.account_policy_store import list_account_policies
+from friday.app.calendar_google_account_store import google_calendar_account_status
 from friday.app.email_account_store import email_account_status
 from friday.app.local_model_provider import get_local_model_fallback_count
 from friday.app.whatsapp_inbox_store import get_whatsapp_bridge_status
@@ -12,6 +14,8 @@ def build_setup_status() -> dict:
     """Return a read-only setup summary for mobile and API clients."""
     email_status = email_account_status()
     whatsapp_status = get_whatsapp_bridge_status()
+    google_calendar_status = google_calendar_account_status()
+    account_policies = list_account_policies()
     return {
         "app_name": config.APP_NAME,
         "app_version": config.APP_VERSION,
@@ -42,6 +46,9 @@ def build_setup_status() -> dict:
             "real_enabled": config.ENABLE_REAL_CALENDAR,
             "event_extraction": "python_deterministic_review_only",
             "auto_write_enabled": False,
+            "google": google_calendar_status,
+            "policy_count": len(account_policies),
+            "enabled_policy_count": len([policy for policy in account_policies if policy.enabled]),
         },
         "safety_flags": {
             "ENABLE_REAL_EMAIL": config.ENABLE_REAL_EMAIL,
@@ -71,6 +78,12 @@ def build_setup_status() -> dict:
                 "title": "Termin-Erkennung",
                 "status": "review-only",
                 "hint": "Python loest Datum/Zeit deterministisch auf; Nutzer prueft vor dem Speichern.",
+            },
+            {
+                "key": "calendar_accounts",
+                "title": "Kalender-Konten",
+                "status": "bereit" if google_calendar_status["connected"] or account_policies else "offen",
+                "hint": "Google-Kalender braucht OAuth am PC; echtes Schreiben bleibt hart gegatet.",
             },
             {
                 "key": "email",

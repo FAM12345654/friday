@@ -23,9 +23,12 @@ import {
   checkHealth,
   completeTask,
   connectEmailAccount,
+  createAccountPolicy,
   createContact,
   createTask,
   deleteTask,
+  getAccountPolicies,
+  getCalendarAccountStatus,
   getEmailAccountStatus,
   getEmailInbox,
   generateCalendarEventSuggestionForMessage,
@@ -42,6 +45,7 @@ import {
   getPrivacy,
   getSetupStatus,
   getTasks,
+  checkCalendarActivationGate,
   sendTaskForwardEmail,
   testEmailAccountConnection,
   rejectMessageSuggestion,
@@ -239,6 +243,18 @@ export default function App() {
   const [newContactNotes, setNewContactNotes] = useState("");
   const [privacy, setPrivacy] = useState(null);
   const [setupStatus, setSetupStatus] = useState(null);
+  const [accountPolicies, setAccountPolicies] = useState(null);
+  const [calendarAccountStatus, setCalendarAccountStatus] = useState(null);
+  const [policyLabel, setPolicyLabel] = useState("Google Hauptkalender");
+  const [policyProvider, setPolicyProvider] = useState("google_calendar");
+  const [policyRole, setPolicyRole] = useState("main");
+  const [policyAccess, setPolicyAccess] = useState("read_write");
+  const [policyTitleContains, setPolicyTitleContains] = useState("");
+  const [policyNotes, setPolicyNotes] = useState("");
+  const [policyToken, setPolicyToken] = useState("");
+  const [policyResult, setPolicyResult] = useState("");
+  const [calendarActivationToken, setCalendarActivationToken] = useState("");
+  const [calendarActivationResult, setCalendarActivationResult] = useState("");
   const [emailAccountStatus, setEmailAccountStatus] = useState(null);
   const [emailInbox, setEmailInbox] = useState(null);
   const [whatsappStatus, setWhatsappStatus] = useState(null);
@@ -406,7 +422,11 @@ export default function App() {
 
     if (screenName === "Setup") {
       const payload = await getSetupStatus();
+      const policies = await getAccountPolicies().catch(() => null);
+      const calendarStatus = await getCalendarAccountStatus().catch(() => null);
       setSetupStatus(payload);
+      setAccountPolicies(policies);
+      setCalendarAccountStatus(calendarStatus);
     }
   };
 
@@ -692,6 +712,55 @@ export default function App() {
       );
     } catch (err) {
       setEmailAccountResult(`Test fehlgeschlagen: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleCreateAccountPolicy = async () => {
+    setActionBusy(true);
+    setPolicyResult("");
+    try {
+      const titleContains = policyTitleContains
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const result = await createAccountPolicy({
+        provider: policyProvider.trim() || "google_calendar",
+        label: policyLabel.trim(),
+        role: policyRole.trim() || "source",
+        access: policyAccess.trim() || "read",
+        include_filters: titleContains.length ? { title_contains: titleContains } : {},
+        exclude_filters: {},
+        notes: policyNotes,
+        enabled: true,
+        approval_token: policyToken.trim(),
+      });
+      setPolicyResult(result?.message || "Policy wurde gespeichert.");
+      setPolicyToken("");
+      await refreshActive();
+    } catch (err) {
+      setPolicyResult(`Policy wurde nicht gespeichert: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleCalendarActivationGate = async () => {
+    setActionBusy(true);
+    setCalendarActivationResult("");
+    try {
+      const result = await checkCalendarActivationGate({
+        approval_token: calendarActivationToken.trim(),
+        scanner_smoke_passed: true,
+      });
+      setCalendarActivationResult(
+        result?.allowed
+          ? "Kalender-Aktivierung waere erlaubt. Config-Apply bleibt bewusst separat."
+          : `Kalender-Aktivierung blockiert: ${(result?.blocked_reasons || []).join(", ")}`,
+      );
+    } catch (err) {
+      setCalendarActivationResult(`Gate konnte nicht geprueft werden: ${normalizeApiError(err)}`);
     } finally {
       setActionBusy(false);
     }
@@ -1468,7 +1537,7 @@ export default function App() {
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>KI & Kalender</Text>
-              <Chip label={setupStatus?.ai?.enabled ? "KI aktiv" : "KI aus"} color={setupStatus?.ai?.enabled ? colors.success : colors.textSoft} />
+              <Chip label={setupStatus?.ai?.local_ollama_enabled ? "KI aktiv" : "KI aus"} color={setupStatus?.ai?.local_ollama_enabled ? colors.success : colors.textSoft} />
             </View>
             <Text style={styles.cardMeta}>Provider: {setupStatus?.ai?.provider || "-"}</Text>
             <Text style={styles.cardMeta}>Modell: {setupStatus?.ai?.model || "-"}</Text>
@@ -1478,6 +1547,128 @@ export default function App() {
             <Text style={styles.forwardSafety}>
               Kalender-Schreiben: {setupStatus?.calendar?.real_enabled ? "aktiv" : "aus"} — Vorschläge gehen immer in den Review.
             </Text>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Kalender-Konto</Text>
+              <Chip
+                label={calendarAccountStatus?.google?.connected ? "verbunden" : "nicht verbunden"}
+                color={calendarAccountStatus?.google?.connected ? colors.sage : colors.textSoft}
+              />
+            </View>
+            <Text style={styles.cardMeta}>
+              Google-Kalender: {calendarAccountStatus?.google?.calendar_id || "noch nicht verbunden"}
+            </Text>
+            <Text style={styles.cardMeta}>
+              Verbindungstest OK: {calendarAccountStatus?.google?.last_test_ok ? "ja" : "nein"}
+            </Text>
+            <Text style={styles.forwardSafety}>
+              OAuth-Anmeldung laeuft am PC. Echte Termine brauchen spaeter exakt `TERMIN SPEICHERN`.
+            </Text>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Account-Policy speichern</Text>
+            <TextInput
+              value={policyLabel}
+              onChangeText={setPolicyLabel}
+              style={styles.input}
+              placeholder="Label, z.B. Google Hauptkalender"
+              placeholderTextColor={colors.textSoft}
+            />
+            <TextInput
+              value={policyProvider}
+              onChangeText={setPolicyProvider}
+              style={styles.input}
+              placeholder="Provider: google_calendar"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+            />
+            <TextInput
+              value={policyRole}
+              onChangeText={setPolicyRole}
+              style={styles.input}
+              placeholder="Rolle: main/source"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+            />
+            <TextInput
+              value={policyAccess}
+              onChangeText={setPolicyAccess}
+              style={styles.input}
+              placeholder="Zugriff: read/read_write"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+            />
+            <TextInput
+              value={policyTitleContains}
+              onChangeText={setPolicyTitleContains}
+              style={styles.input}
+              placeholder="Genehmigungsliste Titel enthaelt, z.B. PH"
+              placeholderTextColor={colors.textSoft}
+            />
+            <TextInput
+              value={policyNotes}
+              onChangeText={setPolicyNotes}
+              style={styles.input}
+              placeholder="Notiz fuer KI-Kontext"
+              placeholderTextColor={colors.textSoft}
+              multiline
+            />
+            <TextInput
+              value={policyToken}
+              onChangeText={setPolicyToken}
+              style={styles.input}
+              placeholder="POLICY SPEICHERN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <ActionButton
+              label="Policy lokal speichern"
+              onPress={handleCreateAccountPolicy}
+              disabled={actionBusy || !policyLabel.trim()}
+            />
+            {!!policyResult && <Text style={styles.approvalResultText}>{policyResult}</Text>}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Gespeicherte Policies</Text>
+            {isArray(accountPolicies?.items).map((policy) => (
+              <View key={policy.id || policy.label} style={styles.privacyRow}>
+                <Text style={styles.privacyLabel}>{policy.label}</Text>
+                <Chip label={`${policy.provider} / ${policy.role}`} color={policy.enabled ? colors.sage : colors.textSoft} />
+              </View>
+            ))}
+            {isArray(accountPolicies?.items).length === 0 && (
+              <Text style={styles.cardBody}>Noch keine Account-Policy gespeichert.</Text>
+            )}
+            {!!accountPolicies?.ai_context && (
+              <Text style={styles.forwardSafety}>{accountPolicies.ai_context}</Text>
+            )}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Kalender aktivieren</Text>
+            <Text style={styles.cardBody}>
+              Dieses Gate prueft nur, ob Aktivierung erlaubt waere. Der echte Config-Apply bleibt ein separater Schritt.
+            </Text>
+            <TextInput
+              value={calendarActivationToken}
+              onChangeText={setCalendarActivationToken}
+              style={styles.input}
+              placeholder="KALENDER AKTIVIEREN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <ActionButton
+              label="Aktivierungs-Gate pruefen"
+              onPress={handleCalendarActivationGate}
+              disabled={actionBusy}
+            />
+            {!!calendarActivationResult && (
+              <Text style={styles.approvalResultText}>{calendarActivationResult}</Text>
+            )}
           </View>
 
           <View style={styles.card}>
@@ -1509,7 +1700,7 @@ export default function App() {
             <Text style={styles.cardTitle}>Setup-Schritte</Text>
             {setupSteps.map((step) => (
               <View key={step.key || step.label} style={styles.privacyRow}>
-                <Text style={styles.privacyLabel}>{step.label || step.key}</Text>
+                <Text style={styles.privacyLabel}>{step.label || step.title || step.key}</Text>
                 <Chip label={step.status || "offen"} color={step.status === "ready" ? colors.success : colors.warn} />
               </View>
             ))}

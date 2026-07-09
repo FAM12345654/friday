@@ -43,6 +43,7 @@ ALLOWED_LOCAL_NETWORK_FILES: tuple[str, ...] = (
     "local_ollama_runtime.py",
     "email_smtp_sender.py",
     "email_imap_reader.py",
+    "calendar_provider_google.py",
 )
 
 DEFAULT_EXCLUDED_PATH_PARTS: tuple[str, ...] = (

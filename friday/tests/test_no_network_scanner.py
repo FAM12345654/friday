@@ -82,6 +82,15 @@ def test_no_network_scanner_allows_imap_reader_allowlist() -> None:
     assert findings == ()
 
 
+def test_no_network_scanner_allows_google_provider_allowlist() -> None:
+    findings = scan_python_source_for_network_usage(
+        "import socket\nsocket.socket()\n",
+        file_path="friday/app/calendar_provider_google.py",
+    )
+
+    assert findings == ()
+
+
 def test_no_network_scanner_detects_socket() -> None:
     assert _matched_patterns("import socket\nsocket.socket()\n") == {"socket.socket"}
 

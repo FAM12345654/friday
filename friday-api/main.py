@@ -27,7 +27,19 @@ from friday.agents import (
     build_whatsapp_forward_preview,
 )
 from friday.app.ai_task_forwarding_draft import build_ai_task_forwarding_draft
+from friday.app.account_policy_engine import build_ai_context, resolve_write_target
+from friday.app.account_policy_store import (
+    POLICY_SAVE_TOKEN,
+    create_account_policy,
+    delete_account_policy,
+    list_account_policies,
+    update_account_policy,
+)
+from friday.app.calendar_activation_gate import build_calendar_activation_gate
 from friday.app.calendar_event_extraction import extract_calendar_event_candidate
+from friday.app.calendar_event_write_guard import check_calendar_event_write_allowed
+from friday.app.calendar_google_account_store import google_calendar_account_status
+from friday.app.calendar_provider_google import build_google_oauth_authorization_url
 from friday.app.contact_category_classifier import classify_contact_category
 from friday.app.email_account_store import (
     EMAIL_ACCOUNT_DELETE_TOKEN,
@@ -191,6 +203,51 @@ class CalendarEventExtractRequest(BaseModel):
     duration_minutes: int = 60
 
 
+class AccountPolicyCreateRequest(BaseModel):
+    provider: str
+    label: str
+    role: str = "source"
+    access: str = "read"
+    include_filters: dict[str, Any] | None = None
+    exclude_filters: dict[str, Any] | None = None
+    notes: str | None = ""
+    enabled: bool = True
+    approval_token: str
+
+
+class AccountPolicyUpdateRequest(BaseModel):
+    provider: str | None = None
+    label: str | None = None
+    role: str | None = None
+    access: str | None = None
+    include_filters: dict[str, Any] | None = None
+    exclude_filters: dict[str, Any] | None = None
+    notes: str | None = None
+    enabled: bool | None = None
+    approval_token: str
+
+
+class PolicyDeleteRequest(BaseModel):
+    approval_token: str
+
+
+class GoogleOAuthUrlRequest(BaseModel):
+    client_secrets_path: str
+
+
+class CalendarActivationGateRequest(BaseModel):
+    approval_token: str
+    scanner_smoke_passed: bool = False
+
+
+class CalendarEventWriteGuardRequest(BaseModel):
+    approval_token: str
+    title: str
+    start: str
+    end: str
+    location: str | None = None
+
+
 def _today() -> str:
     if USE_REAL_TODAY:
         return date.today().isoformat()
@@ -256,6 +313,125 @@ def get_dashboard() -> dict[str, Any]:
 @app.get("/api/setup/status")
 def get_setup_status() -> dict[str, Any]:
     return _envelope(build_setup_status())
+
+
+@app.get("/api/accounts/policies")
+def get_account_policies() -> dict[str, Any]:
+    policies = list_account_policies()
+    main_target = resolve_write_target(policies)
+    return _envelope(
+        {
+            "items": [policy.to_dict() for policy in policies],
+            "count": len(policies),
+            "ai_context": build_ai_context(policies),
+            "main_target": {
+                "ok": main_target.ok,
+                "policy": main_target.policy.to_dict() if main_target.policy else None,
+                "message": main_target.message,
+                "blocked_reasons": main_target.blocked_reasons,
+            },
+            "save_token": POLICY_SAVE_TOKEN,
+        }
+    )
+
+
+@app.post("/api/accounts/policies")
+def create_policy(payload: AccountPolicyCreateRequest) -> dict[str, Any]:
+    try:
+        result = create_account_policy(
+            provider=payload.provider,
+            label=payload.label,
+            role=payload.role,
+            access=payload.access,
+            include_filters=payload.include_filters,
+            exclude_filters=payload.exclude_filters,
+            notes=payload.notes,
+            enabled=payload.enabled,
+            approval_token=payload.approval_token,
+        )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not result.persisted:
+        raise HTTPException(status_code=403, detail=result.message)
+    return _envelope(
+        {
+            **result.__dict__,
+            "policy": result.policy.to_dict() if result.policy else None,
+        }
+    )
+
+
+@app.patch("/api/accounts/policies/{policy_id}")
+def update_policy(policy_id: int, payload: AccountPolicyUpdateRequest) -> dict[str, Any]:
+    values = payload.dict(exclude={"approval_token"}, exclude_none=True)
+    try:
+        result = update_account_policy(
+            policy_id,
+            values=values,
+            approval_token=payload.approval_token,
+        )
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not result.persisted:
+        raise HTTPException(status_code=403, detail=result.message)
+    return _envelope(
+        {
+            **result.__dict__,
+            "policy": result.policy.to_dict() if result.policy else None,
+        }
+    )
+
+
+@app.delete("/api/accounts/policies/{policy_id}")
+def delete_policy(policy_id: int, payload: PolicyDeleteRequest) -> dict[str, Any]:
+    result = delete_account_policy(
+        policy_id,
+        approval_token=payload.approval_token,
+    )
+    if not result.persisted:
+        raise HTTPException(status_code=403, detail=result.message)
+    return _envelope(
+        {
+            **result.__dict__,
+            "policy": result.policy.to_dict() if result.policy else None,
+        }
+    )
+
+
+@app.get("/api/accounts/calendar/status")
+def get_calendar_account_status() -> dict[str, Any]:
+    policies = list_account_policies()
+    return _envelope(
+        {
+            "google": google_calendar_account_status(),
+            "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,
+            "policies": [policy.to_dict() for policy in policies],
+            "ai_context": build_ai_context(policies),
+        }
+    )
+
+
+@app.post("/api/accounts/calendar/google/oauth-url")
+def get_google_calendar_oauth_url(payload: GoogleOAuthUrlRequest) -> dict[str, Any]:
+    try:
+        preview = build_google_oauth_authorization_url(
+            client_secrets_path=payload.client_secrets_path,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _envelope(preview.__dict__)
+
+
+@app.post("/api/accounts/calendar/activation-gate")
+def calendar_activation_gate(payload: CalendarActivationGateRequest) -> dict[str, Any]:
+    account_status = google_calendar_account_status()
+    gate = build_calendar_activation_gate(
+        approval_token=payload.approval_token,
+        account_connected=bool(account_status["connected"]),
+        connection_test_ok=bool(account_status["last_test_ok"]),
+        scanner_smoke_passed=payload.scanner_smoke_passed,
+    )
+    return _envelope(gate.to_dict())
 
 
 @app.get("/api/tasks")
@@ -448,11 +624,15 @@ def reject_task_suggestion(suggestion_id: int) -> dict[str, Any]:
 @app.get("/api/calendar")
 def get_calendar(date: Optional[str] = Query(default=None)) -> dict[str, Any]:
     date_value = date or _today()
+    policies = list_account_policies()
     return _envelope(
         {
             "date": date_value,
             "items": calendar_agent.get_items_for_date(date_value),
             "free_slots": calendar_agent.get_free_slots_for_date(date_value),
+            "account_policies": [policy.to_dict() for policy in policies],
+            "policy_context": build_ai_context(policies),
+            "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,
         },
     )
 
@@ -469,6 +649,32 @@ def extract_calendar_event(payload: CalendarEventExtractRequest) -> dict[str, An
             "extraction": extraction.to_dict(),
             "calendar_write_enabled": False,
             "review_required": True,
+        }
+    )
+
+
+@app.post("/api/calendar/events/write-guard")
+def preview_calendar_event_write(payload: CalendarEventWriteGuardRequest) -> dict[str, Any]:
+    policies = list_account_policies()
+    main_target = resolve_write_target(policies)
+    account_status = google_calendar_account_status()
+    guard = check_calendar_event_write_allowed(
+        approval_token=payload.approval_token,
+        real_calendar_enabled=config.ENABLE_REAL_CALENDAR,
+        main_policy_ok=main_target.ok,
+        connection_ok=bool(account_status["last_test_ok"]),
+    )
+    return _envelope(
+        {
+            "guard": guard.to_dict(),
+            "event_preview": {
+                "title": payload.title,
+                "start": payload.start,
+                "end": payload.end,
+                "location": payload.location,
+            },
+            "main_policy": main_target.policy.to_dict() if main_target.policy else None,
+            "provider_event_created": False,
         }
     )
 

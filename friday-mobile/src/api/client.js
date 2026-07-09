@@ -259,6 +259,28 @@ export async function getSetupStatus() {
   return callApi("/api/setup/status");
 }
 
+export async function getAccountPolicies() {
+  return callApi("/api/accounts/policies");
+}
+
+export async function createAccountPolicy(payload) {
+  return callApi("/api/accounts/policies", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getCalendarAccountStatus() {
+  return callApi("/api/accounts/calendar/status");
+}
+
+export async function checkCalendarActivationGate(payload) {
+  return callApi("/api/accounts/calendar/activation-gate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getPrivacy() {
   return callApi("/api/privacy");
 }

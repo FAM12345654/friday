@@ -143,6 +143,43 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 UNIQUE (message_id, slot_date, start, end)
             );
 
+            CREATE TABLE IF NOT EXISTS account_policies (
+                id INTEGER PRIMARY KEY,
+                provider TEXT NOT NULL,
+                label TEXT NOT NULL,
+                role TEXT NOT NULL,
+                access TEXT NOT NULL,
+                include_filters TEXT NOT NULL,
+                exclude_filters TEXT NOT NULL,
+                notes TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS calendar_entries (
+                id INTEGER PRIMARY KEY,
+                provider TEXT NOT NULL,
+                provider_event_id TEXT,
+                policy_id INTEGER,
+                title TEXT NOT NULL,
+                start TEXT NOT NULL,
+                end TEXT NOT NULL,
+                location TEXT,
+                notes TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS calendar_cache (
+                id INTEGER PRIMARY KEY,
+                policy_id INTEGER,
+                provider TEXT NOT NULL,
+                range_start TEXT NOT NULL,
+                range_end TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                cached_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS email_send_log (
                 id INTEGER PRIMARY KEY,
                 sent_at TEXT NOT NULL,
