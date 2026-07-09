@@ -60,7 +60,7 @@ def test_real_project_apply_blocks_by_default_without_writing(tmp_path, monkeypa
     assert result.config_write_performed is False
     assert "real_project_apply_execution_not_requested" in result.blocked_reasons
     assert config_path.read_text(encoding="utf-8") == before
-    assert config.ENABLE_LOCAL_OLLAMA is False
+    assert config.ENABLE_LOCAL_OLLAMA is True
 
 
 def test_real_project_apply_requires_post_write_validation(tmp_path, monkeypatch) -> None:

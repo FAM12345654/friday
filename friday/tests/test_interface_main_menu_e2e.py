@@ -1317,8 +1317,8 @@ def test_handle_menu_choice_safety_status(tmp_path, capsys) -> None:
     assert "python scripts\\friday_safety_smoke.py" in output
     assert "git diff --check" in output
     assert "Lokaler Modell-Diagnosemodus: Mock/Preview" in output
-    assert "ENABLE_LOCAL_OLLAMA: False" in output
-    assert "Ollama Modell gesetzt: False" in output
+    assert "ENABLE_LOCAL_OLLAMA: True" in output
+    assert "Ollama Modell gesetzt: True" in output
     assert "Ollama URL lokal erlaubt: True" in output
     assert "Ollama Live-Health-Check: nicht automatisch ausgeführt" in output
     assert "Externe Modellaufrufe: False" in output

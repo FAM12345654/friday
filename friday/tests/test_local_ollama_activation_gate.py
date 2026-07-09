@@ -7,17 +7,17 @@ from friday.app.local_ollama_activation_gate import build_local_ollama_activatio
 from friday.app.local_ollama_runtime import OllamaHealthResult
 
 
-def test_ollama_activation_gate_defaults_to_mock_when_disabled() -> None:
+def test_ollama_activation_gate_defaults_to_mock_until_health_check_runs() -> None:
     gate = build_local_ollama_activation_gate()
 
-    assert gate.status == "mock_active_ollama_disabled"
+    assert gate.status == "mock_active_health_not_checked"
     assert gate.active_provider == "mock"
     assert gate.mock_fallback_active is True
-    assert gate.ollama_enabled is False
+    assert gate.ollama_enabled is True
     assert gate.product_flow_connected is True
     assert gate.external_send_enabled is False
     assert gate.cloud_fallback_allowed is False
-    assert "ENABLE_LOCAL_OLLAMA is False" in gate.blocked_reasons
+    assert "Ollama health check was not requested" in gate.blocked_reasons
 
 
 def test_ollama_activation_gate_blocks_non_local_url(monkeypatch) -> None:

@@ -26,13 +26,16 @@ Kurze lokale Build-Historie fuer den aktuellen Friday-1.0-Abschlussstand.
 |---|---|---|
 | Mobile Cleartext-Fix | abgeschlossen | `expo-build-properties` mit `usesCleartextTraffic: true`; Release-APK darf lokale HTTP-API erreichen |
 | Finaler Mobile-Build | abgeschlossen | EAS Build `ad7d6749` (versionCode 5) ersetzt `1ef0090b`; APK-Link im Final Gate und Mobile/Desktop Guide aktualisiert |
+| Lokale KI-Aktivierung | abgeschlossen | `ENABLE_LOCAL_OLLAMA=True`, Modell `qwen3:8b`, Timeout `30`, localhost-only, kein Cloud-Fallback |
+| Messaging Agents | abgeschlossen | E-Mail-/WhatsApp-Deep-Links werden nur als Vorschau/App-Link erzeugt; Friday sendet keine echte Nachricht |
+| Mobile Weiterleiten | abgeschlossen | Weiterleiten-Flow zeigt lokalen KI-Draft und oeffnet nach hartem Token nur externe App zur manuellen Nutzerfreigabe |
 
 ## Letzter validierter Stand
 
 | Kommando | Ergebnis |
 |---|---|
-| `python -m pytest friday/tests` | `1081 passed, 4 skipped` |
-| `python -m compileall friday` | erfolgreich |
+| `python -m pytest friday/tests` | `1151 passed, 4 skipped` |
+| `python -m compileall friday friday-api` | erfolgreich |
 | `python scripts/friday_safety_smoke.py` | `Overall: PASS` |
 | `git diff --check` | sauber |
 

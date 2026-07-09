@@ -59,16 +59,16 @@ def test_safety_flag_scanner_detects_obsidian_write_enabled() -> None:
     )
 
 
-def test_safety_flag_scanner_detects_local_ollama_enabled() -> None:
+def test_safety_flag_scanner_detects_local_ollama_disabled_after_activation() -> None:
     findings = _findings_for_source(
-        _expected_flags_source({"ENABLE_LOCAL_OLLAMA": "True"})
+        _expected_flags_source({"ENABLE_LOCAL_OLLAMA": "False"})
     )
 
     assert any(
         finding.finding_type == "unexpected_value"
         and finding.flag_name == "ENABLE_LOCAL_OLLAMA"
-        and finding.expected_value is False
-        and finding.actual_value is True
+        and finding.expected_value is True
+        and finding.actual_value is False
         for finding in findings
     )
 

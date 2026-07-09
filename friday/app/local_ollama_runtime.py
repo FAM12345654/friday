@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import re
 from typing import Any, Mapping
 from urllib import error, request
 from urllib.parse import urlparse
 
 from friday import config
 from friday.app.model_output_validator import validate_model_json
+
+
+THINK_BLOCK_PATTERN = re.compile(r"(?is)<think>.*?</think>")
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,13 @@ def is_local_ollama_url(base_url: str) -> bool:
     """Return True only for explicit localhost/127.0.0.1 HTTP URLs."""
     parsed = urlparse((base_url or "").strip())
     return parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
+
+
+def strip_ollama_think_blocks(response_text: str | None) -> str:
+    """Remove Qwen/Ollama ``<think>`` blocks before JSON validation."""
+    if response_text is None:
+        return ""
+    return THINK_BLOCK_PATTERN.sub("", str(response_text)).strip()
 
 
 def check_ollama_health(
@@ -100,6 +111,7 @@ def generate_ollama_json(
             "prompt": (prompt or "").strip(),
             "format": "json",
             "stream": False,
+            "think": False,
         }
     ).encode("utf-8")
     req = request.Request(
@@ -121,6 +133,7 @@ def generate_ollama_json(
         return OllamaGenerationResult({}, ("Modellantwort ist kein gültiges JSON.",), True, None)
 
     response_text = envelope.get("response") if isinstance(envelope, dict) else None
+    response_text = strip_ollama_think_blocks(response_text)
     validation = validate_model_json(schema, response_text)
     return OllamaGenerationResult(
         output=validation.data,
@@ -128,3 +141,13 @@ def generate_ollama_json(
         external_call_used=True,
         error=None if validation.is_valid else "Modellantwort wurde durch den Validator blockiert.",
     )
+
+
+__all__ = [
+    "OllamaHealthResult",
+    "OllamaGenerationResult",
+    "check_ollama_health",
+    "generate_ollama_json",
+    "is_local_ollama_url",
+    "strip_ollama_think_blocks",
+]

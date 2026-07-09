@@ -79,7 +79,7 @@ def test_real_project_apply_guard_blocks_wrong_token(tmp_path, monkeypatch) -> N
     assert guard.real_project_write_allowed is False
     assert "Ollama config apply gate is blocked" in guard.blocked_reasons
     assert "Ollama config apply token is invalid" in guard.blocked_reasons
-    assert config.ENABLE_LOCAL_OLLAMA is False
+    assert config.ENABLE_LOCAL_OLLAMA is True
 
 
 def test_real_project_apply_guard_blocks_non_local_url(tmp_path, monkeypatch) -> None:

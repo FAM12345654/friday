@@ -65,6 +65,7 @@ def _target_for(contact: Mapping[str, Any], channel: str) -> str:
 
 
 def _build_prompt(task: Mapping[str, Any], contact: Mapping[str, Any], channel: str, target: str) -> str:
+    """Prompt template for a short, polite German forwarding draft."""
     title = _clean(task.get("title"), "diese Aufgabe")
     contact_name = _clean(contact.get("name"), "Kontakt")
     due_date = _clean(task.get("due_date"))
@@ -79,8 +80,9 @@ def _build_prompt(task: Mapping[str, Any], contact: Mapping[str, Any], channel: 
             f"Ziel: {target}",
             f"Faelligkeit: {due_date}" if due_date else "",
             f"Notiz: {notes}" if notes else "",
-            "Antworte als JSON mit draft_text und confidence.",
-            "Keine Versandaktion ausloesen.",
+            "Formuliere kurz, freundlich und klar auf Deutsch.",
+            "Antworte ausschliesslich als JSON mit draft_text und confidence.",
+            "Keine Links, keine Signatur, keine Versandaktion ausloesen.",
         )
         if line
     )
@@ -109,11 +111,19 @@ def _build_template_draft(task: Mapping[str, Any], contact: Mapping[str, Any], c
             "",
             f"Kanal: {channel_label}",
             f"Ziel: {target}",
-            "KI-Draft: lokal vorbereitet.",
+            "KI-Draft: lokaler Fallback.",
             "Noch nicht gesendet.",
         ]
     )
     return "\n".join(lines)
+
+
+def _with_ai_label(draft_text: str, model: str) -> str:
+    clean_draft = draft_text.strip()
+    label = f"KI-Draft: {model or 'lokales Modell'} lokal."
+    if "KI-Draft:" in clean_draft:
+        return clean_draft
+    return "\n".join([clean_draft, "", label, "Noch nicht gesendet."])
 
 
 def _safety_reasons(*, channel: str, target: str, draft_text: str) -> tuple[str, ...]:
@@ -161,7 +171,7 @@ def build_ai_task_forwarding_draft(
         if validation.accepted:
             candidate_text = _clean(validation.validation.data.get("draft_text"))
             if candidate_text:
-                draft_text = candidate_text
+                draft_text = _with_ai_label(candidate_text, selected_provider.config.model)
                 provider_output_used = True
         else:
             blocked_reasons.extend(validation.blocked_reasons)

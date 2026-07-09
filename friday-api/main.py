@@ -17,11 +17,21 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from friday.agents import CalendarAgent, ContactContextAgent, MessageAgent, TaskAgent
+from friday import config
+from friday.agents import (
+    CalendarAgent,
+    ContactContextAgent,
+    MessageAgent,
+    TaskAgent,
+    build_email_forward_preview,
+    build_whatsapp_forward_preview,
+)
 from friday.app.ai_task_forwarding_draft import build_ai_task_forwarding_draft
 from friday.app.local_ollama_activation_gate import build_local_ollama_activation_gate
 from friday.app.local_ollama_config_apply_guard import build_local_ollama_config_apply_gate
 from friday.app.local_ollama_config_preview import build_local_ollama_config_preview
+from friday.app.local_model_provider import get_local_model_fallback_count
+from friday.app.messaging_audit_preview import build_messaging_audit_preview
 from friday.config import DEMO_DATE, USE_REAL_TODAY
 from friday.storage.database import setup_local_database
 
@@ -390,13 +400,58 @@ def create_ai_task_forward_draft(payload: TaskForwardDraftRequest) -> dict[str, 
         contact=contact,
         channel=payload.channel,
     )
-    return _envelope(asdict(draft))
+    if draft.channel == "whatsapp":
+        channel_preview = build_whatsapp_forward_preview(
+            draft_text=draft.draft_text,
+            whatsapp_target=contact.get("whatsapp_target"),
+        )
+    else:
+        channel_preview = build_email_forward_preview(
+            draft_text=draft.draft_text,
+            email_address=contact.get("email_address"),
+            subject=f"Aufgabe: {draft.task_title}",
+        )
+
+    audit_preview = build_messaging_audit_preview(
+        task_id=draft.task_id,
+        task_title=draft.task_title,
+        contact_id=int(draft.contact_id) if str(draft.contact_id or "").isdigit() else None,
+        contact_name=draft.contact_name,
+        channel=draft.channel,  # type: ignore[arg-type]
+        target=draft.target,
+        draft_text=draft.draft_text,
+        approval_token=draft.approval_token_required,
+        mode="mock",
+        status="link_built" if channel_preview.deep_link else "draft_created",
+        provider=draft.provider,
+    )
+
+    response = asdict(draft)
+    response.update(
+        {
+            "deep_link": channel_preview.deep_link,
+            "deep_link_message": channel_preview.message,
+            "sent": False,
+            "channel_preview": asdict(channel_preview),
+            "audit_preview": asdict(audit_preview),
+        }
+    )
+    return _envelope(response)
 
 
 @app.get("/api/ai/status")
 def get_ai_status(run_health_check: bool = Query(default=False)) -> dict[str, Any]:
     gate = build_local_ollama_activation_gate(run_health_check=run_health_check)
-    return _envelope(asdict(gate))
+    payload = asdict(gate)
+    payload.update(
+        {
+            "configured_model": config.OLLAMA_MODEL,
+            "configured_base_url": config.OLLAMA_BASE_URL,
+            "fallback_count": get_local_model_fallback_count(),
+            "local_ollama_enabled": config.ENABLE_LOCAL_OLLAMA,
+        }
+    )
+    return _envelope(payload)
 
 
 @app.get("/api/ai/ollama/config-preview")

@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import friday.config as config
+
 
 def _load_api_module():
     module_path = Path("friday-api/main.py")
@@ -18,6 +20,8 @@ def _load_api_module():
 
 def test_api_creates_ai_task_forwarding_draft(monkeypatch) -> None:
     api = _load_api_module()
+    monkeypatch.setattr(config, "ENABLE_LOCAL_OLLAMA", False)
+    monkeypatch.setattr(config, "OLLAMA_MODEL", "")
 
     monkeypatch.setattr(
         api.task_agent,
@@ -54,3 +58,6 @@ def test_api_creates_ai_task_forwarding_draft(monkeypatch) -> None:
     assert payload["external_send_enabled"] is False
     assert payload["approval_token_required"] == "EMAIL SENDEN"
     assert "API Aufgabe weiterleiten" in payload["draft_text"]
+    assert payload["sent"] is False
+    assert payload["deep_link"].startswith("mailto:mia@example.test")
+    assert payload["audit_preview"]["status"] == "link_built"

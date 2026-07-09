@@ -70,17 +70,17 @@ def test_mock_provider_config_has_no_external_enablement() -> None:
 def test_local_ai_finalization_gate_is_mock_default_and_read_only() -> None:
     gate = build_local_ai_finalization_gate()
 
-    assert gate.status == "finalized_mock_ready_live_calls_disabled"
-    assert gate.default_provider == "mock"
-    assert gate.mock_provider_default is True
-    assert gate.ollama_enabled is False
+    assert gate.status == "finalized_local_ollama_opt_in_configured"
+    assert gate.default_provider == "ollama"
+    assert gate.mock_provider_default is False
+    assert gate.ollama_enabled is True
     assert gate.cloud_fallback_allowed is False
-    assert gate.product_flow_connected is False
+    assert gate.product_flow_connected is True
     assert gate.external_call_used is False
     assert gate.preview_only is True
     assert gate.persisted is False
     assert "mock_provider_default" in gate.completed_checks
-    assert "no_product_flow_model_calls" in gate.completed_checks
+    assert "product_flow_uses_guarded_provider_layer" in gate.completed_checks
     assert "model_triggered_obsidian_write" in gate.blocked_actions
     assert "cloud_model_call" in gate.blocked_actions
 
@@ -90,8 +90,8 @@ def test_local_ai_finalization_stays_preview_only_and_mock_only() -> None:
     provider_result = provider.generate_json("  Hallo  ", {"type": "object"})
     preview = preview_local_model_response("  Hallo  ")
 
-    assert config.ENABLE_LOCAL_OLLAMA is False
-    assert config.OLLAMA_MODEL == ""
+    assert config.ENABLE_LOCAL_OLLAMA is True
+    assert config.OLLAMA_MODEL == "qwen3:8b"
     assert config.REQUIRE_USER_APPROVAL is True
     assert config.USE_SQLITE_STORAGE is True
 

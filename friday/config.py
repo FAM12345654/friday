@@ -37,10 +37,10 @@ OBSIDIAN_WRITE_ENABLED = False
 OBSIDIAN_ALLOWED_SUBDIR = "Friday"
 
 # Lokale Modelladapter bleiben standardmäßig deaktiviert.
-ENABLE_LOCAL_OLLAMA = False
+ENABLE_LOCAL_OLLAMA = True
 OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = ""
-OLLAMA_TIMEOUT_SECONDS = 5
+OLLAMA_MODEL = "qwen3:8b"
+OLLAMA_TIMEOUT_SECONDS = 30
 
 # Lokale Benachrichtigungen bleiben standardmäßig deaktiviert.
 ENABLE_LOCAL_NOTIFICATIONS = False

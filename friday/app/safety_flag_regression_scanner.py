@@ -31,7 +31,7 @@ EXPECTED_SAFETY_FLAGS: dict[str, bool] = {
     "USE_REAL_TODAY": True,
     "USE_SQLITE_STORAGE": True,
     "OBSIDIAN_WRITE_ENABLED": False,
-    "ENABLE_LOCAL_OLLAMA": False,
+    "ENABLE_LOCAL_OLLAMA": True,
 }
 
 DEFAULT_EXCLUDED_PATH_PARTS: tuple[str, ...] = (

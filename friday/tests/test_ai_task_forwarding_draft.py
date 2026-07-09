@@ -97,7 +97,8 @@ def test_ai_task_forwarding_draft_accepts_valid_local_provider_output() -> None:
     assert draft.validation_accepted is True
     assert draft.external_call_used is True
     assert draft.approval_token_required == "WHATSAPP SENDEN"
-    assert draft.draft_text == "Hallo Max, kannst du die Rechnung pruefen?"
+    assert "Hallo Max, kannst du die Rechnung pruefen?" in draft.draft_text
+    assert "KI-Draft: local-test lokal." in draft.draft_text
 
 
 def test_ai_task_forwarding_draft_falls_back_when_provider_output_is_invalid() -> None:

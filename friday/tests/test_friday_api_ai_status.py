@@ -19,13 +19,15 @@ def _load_api_module():
 def test_api_ai_status_reports_mock_default_without_health_check() -> None:
     api = _load_api_module()
 
-    response = api.get_ai_status()
+    response = api.get_ai_status(run_health_check=False)
 
     assert response["ok"] is True
     payload = response["data"]
     assert payload["active_provider"] == "mock"
     assert payload["mock_fallback_active"] is True
-    assert payload["ollama_enabled"] is False
+    assert payload["ollama_enabled"] is True
+    assert payload["configured_model"] == "qwen3:8b"
+    assert payload["fallback_count"] >= 0
     assert payload["external_send_enabled"] is False
     assert payload["cloud_fallback_allowed"] is False
     assert payload["product_flow_connected"] is True

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import * as Updates from "expo-updates";
 import {
   ActivityIndicator,
+  Linking,
   Platform,
   RefreshControl,
   SafeAreaView,
@@ -104,6 +105,11 @@ const channelLabel = (channel) => (channel === "whatsapp" ? "WhatsApp" : "E-Mail
 
 const approvalTokenFor = (channel) =>
   channel === "whatsapp" ? "WHATSAPP SENDEN" : "EMAIL SENDEN";
+
+const hasForwardTarget = (contact, channel) =>
+  channel === "whatsapp"
+    ? Boolean(contact?.whatsapp_target)
+    : Boolean(contact?.email_address);
 
 const buildForwardDraft = (task, contact, channel) => {
   const contactName = contact?.name || "du";
@@ -232,6 +238,9 @@ export default function App() {
   const [forwardApprovalToken, setForwardApprovalToken] = useState("");
   const [forwardApprovalResult, setForwardApprovalResult] = useState("");
   const [forwardAuditPreview, setForwardAuditPreview] = useState("");
+  const [forwardDeepLink, setForwardDeepLink] = useState("");
+  const [forwardExternalOpenResult, setForwardExternalOpenResult] = useState("");
+  const [forwardTokenApproved, setForwardTokenApproved] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
 
   useEffect(() => {
@@ -432,6 +441,9 @@ export default function App() {
     setForwardApprovalToken("");
     setForwardApprovalResult("");
     setForwardAuditPreview("");
+    setForwardDeepLink("");
+    setForwardExternalOpenResult("");
+    setForwardTokenApproved(false);
     if (contacts.length === 0) {
       try {
         const payload = await getContacts();
@@ -451,6 +463,9 @@ export default function App() {
     setForwardApprovalToken("");
     setForwardApprovalResult("");
     setForwardAuditPreview("");
+    setForwardDeepLink("");
+    setForwardExternalOpenResult("");
+    setForwardTokenApproved(false);
   };
 
   const requestAiForwardDraft = async (task, contact, channel) => {
@@ -459,6 +474,9 @@ export default function App() {
     }
     setForwardDraft(buildForwardDraft(task, contact, channel));
     setForwardMockResult("KI-Draft wird lokal vorbereitet…");
+    setForwardDeepLink("");
+    setForwardExternalOpenResult("");
+    setForwardTokenApproved(false);
     try {
       const draft = await buildTaskForwardDraft({
         task_id: task.id,
@@ -466,11 +484,13 @@ export default function App() {
         channel,
       });
       setForwardDraft(draft?.draft_text || buildForwardDraft(task, contact, channel));
+      setForwardDeepLink(draft?.deep_link || "");
       setForwardMockResult(
         [
           `KI verbunden: ${draft?.provider || "mock"} (${draft?.is_mock ? "Mock" : "lokal"})`,
           draft?.provider_output_used ? "Provider-Text übernommen." : "Sicherer lokaler Draft verwendet.",
           `Echter Versand: ${draft?.external_send_enabled ? "aktiv" : "aus"}`,
+          draft?.deep_link ? "App-Link vorbereitet. Versand bleibt beim Nutzer." : draft?.deep_link_message,
           draft?.blocked_reasons?.length
             ? `Hinweise: ${draft.blocked_reasons.join(" / ")}`
             : "Keine Blocker.",
@@ -478,6 +498,7 @@ export default function App() {
       );
     } catch (err) {
       setForwardMockResult(`KI-Draft nicht erreichbar: ${normalizeApiError(err)}. Lokaler Fallback bleibt aktiv.`);
+      setForwardDeepLink("");
     }
   };
 
@@ -488,6 +509,9 @@ export default function App() {
     setForwardApprovalToken("");
     setForwardApprovalResult("");
     setForwardAuditPreview("");
+    setForwardDeepLink("");
+    setForwardExternalOpenResult("");
+    setForwardTokenApproved(false);
     await requestAiForwardDraft(forwardTask, contact, forwardChannel);
   };
 
@@ -500,20 +524,10 @@ export default function App() {
     setForwardApprovalToken("");
     setForwardApprovalResult("");
     setForwardAuditPreview("");
+    setForwardDeepLink("");
+    setForwardExternalOpenResult("");
+    setForwardTokenApproved(false);
     await requestAiForwardDraft(forwardTask, forwardContact, channel);
-  };
-
-  const simulateForwardSend = () => {
-    if (!forwardTask || !forwardContact || !forwardDraft) {
-      return;
-    }
-    const target =
-      forwardChannel === "whatsapp"
-        ? forwardContact.whatsapp_target || "kein WhatsApp-Ziel gespeichert"
-        : forwardContact.email_address || "keine E-Mail-Adresse gespeichert";
-    setForwardMockResult(
-      `Simulation: Würde per ${channelLabel(forwardChannel)} an ${target} gesendet. Es wurde nichts echt gesendet.`,
-    );
   };
 
   const checkForwardApprovalToken = () => {
@@ -523,10 +537,12 @@ export default function App() {
         `Freigabe abgelehnt. Erwarteter Token: ${expected}. Es wurde nichts gesendet.`,
       );
       setForwardAuditPreview("");
+      setForwardTokenApproved(false);
       return;
     }
+    setForwardTokenApproved(true);
     setForwardApprovalResult(
-      `Mock-Freigabe akzeptiert (${expected}). Der echte Versand bleibt deaktiviert.`,
+      `Freigabe akzeptiert (${expected}). Der Öffnen-Button ist freigegeben; Friday sendet weiterhin nichts.`,
     );
     const target =
       forwardChannel === "whatsapp"
@@ -541,9 +557,29 @@ export default function App() {
         `Kanal: ${channelLabel(forwardChannel)}`,
         `Ziel: ${target}`,
         `Token: ${expected}`,
-        "Status: Mock-Freigabe akzeptiert, echter Versand deaktiviert",
+        "Status: Freigabe akzeptiert, externer App-Link darf geöffnet werden",
       ].join("\n"),
     );
+  };
+
+  const openForwardExternalApp = async () => {
+    if (!forwardDeepLink) {
+      setForwardExternalOpenResult("Kein App-Link verfügbar. Friday hat nichts gesendet.");
+      return;
+    }
+
+    try {
+      await Linking.openURL(forwardDeepLink);
+      const result = "Extern geöffnet — Versand liegt beim Nutzer. Friday hat nichts gesendet.";
+      setForwardExternalOpenResult(result);
+      setForwardAuditPreview((current) =>
+        [current, `Status: ${result}`].filter(Boolean).join("\n"),
+      );
+    } catch (err) {
+      setForwardExternalOpenResult(
+        `Externe App konnte nicht geöffnet werden: ${normalizeApiError(err)}. Friday hat nichts gesendet.`,
+      );
+    }
   };
 
   const handleCompleteTask = async (taskId) => {
@@ -735,14 +771,6 @@ export default function App() {
                   <Text style={styles.draftText}>{forwardDraft}</Text>
                 </View>
               )}
-              {!!forwardDraft && (
-                <ActionButton
-                  small
-                  variant="success"
-                  label="Senden simulieren"
-                  onPress={simulateForwardSend}
-                />
-              )}
               {!!forwardMockResult && (
                 <View style={styles.mockResultBox}>
                   <Text style={styles.mockResultText}>{forwardMockResult}</Text>
@@ -773,6 +801,22 @@ export default function App() {
                   {!!forwardApprovalResult && (
                     <Text style={styles.approvalResultText}>{forwardApprovalResult}</Text>
                   )}
+                  {forwardTokenApproved && hasForwardTarget(forwardContact, forwardChannel) && !!forwardDeepLink && (
+                    <ActionButton
+                      small
+                      variant="success"
+                      label={forwardChannel === "whatsapp" ? "In WhatsApp öffnen" : "Als E-Mail öffnen"}
+                      onPress={openForwardExternalApp}
+                    />
+                  )}
+                  {forwardTokenApproved && (!hasForwardTarget(forwardContact, forwardChannel) || !forwardDeepLink) && (
+                    <Text style={styles.approvalResultText}>
+                      Kein öffnungsfähiges Ziel für {channelLabel(forwardChannel)} vorhanden.
+                    </Text>
+                  )}
+                  {!!forwardExternalOpenResult && (
+                    <Text style={styles.approvalResultText}>{forwardExternalOpenResult}</Text>
+                  )}
                 </View>
               )}
               {!!forwardAuditPreview && (
@@ -782,7 +826,7 @@ export default function App() {
                 </View>
               )}
               <Text style={styles.forwardSafety}>
-                Es wird nichts gesendet. E-Mail/WhatsApp-Versand braucht ein separates Login- und Approval-Gate.
+                Friday öffnet nach Token nur deine externe App mit Textvorschau. Den Versand bestätigst du selbst.
               </Text>
               <ActionButton small variant="ghost" label="Entwurf schließen" onPress={closeForwardFlow} />
             </View>

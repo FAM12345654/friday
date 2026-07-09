@@ -115,3 +115,4 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_LOCAL_OLLAMA_USER_ACTION_WAIT_GATE.md` | Wait-Gate: weiteres `continue` aktiviert Ollama nicht, echte Nutzeraktion ist erforderlich | vorhanden |
 | `FRIDAY_MOBILE_DESKTOP_GUIDE.md` | Handy-/Desktop-Installation, Verbindung, Updates und Design-System | vorhanden |
 | `FRIDAY_PRODUCT_FINAL_GATE.md` | Finaler Produktstand fuer CLI, Mobile und Desktop | vorhanden |
+| `FRIDAY_AI_MESSAGING_AGENTS_GATE.md` | lokale Ollama-Aktivierung, KI-Drafts und Messaging-Deep-Links ohne echten Versand | vorhanden |

@@ -92,7 +92,7 @@ def test_real_project_apply_dry_run_blocks_wrong_token_without_diff(
     assert dry_run.planned_changes == ()
     assert "Ollama config apply token is invalid" in dry_run.guard_blocked_reasons
     assert config_path.read_text(encoding="utf-8") == before
-    assert config.ENABLE_LOCAL_OLLAMA is False
+    assert config.ENABLE_LOCAL_OLLAMA is True
 
 
 def test_real_project_apply_dry_run_blocks_non_local_url_without_writing(

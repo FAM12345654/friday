@@ -8,6 +8,9 @@ from typing import Any, Mapping
 from friday import config
 
 
+_FALLBACK_COUNT = 0
+
+
 @dataclass(frozen=True)
 class ProviderConfig:
     """Configuration metadata for a local provider instance."""
@@ -81,17 +84,39 @@ def safety_flags_locked() -> bool:
     )
 
 
+def get_local_model_fallback_count() -> int:
+    """Return how often the runtime fell back from enabled Ollama to mock."""
+    return _FALLBACK_COUNT
+
+
+def reset_local_model_fallback_count() -> None:
+    """Reset the in-memory fallback counter for focused tests."""
+    global _FALLBACK_COUNT
+    _FALLBACK_COUNT = 0
+
+
+def _record_ollama_fallback() -> None:
+    global _FALLBACK_COUNT
+    _FALLBACK_COUNT += 1
+
+
 def build_local_ai_finalization_gate() -> LocalAIFinalizationGate:
     """Return the local-only AI release gate status without model calls."""
+    ollama_enabled = config.ENABLE_LOCAL_OLLAMA
+    product_flow_connected = bool(ollama_enabled and config.OLLAMA_MODEL.strip())
 
     return LocalAIFinalizationGate(
-        status="finalized_mock_ready_live_calls_disabled",
-        default_provider="mock",
-        mock_provider_default=True,
-        ollama_enabled=config.ENABLE_LOCAL_OLLAMA,
+        status=(
+            "finalized_local_ollama_opt_in_configured"
+            if product_flow_connected
+            else "finalized_mock_ready_live_calls_disabled"
+        ),
+        default_provider="ollama" if product_flow_connected else "mock",
+        mock_provider_default=not product_flow_connected,
+        ollama_enabled=ollama_enabled,
         ollama_base_url=config.OLLAMA_BASE_URL,
         cloud_fallback_allowed=False,
-        product_flow_connected=False,
+        product_flow_connected=product_flow_connected,
         external_call_used=False,
         completed_checks=(
             "mock_provider_default",
@@ -100,7 +125,7 @@ def build_local_ai_finalization_gate() -> LocalAIFinalizationGate:
             "ollama_preview_local_url_only",
             "model_output_validator_available",
             "logic_check_agent_available",
-            "no_product_flow_model_calls",
+            "product_flow_uses_guarded_provider_layer" if product_flow_connected else "no_product_flow_model_calls",
             "no_cloud_fallback",
         ),
         required_live_call_gates=(
@@ -246,5 +271,6 @@ def select_local_model_provider(health_check=None) -> LocalModelProvider:
     candidate = OllamaLocalModelProvider(health_check=health_check)
     health = candidate.health_check()
     if not health.available:
+        _record_ollama_fallback()
         return MockLocalModelProvider()
     return candidate

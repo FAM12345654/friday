@@ -23,9 +23,14 @@ class LocalModelHealthCheckPreview:
     message: str
 
 
-def _is_127_local_url(base_url: str) -> bool:
+def _is_local_url(base_url: str) -> bool:
     value = (base_url or "").strip().lower().rstrip("/")
-    return value == "http://127.0.0.1" or value.startswith("http://127.0.0.1:")
+    return (
+        value == "http://127.0.0.1"
+        or value.startswith("http://127.0.0.1:")
+        or value == "http://localhost"
+        or value.startswith("http://localhost:")
+    )
 
 
 def build_ollama_health_check_preview(
@@ -41,8 +46,8 @@ def build_ollama_health_check_preview(
         blocked_reasons.append("provider_not_ollama")
     if not settings.ollama_enabled:
         blocked_reasons.append("ollama_disabled")
-    if not _is_127_local_url(base_url):
-        blocked_reasons.append("base_url_not_127_localhost")
+    if not _is_local_url(base_url):
+        blocked_reasons.append("base_url_not_localhost")
     if settings.product_flow_connected:
         blocked_reasons.append("product_flow_connected")
     if settings.cloud_fallback_allowed:

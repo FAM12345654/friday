@@ -21,7 +21,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | `DEMO_MODE` | `False` |
 | `ENABLE_LOCAL_NOTIFICATIONS` | `False` |
 | `OBSIDIAN_WRITE_ENABLED` | `False` |
-| `ENABLE_LOCAL_OLLAMA` | `False` |
+| `ENABLE_LOCAL_OLLAMA` | `True` |
 
 ## Aktionen
 
@@ -152,8 +152,9 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Local Model Mock | erlaubt | lokal |
 | Local AI Diagnose im Sicherheitsstatus | erlaubt read-only | zeigt nur Flags, Modellstatus und lokale URL-Regel; startet keinen Ollama Live-Health-Check |
 | Ollama Runtime Opt-in | gated lokal | nur `127.0.0.1`/`localhost`, nur mit `ENABLE_LOCAL_OLLAMA=True`, Modell gesetzt, Health PASS und Validator |
-| Local AI Finalization Gate | abgeschlossen | Mock Default, Ollama disabled, keine Produktflow-Live-Calls |
-| AI Task Forwarding Draft | umgesetzt | Produktflow nutzt lokale KI-Provider-Schicht fuer sichtbare Drafts; Mock Default, kein echter Versand, kein Cloud-Modell |
+| Local AI Finalization Gate | abgeschlossen | lokales Ollama opt-in ist aktiviert; Cloud-Fallback bleibt verboten |
+| AI Task Forwarding Draft | umgesetzt | Produktflow nutzt lokale KI-Provider-Schicht fuer sichtbare Drafts; Ollama `qwen3:8b` lokal, Fallback lokal, kein echter Versand, kein Cloud-Modell |
+| Task Forwarding Deep Links | gated lokal | Token `EMAIL SENDEN` oder `WHATSAPP SENDEN` oeffnet nur Mail-/WhatsApp-App mit vorbereitetem Text; Nutzer sendet manuell |
 | Local Ollama Activation Gate | umgesetzt | read-only Status-Gate; Ollama nur lokal, opt-in, Modell gesetzt und Health PASS; sonst Mock-Fallback |
 | Local Ollama Config Preview | umgesetzt | prueft Modellname und lokale Base-URL ohne Config-Write, Health-Check oder Modellaufruf |
 | Local Ollama Manual Config Apply Gate | umgesetzt | prueft Token `OLLAMA AKTIVIEREN`, Safety Smoke und Health PASS; schreibt config.py nicht automatisch |
@@ -170,8 +171,8 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Local Ollama Real Project Apply Execution Readiness Gate | abgeschlossen | bestaetigt finalen Ablaufplan; echter Projekt-Write bleibt bis separatem Gate blockiert |
 | Local Ollama Real Project Apply Implementation Gate | umgesetzt isoliert | echter Apply-Baustein mit `execute_write=True` und Post-Write-Validation; keine Produktanbindung, Tests nur `tmp_path` |
 | Local Ollama Real Project Apply Implementation Readiness Gate | abgeschlossen | bestaetigt isolierten Apply-Baustein mit Rollback; keine CLI/API/Mobile-Anbindung und echter Projekt-Apply bleibt manuelle Entscheidung |
-| Local Ollama Manual Activation Decision Gate | nicht aktiviert | Token nicht gegeben und lokaler Health Check timeout; `ENABLE_LOCAL_OLLAMA=False` bleibt aktiv |
-| Local Model Settings / Health Preview / Validation Pipeline | umgesetzt | Mock bleibt Default; Ollama Health Check ist localhost-only; Validator+Logic Check blockiert riskante Ausgaben |
+| Local Ollama Manual Activation Decision Gate | aktiviert | Token `OLLAMA AKTIVIEREN`, Safety Smoke PASS und lokaler Health Check haben Projekt-Config aktiviert |
+| Local Model Settings / Health Preview / Validation Pipeline | umgesetzt | Ollama ist lokal aktiviert; Health Check ist localhost-only; Validator+Logic Check blockiert riskante Ausgaben; Fallback bleibt lokal |
 | Lokale Notifications | erlaubt opt-in | Default `False`; nur Konsolen-Zusammenfassung, kein Toast, kein Netzwerk |
 | Demo-Modus | getrennt | echte Arbeits-DB bleibt `friday.db`; Demo-Seeds nur in `friday_demo.db` |
 | Wiederkehrende Aufgaben | erlaubt lokal | nur additive nullable Spalte `recurrence`; Folgeaufgabe nur beim Erledigen |
@@ -210,7 +211,8 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | WhatsApp senden | verboten | Flag false |
 | SMS senden | verboten | Flag false |
 | Kalendertermin erstellen | verboten | Flag false |
-| externe Modellaufrufe | verboten | nicht freigegeben |
+| lokale Ollama Modellaufrufe | erlaubt lokal | nur `http://localhost:11434` oder `http://127.0.0.1:11434`, kein Cloud-Fallback |
+| externe Modellaufrufe | verboten | Cloud-Provider und Remote-AI nicht freigegeben |
 
 ## Harte Tokens
 
@@ -230,7 +232,9 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | `BACKUP AUFRAEUMEN` | lokale Backups aufraeumen |
 | `RESTORE AUFRAEUMEN` | lokale Restore-Kopien aufraeumen |
 | `REVIEW AUFRAEUMEN` | lokale Review-History aufraeumen |
-| `OLLAMA AKTIVIEREN` | lokale Ollama-Konfiguration fuer isolierten Writer freigeben; echte Projekt-Config bleibt ohne separates Apply-Gate blockiert |
+| `OLLAMA AKTIVIEREN` | lokale Ollama-Konfiguration fuer Projekt-Config aktivieren, nur nach Safety Smoke PASS und lokalem Health Check |
+| `EMAIL SENDEN` | Mobile/Backend darf E-Mail-App mit vorbereitetem Entwurf oeffnen; Friday sendet nicht selbst |
+| `WHATSAPP SENDEN` | Mobile/Backend darf WhatsApp mit vorbereitetem Entwurf oeffnen; Friday sendet nicht selbst |
 
 ## Delete-Policy
 

@@ -8,7 +8,7 @@ from friday.app.local_model_health_preview import build_ollama_health_check_prev
 from friday.app.local_model_settings import build_local_model_settings_preview
 
 
-def test_ollama_health_preview_blocks_default_disabled_settings() -> None:
+def test_ollama_health_preview_allows_default_enabled_localhost_without_execution() -> None:
     settings = build_local_model_settings_preview("ollama")
 
     preview = build_ollama_health_check_preview(settings)
@@ -16,7 +16,8 @@ def test_ollama_health_preview_blocks_default_disabled_settings() -> None:
     assert preview.executed is False
     assert preview.preview_only is True
     assert preview.external_call_used is False
-    assert "ollama_disabled" in preview.blocked_reasons
+    assert preview.would_check_localhost is True
+    assert preview.blocked_reasons == ()
 
 
 def test_ollama_health_preview_allows_only_127_localhost_without_execution() -> None:
@@ -36,7 +37,7 @@ def test_ollama_health_preview_allows_only_127_localhost_without_execution() -> 
     assert preview.product_flow_connected is False
 
 
-def test_ollama_health_preview_blocks_non_127_localhost() -> None:
+def test_ollama_health_preview_allows_localhost() -> None:
     settings = replace(
         build_local_model_settings_preview("ollama"),
         ollama_enabled=True,
@@ -46,8 +47,22 @@ def test_ollama_health_preview_blocks_non_127_localhost() -> None:
 
     preview = build_ollama_health_check_preview(settings)
 
+    assert preview.would_check_localhost is True
+    assert preview.blocked_reasons == ()
+
+
+def test_ollama_health_preview_blocks_non_localhost_url() -> None:
+    settings = replace(
+        build_local_model_settings_preview("ollama"),
+        ollama_enabled=True,
+        base_url="https://example.com",
+        model="local",
+    )
+
+    preview = build_ollama_health_check_preview(settings)
+
     assert preview.would_check_localhost is False
-    assert "base_url_not_127_localhost" in preview.blocked_reasons
+    assert "base_url_not_localhost" in preview.blocked_reasons
 
 
 def test_ollama_health_preview_blocks_cloud_fallback() -> None:

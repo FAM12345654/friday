@@ -103,6 +103,31 @@ Dabei kann E-Mail oder WhatsApp als Zielkanal ausgewaehlt werden.
 Auch dieser Flow sendet nichts echt; Details stehen in `FRIDAY_MOBILE_TASK_DELEGATION_DRAFT_FLOW.md`.
 Der Weg zu spaeterem echtem Versand ist in `FRIDAY_MESSAGING_PROVIDER_GATE.md` dokumentiert.
 
+## Aufgaben weiterleiten mit KI-Draft
+
+Der Weiterleiten-Flow erstellt jetzt einen lokalen KI-Entwurf mit dem lokalen Ollama-Modell `qwen3:8b`, wenn Ollama auf dem Windows-PC erreichbar ist.
+Falls Ollama nicht erreichbar ist, bleibt Friday im lokalen Fallback und sendet trotzdem nichts.
+
+Ablauf in der Handy-App:
+
+1. Aufgabe oeffnen.
+2. `Weiterleiten` waehlen.
+3. Gespeicherten Kontakt auswaehlen.
+4. Kanal auswaehlen: E-Mail oder WhatsApp.
+5. KI-Draft pruefen.
+6. Harten Token eingeben:
+   - `EMAIL SENDEN` fuer E-Mail-Deep-Link,
+   - `WHATSAPP SENDEN` fuer WhatsApp-Deep-Link.
+7. Friday oeffnet nur die externe App mit vorbereitetem Text.
+8. Der Nutzer entscheidet in E-Mail oder WhatsApp selbst, ob wirklich gesendet wird.
+
+Wichtig:
+
+- Friday sendet keine echte Nachricht.
+- Friday nutzt keine Cloud-KI.
+- Der KI-Draft laeuft lokal ueber `http://localhost:11434`.
+- Die externen Safety-Flags fuer E-Mail und WhatsApp bleiben `False`.
+
 Native Aenderungen brauchen einen neuen Android-Build, zum Beispiel:
 
 - neues Icon,

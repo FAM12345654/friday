@@ -10,6 +10,8 @@ from typing import Literal
 MessagingChannel = Literal["email", "whatsapp"]
 MessagingAuditMode = Literal["preview", "mock", "live"]
 MessagingAuditStatus = Literal[
+    "draft_created",
+    "link_built",
     "drafted",
     "simulated",
     "approval_rejected",
@@ -97,6 +99,8 @@ def _validate_mode(mode: str) -> None:
 
 def _validate_status(status: str) -> None:
     allowed = {
+        "draft_created",
+        "link_built",
         "drafted",
         "simulated",
         "approval_rejected",

@@ -59,10 +59,10 @@ def test_config_safety_flags() -> None:
     assert config.OBSIDIAN_WRITE_ENABLED is False
     assert config.OBSIDIAN_VAULT_PATH == ""
     assert config.OBSIDIAN_ALLOWED_SUBDIR == "Friday"
-    assert config.ENABLE_LOCAL_OLLAMA is False
+    assert config.ENABLE_LOCAL_OLLAMA is True
     assert config.OLLAMA_BASE_URL == "http://localhost:11434"
-    assert config.OLLAMA_MODEL == ""
-    assert config.OLLAMA_TIMEOUT_SECONDS == 5
+    assert config.OLLAMA_MODEL == "qwen3:8b"
+    assert config.OLLAMA_TIMEOUT_SECONDS == 30
     assert config.ENABLE_LOCAL_NOTIFICATIONS is False
 
 

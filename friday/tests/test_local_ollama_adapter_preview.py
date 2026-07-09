@@ -13,12 +13,13 @@ from friday.app.local_ollama_adapter_preview import (
 )
 
 
-def test_default_ollama_preview_config_is_disabled() -> None:
+def test_default_ollama_preview_config_reflects_enabled_local_config() -> None:
     preview_config = default_ollama_preview_config()
 
-    assert preview_config.enabled is False
+    assert preview_config.enabled is True
     assert preview_config.base_url == config.OLLAMA_BASE_URL
-    assert preview_config.model == ""
+    assert preview_config.model == "qwen3:8b"
+    assert preview_config.timeout_seconds == 30
     assert preview_config.allow_cloud_fallback is False
 
 
@@ -26,7 +27,7 @@ def test_ollama_preview_health_check_does_not_use_network() -> None:
     adapter = OllamaLocalAdapterPreview()
     health = adapter.health_check()
 
-    assert health.enabled is False
+    assert health.enabled is True
     assert health.available is False
     assert health.preview_only is True
     assert health.external_call_used is False
