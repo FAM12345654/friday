@@ -85,3 +85,5 @@ Local Ollama Real Project Apply Readiness Gate:
 - Guard, Writer, Preview und Apply Gate gemeinsam dokumentiert pruefen,
 - bestaetigen, dass kein echter Write erfolgt,
 - erst danach einen getrennten echten Apply-Schritt entscheiden.
+
+Status danach: Das Readiness Gate ist in `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_READINESS_GATE.md` dokumentiert.
