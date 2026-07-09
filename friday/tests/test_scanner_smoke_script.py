@@ -41,6 +41,7 @@ def _expected_tokens_source() -> str:
             'EMAIL_ACCOUNT_DELETE_TOKEN = "KONTO LOESCHEN"',
             'EMAIL_ACTIVATION_TOKEN = "EMAIL AKTIVIEREN"',
             'EMAIL_SEND_TOKEN = "EMAIL SENDEN"',
+            'WHATSAPP_BRIDGE_ACTIVATION_TOKEN = "WHATSAPP BRIDGE AKTIVIEREN"',
         ]
     )
 

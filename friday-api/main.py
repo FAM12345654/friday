@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -47,6 +47,16 @@ from friday.app.local_ollama_config_apply_guard import build_local_ollama_config
 from friday.app.local_ollama_config_preview import build_local_ollama_config_preview
 from friday.app.local_model_provider import get_local_model_fallback_count
 from friday.app.messaging_audit_preview import build_messaging_audit_preview
+from friday.app.whatsapp_bridge_activation_gate import (
+    WHATSAPP_BRIDGE_ACTIVATION_TOKEN,
+    build_whatsapp_bridge_activation_gate,
+)
+from friday.app.whatsapp_inbox_store import (
+    bridge_token_matches,
+    get_whatsapp_bridge_status,
+    insert_whatsapp_message,
+    read_recent_whatsapp_messages,
+)
 from friday.config import DEMO_DATE, USE_REAL_TODAY
 from friday.storage.database import setup_local_database
 
@@ -151,6 +161,19 @@ class EmailSendRequest(BaseModel):
     subject: str | None = None
     body: str
     approval_token: str
+
+
+class WhatsAppIngestRequest(BaseModel):
+    chat_id: str
+    sender_name: str | None = None
+    sender_number: str | None = None
+    body: str
+    received_at: str | None = None
+
+
+class WhatsAppBridgeActivationGateRequest(BaseModel):
+    approval_token: str
+    scanner_smoke_passed: bool = False
 
 
 def _today() -> str:
@@ -609,6 +632,73 @@ def get_email_inbox_preview(limit: int = Query(default=10)) -> dict[str, Any]:
     )
 
 
+@app.get("/api/whatsapp/status")
+def get_whatsapp_status() -> dict[str, Any]:
+    return _envelope(get_whatsapp_bridge_status(message_agent.db_path))
+
+
+@app.get("/api/whatsapp/messages")
+def get_whatsapp_messages(limit: int = Query(default=10)) -> dict[str, Any]:
+    items = read_recent_whatsapp_messages(limit=limit, db_path=message_agent.db_path)
+    return _envelope(
+        {
+            "items": items,
+            "count": len(items),
+            "status": get_whatsapp_bridge_status(message_agent.db_path),
+            "read_only": True,
+        }
+    )
+
+
+@app.post("/api/whatsapp/ingest")
+def ingest_whatsapp_message(
+    payload: WhatsAppIngestRequest,
+    x_friday_whatsapp_bridge_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    if not config.ENABLE_WHATSAPP_BRIDGE_READ:
+        raise HTTPException(
+            status_code=403,
+            detail="WhatsApp Read-Bridge ist deaktiviert.",
+        )
+    if not bridge_token_matches(x_friday_whatsapp_bridge_token):
+        raise HTTPException(
+            status_code=403,
+            detail="WhatsApp Bridge Token wurde abgelehnt.",
+        )
+
+    result = insert_whatsapp_message(
+        chat_id=payload.chat_id,
+        sender_name=payload.sender_name,
+        sender_number=payload.sender_number,
+        body=payload.body,
+        received_at=payload.received_at,
+        db_path=message_agent.db_path,
+    )
+    process_result = message_agent.process_unprocessed_whatsapp_messages()
+    return _envelope(
+        {
+            "stored": result.stored,
+            "duplicate": result.duplicate,
+            "message_id": result.message_id,
+            "processed_count": process_result.processed_count,
+            "message_suggestions_created": process_result.message_suggestions_created,
+            "task_suggestions_created": process_result.task_suggestions_created,
+            "send_via_bridge": False,
+        }
+    )
+
+
+@app.post("/api/whatsapp/activation-gate")
+def get_whatsapp_bridge_activation_gate(
+    payload: WhatsAppBridgeActivationGateRequest,
+) -> dict[str, Any]:
+    gate = build_whatsapp_bridge_activation_gate(
+        approval_token=payload.approval_token,
+        scanner_smoke_passed=payload.scanner_smoke_passed,
+    )
+    return _envelope(asdict(gate))
+
+
 @app.post("/api/accounts/email/send-task-forward")
 def send_task_forward_email(payload: EmailSendRequest) -> dict[str, Any]:
     task = task_agent.get_task_by_id(payload.task_id)
@@ -725,6 +815,7 @@ def get_privacy() -> dict[str, Any]:
             "external_services": {
                 "email": False,
                 "whatsapp": False,
+                "whatsapp_bridge_read": config.ENABLE_WHATSAPP_BRIDGE_READ,
                 "sms": False,
                 "calendar": False,
                 "weather": False,

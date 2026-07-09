@@ -151,6 +151,18 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 message_id TEXT,
                 status TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS whatsapp_messages (
+                id INTEGER PRIMARY KEY,
+                chat_id TEXT NOT NULL,
+                sender_name TEXT,
+                sender_number_hash TEXT,
+                body TEXT NOT NULL,
+                received_at TEXT NOT NULL,
+                processed INTEGER NOT NULL DEFAULT 0,
+                suggestion_created INTEGER NOT NULL DEFAULT 0,
+                UNIQUE (chat_id, received_at)
+            );
             """
         )
         _ensure_task_priority_column(connection)

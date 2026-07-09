@@ -28,7 +28,9 @@ ACCOUNT_MENU_OPTIONS: List[Tuple[str, str]] = [
     ("3", "E-Mail-Verbindung testen"),
     ("4", "E-Mail-Konto löschen"),
     ("5", "E-Mail-Aktivierung prüfen"),
-    ("6", "Zurück zum Hauptmenü"),
+    ("6", "WhatsApp Read-Bridge Status anzeigen"),
+    ("7", "WhatsApp Read-Bridge Aktivierung prüfen"),
+    ("8", "Zurück zum Hauptmenü"),
 ]
 
 TASK_MENU_OPTIONS: List[Tuple[str, str]] = [
@@ -90,10 +92,10 @@ def show_account_menu() -> str:
     print("Konten")
     print("-" * 40)
     print("Hinweis: E-Mail bleibt deaktiviert, bis EMAIL AKTIVIEREN spaeter ausgefuehrt wird.")
-    print("WhatsApp bleibt Deep-Link ueber dein Handy.")
+    print("WhatsApp-Senden bleibt Deep-Link ueber dein Handy; Read-Bridge ist separat gegatet.")
     for option, label in ACCOUNT_MENU_OPTIONS:
         print(f"{option}. {label}")
-    return input("Auswahl (1-6): ").strip()
+    return input("Auswahl (1-8): ").strip()
 
 
 def show_task_menu() -> str:

@@ -71,6 +71,22 @@ def test_show_menu_returns_stripped_input(monkeypatch) -> None:
     assert menu.show_menu() == "6"
 
 
+def test_account_menu_options_and_show_menu(monkeypatch) -> None:
+    assert menu.ACCOUNT_MENU_OPTIONS == [
+        ("1", "E-Mail-Konto Status anzeigen"),
+        ("2", "E-Mail-Konto verbinden"),
+        ("3", "E-Mail-Verbindung testen"),
+        ("4", "E-Mail-Konto löschen"),
+        ("5", "E-Mail-Aktivierung prüfen"),
+        ("6", "WhatsApp Read-Bridge Status anzeigen"),
+        ("7", "WhatsApp Read-Bridge Aktivierung prüfen"),
+        ("8", "Zurück zum Hauptmenü"),
+    ]
+
+    monkeypatch.setattr("builtins.input", lambda _: " 7 ")
+    assert menu.show_account_menu() == "7"
+
+
 def test_backup_restore_menu_options_and_show_menu(monkeypatch) -> None:
     assert menu.BACKUP_RESTORE_MENU_OPTIONS == [
         ("1", "Backup-Vorschau anzeigen"),

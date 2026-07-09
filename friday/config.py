@@ -18,6 +18,10 @@ ENABLE_REAL_CALENDAR = False
 ENABLE_REAL_WEATHER = False
 ENABLE_REAL_MUSIC = False
 
+# WhatsApp Read-Bridge bleibt getrennt von echtem WhatsApp-Senden.
+# Default: aus. Aktivierung braucht ein eigenes Gate.
+ENABLE_WHATSAPP_BRIDGE_READ = False
+
 # Jede Aktion braucht eine Nutzerfreigabe im Vorschaumodus.
 REQUIRE_USER_APPROVAL = True
 

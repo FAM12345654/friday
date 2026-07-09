@@ -7,6 +7,13 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from friday.config import DATA_DIR, USE_SQLITE_STORAGE, get_database_path
+from friday.app.whatsapp_inbox_store import (
+    WHATSAPP_MESSAGE_ID_OFFSET,
+    WhatsAppProcessResult,
+    get_unprocessed_whatsapp_messages,
+    mark_whatsapp_message_processed,
+    read_recent_whatsapp_messages,
+)
 from friday.storage.repositories import (
     ContactRepository,
     MessageRepository,
@@ -78,9 +85,30 @@ class MessageAgent:
     def get_messages(self) -> List[Dict[str, Any]]:
         """Load all local messages."""
         if self.message_repository is not None:
-            return self.message_repository.get_messages()
+            messages = self.message_repository.get_messages()
+            return messages + self.get_whatsapp_messages_as_local_messages()
         with (DATA_DIR / "sample_messages.json").open("r", encoding="utf-8") as file:
             return json.load(file)
+
+    def get_whatsapp_messages_as_local_messages(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Expose mirrored WhatsApp messages as local read-only message records."""
+        if not USE_SQLITE_STORAGE:
+            return []
+        items: list[Dict[str, Any]] = []
+        for item in read_recent_whatsapp_messages(limit=limit, db_path=self.db_path):
+            items.append(
+                {
+                    "id": WHATSAPP_MESSAGE_ID_OFFSET + int(item["id"]),
+                    "sender": item.get("sender_name") or "WhatsApp",
+                    "text": item.get("body") or "",
+                    "received_at": item.get("received_at"),
+                    "contact_type": "whatsapp",
+                    "source": "whatsapp",
+                    "whatsapp_message_id": item.get("id"),
+                    "sender_number_masked": item.get("sender_number_masked"),
+                }
+            )
+        return items
 
     def detect_intent(self, text: str) -> str:
         """Classify local text into a tiny, rule-based intent."""
@@ -161,6 +189,65 @@ class MessageAgent:
                 )
             )
         return suggestions
+
+    def process_unprocessed_whatsapp_messages(self) -> WhatsAppProcessResult:
+        """Create local review suggestions from mirrored WhatsApp messages."""
+        if self.suggestion_repository is None or self.task_suggestion_repository is None:
+            return WhatsAppProcessResult(
+                processed_count=0,
+                message_suggestions_created=0,
+                task_suggestions_created=0,
+            )
+
+        processed_count = 0
+        message_suggestions_created = 0
+        task_suggestions_created = 0
+
+        for item in get_unprocessed_whatsapp_messages(db_path=self.db_path):
+            synthetic_message = {
+                "id": WHATSAPP_MESSAGE_ID_OFFSET + int(item["id"]),
+                "sender": item.get("sender_name") or "WhatsApp",
+                "text": item.get("body") or "",
+                "received_at": item.get("received_at"),
+                "contact_type": "whatsapp",
+                "source": "whatsapp",
+            }
+            suggestion_created = False
+
+            reply = self.suggestion_repository.create_suggestion(
+                message_id=int(synthetic_message["id"]),
+                draft_text=self.create_reply_suggestion(synthetic_message),
+                suggestion_type="whatsapp_reply",
+                notes="Lokaler WhatsApp-Read-Bridge-Entwurf. Kein Versand.",
+            )
+            if reply:
+                message_suggestions_created += 1
+                suggestion_created = True
+
+            if self.detect_intent(str(synthetic_message.get("text") or "")) == "task":
+                task = self.task_suggestion_repository.create_task_suggestion(
+                    message_id=int(synthetic_message["id"]),
+                    title=f"Aufgabe aus WhatsApp von {synthetic_message['sender']}",
+                    category=self.get_contact_type(str(synthetic_message["sender"])),
+                    notes="Lokale Aufgabe aus WhatsApp-Read-Bridge.",
+                    priority="normal",
+                )
+                if task:
+                    task_suggestions_created += 1
+                    suggestion_created = True
+
+            mark_whatsapp_message_processed(
+                message_id=int(item["id"]),
+                suggestion_created=suggestion_created,
+                db_path=self.db_path,
+            )
+            processed_count += 1
+
+        return WhatsAppProcessResult(
+            processed_count=processed_count,
+            message_suggestions_created=message_suggestions_created,
+            task_suggestions_created=task_suggestions_created,
+        )
 
     def get_pending_suggestions(self) -> list[Dict[str, Any]]:
         """Return local scheduling suggestions still waiting for review."""

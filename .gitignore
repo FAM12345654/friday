@@ -18,7 +18,12 @@ logs/
 friday-mobile/node_modules/
 friday-mobile/.expo/
 friday-mobile/dist/
+friday-whatsapp-bridge/node_modules/
+friday-whatsapp-bridge/.wwebjs_auth/
+friday-whatsapp-bridge/.wwebjs_cache/
+friday-whatsapp-bridge/local_data/
 friday-desktop/node_modules/
 *.log
 *.bak
 friday-desktop/dist/
+local_data/whatsapp/

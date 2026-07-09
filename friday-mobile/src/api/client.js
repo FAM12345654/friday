@@ -234,6 +234,14 @@ export async function getEmailInbox(limit = 10) {
   return callApi(`/api/messages/email-inbox?limit=${encodeURIComponent(String(limit))}`);
 }
 
+export async function getWhatsAppStatus() {
+  return callApi("/api/whatsapp/status");
+}
+
+export async function getWhatsAppMessages(limit = 10) {
+  return callApi(`/api/whatsapp/messages?limit=${encodeURIComponent(String(limit))}`);
+}
+
 export async function getPrivacy() {
   return callApi("/api/privacy");
 }

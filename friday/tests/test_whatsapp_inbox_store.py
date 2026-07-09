@@ -1,0 +1,66 @@
+"""Tests for the local WhatsApp read bridge store."""
+
+from __future__ import annotations
+
+from friday.agents.message_agent import MessageAgent
+from friday.app.whatsapp_inbox_store import (
+    WHATSAPP_MESSAGE_ID_OFFSET,
+    get_whatsapp_bridge_status,
+    insert_whatsapp_message,
+    read_recent_whatsapp_messages,
+)
+from friday.storage.database import setup_local_database
+
+
+def test_insert_whatsapp_message_hashes_identifiers_and_deduplicates(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+
+    first = insert_whatsapp_message(
+        chat_id="local-chat",
+        sender_name="Kontakt",
+        sender_number="local-number",
+        body="[redacted]",
+        received_at="2026-07-09T10:00:00+00:00",
+        db_path=db_path,
+    )
+    duplicate = insert_whatsapp_message(
+        chat_id="local-chat",
+        sender_name="Kontakt",
+        sender_number="local-number",
+        body="[redacted]",
+        received_at="2026-07-09T10:00:00+00:00",
+        db_path=db_path,
+    )
+
+    assert first.stored is True
+    assert duplicate.duplicate is True
+    items = read_recent_whatsapp_messages(db_path=db_path)
+    assert len(items) == 1
+    assert items[0]["sender_number_masked"].startswith("hash:")
+    assert "sender_number_hash" not in items[0]
+    assert items[0]["synthetic_message_id"] == WHATSAPP_MESSAGE_ID_OFFSET + first.message_id
+
+
+def test_process_whatsapp_message_creates_review_suggestions(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    insert_whatsapp_message(
+        chat_id="task-chat",
+        sender_name="Kontakt",
+        sender_number="task-number",
+        body="todo",
+        received_at="2026-07-09T10:05:00+00:00",
+        db_path=db_path,
+    )
+
+    agent = MessageAgent(db_path=db_path)
+    result = agent.process_unprocessed_whatsapp_messages()
+
+    assert result.processed_count == 1
+    assert result.message_suggestions_created == 1
+    assert result.task_suggestions_created == 1
+    assert agent.get_pending_suggestions()
+    assert agent.get_pending_task_suggestions()
+    status = get_whatsapp_bridge_status(db_path)
+    assert status["message_count"] == 1

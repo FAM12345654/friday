@@ -43,6 +43,15 @@ from friday.app.email_account_store import (
 from friday.app.email_activation_gate import EMAIL_ACTIVATION_TOKEN, build_email_activation_gate
 from friday.app.email_imap_reader import check_imap_login, read_recent_inbox_emails
 from friday.app.email_smtp_sender import check_smtp_login
+from friday.app.whatsapp_bridge_activation_gate import (
+    WHATSAPP_BRIDGE_ACTIVATION_TOKEN,
+    apply_whatsapp_bridge_read_activation_to_config,
+    build_whatsapp_bridge_activation_gate,
+)
+from friday.app.whatsapp_inbox_store import (
+    get_whatsapp_bridge_status,
+    read_recent_whatsapp_messages,
+)
 from friday.app.review_batch_selection_parser import parse_review_batch_selection
 from friday.app.review_batch_selection_preview import (
     render_review_batch_selection_preview,
@@ -251,6 +260,7 @@ class FridayInterface:
             print(f"Antwortvorschlag: {suggestion}")
             shown.append({"message": message, "is_scheduling": is_scheduling, "suggestion": suggestion})
         self._show_email_inbox_preview()
+        self._show_whatsapp_inbox_preview()
         return shown
 
     def _show_email_inbox_preview(self) -> None:
@@ -275,6 +285,24 @@ class FridayInterface:
         for item in result.items:
             print(f"- Von: {item.sender} | Betreff: {item.subject} | Datum: {item.date}")
             print(f"  {item.text_preview}")
+
+    def _show_whatsapp_inbox_preview(self) -> None:
+        """Show mirrored WhatsApp messages as a read-only local preview."""
+        status = get_whatsapp_bridge_status(getattr(self.message_agent, "db_path", None))
+        print("\nWhatsApp (mitgelesen, letzte 10)")
+        print("Hinweis: Nur Mitlesen. Senden nur durch dich per WhatsApp-Link.")
+        print(f"Read-Bridge aktiv: {status['read_enabled']}")
+        items = read_recent_whatsapp_messages(
+            limit=10,
+            db_path=getattr(self.message_agent, "db_path", None),
+        )
+        if not items:
+            print("Keine lokal gespiegelten WhatsApp-Nachrichten.")
+            return
+        for item in items:
+            print(f"- Von: {item.get('sender_name') or 'WhatsApp'} | {item.get('received_at')}")
+            print(f"  Nummer: {item.get('sender_number_masked')}")
+            print(f"  {item.get('body')}")
 
     def _intent_label(self, intent: str) -> str:
         """Map internal intent to German display labels."""
@@ -2960,6 +2988,7 @@ class FridayInterface:
         self._section_title("Sicherheitsstatus")
         print(f"E-Mail echt aktiv: {config.ENABLE_REAL_EMAIL}")
         print(f"WhatsApp echt aktiv: {config.ENABLE_REAL_WHATSAPP}")
+        print(f"WhatsApp Read-Bridge aktiv: {config.ENABLE_WHATSAPP_BRIDGE_READ}")
         print(f"SMS echt aktiv: {config.ENABLE_REAL_SMS}")
         print(f"Kalender echt aktiv: {config.ENABLE_REAL_CALENDAR}")
         print(f"Wetter echt aktiv: {config.ENABLE_REAL_WEATHER}")
@@ -3049,7 +3078,11 @@ class FridayInterface:
                 self._delete_email_account_from_input()
             elif choice == "5":
                 self._show_email_activation_gate_from_input()
-            elif choice == "6" or not choice:
+            elif choice == "6":
+                self._show_whatsapp_bridge_status()
+            elif choice == "7":
+                self._show_whatsapp_bridge_activation_gate_from_input()
+            elif choice == "8" or not choice:
                 return
             else:
                 print(INVALID_SELECTION)
@@ -3158,6 +3191,47 @@ class FridayInterface:
             for reason in gate.blocked_reasons:
                 print(f"- {reason}")
         print("Hinweis: Dieser Lauf setzt ENABLE_REAL_EMAIL nicht automatisch auf True.")
+
+    def _show_whatsapp_bridge_status(self) -> None:
+        """Print read-only WhatsApp bridge status without raw phone numbers."""
+        self._section_title("WhatsApp Read-Bridge Status")
+        status = get_whatsapp_bridge_status(getattr(self.message_agent, "db_path", None))
+        print(f"Read-Bridge aktiv: {status['read_enabled']}")
+        print(f"WhatsApp echt senden aktiv: {status['real_whatsapp_enabled']}")
+        print(f"Verbunden erkannt: {status['connected']}")
+        print(f"Lokale Nachrichten: {status['message_count']}")
+        print(f"Letzter Empfang: {status['last_received_at'] or '-'}")
+        print(f"Bridge Token vorhanden: {status['token_configured']}")
+        print("Hinweis: Nur Mitlesen. Senden bleibt ausschliesslich Deep-Link mit Nutzerfinger.")
+        print("Risiko: WhatsApp-Web-Bridges koennen gegen WhatsApp-Regeln verstossen.")
+
+    def _show_whatsapp_bridge_activation_gate_from_input(self) -> None:
+        """Run the local WhatsApp read bridge activation gate."""
+        self._section_title("WhatsApp Read-Bridge Aktivierung")
+        print("Risiko-Hinweis: Diese lokale Bruecke nutzt WhatsApp Web nur zum Mitlesen.")
+        print("Das kann gegen WhatsApp-Regeln verstossen und eine Kontosperre riskieren.")
+        print("Friday sendet ueber diese Bruecke nie automatisch.")
+        token = input(f"Zum Aktivieren exakt {WHATSAPP_BRIDGE_ACTIVATION_TOKEN} eingeben: ")
+        smoke = run_safety_smoke()
+        gate = build_whatsapp_bridge_activation_gate(
+            approval_token=token,
+            scanner_smoke_passed=smoke.passed,
+        )
+        print(f"Read-Bridge Aktivierung erlaubt: {gate.allowed}")
+        print(f"Safety Smoke: {'PASS' if smoke.passed else 'FAIL'}")
+        if gate.blocked_reasons:
+            print("Blocker:")
+            for reason in gate.blocked_reasons:
+                print(f"- {reason}")
+            return
+        apply_result = apply_whatsapp_bridge_read_activation_to_config(
+            approval_token=token,
+            scanner_smoke_passed=smoke.passed,
+            execute_write=True,
+        )
+        print(apply_result.message)
+        if apply_result.backup_path:
+            print(f"Backup: {apply_result.backup_path}")
 
     def run(self) -> None:
         """Run the basic interaction loop until the user exits."""

@@ -28,6 +28,8 @@ import {
   deleteTask,
   getEmailAccountStatus,
   getEmailInbox,
+  getWhatsAppMessages,
+  getWhatsAppStatus,
   generateTaskSuggestionsForMessage,
   getApiUrl,
   getCalendar,
@@ -235,6 +237,8 @@ export default function App() {
   const [privacy, setPrivacy] = useState(null);
   const [emailAccountStatus, setEmailAccountStatus] = useState(null);
   const [emailInbox, setEmailInbox] = useState(null);
+  const [whatsappStatus, setWhatsappStatus] = useState(null);
+  const [whatsappInbox, setWhatsappInbox] = useState(null);
   const [emailPreset, setEmailPreset] = useState("gmail");
   const [emailAddress, setEmailAddress] = useState("");
   const [emailUsername, setEmailUsername] = useState("");
@@ -359,11 +363,17 @@ export default function App() {
         items: [],
         message: normalizeApiError(err),
       }));
+      const whatsapp = await getWhatsAppMessages(10).catch((err) => ({
+        items: [],
+        status: { read_enabled: false, connected: false },
+        message: normalizeApiError(err),
+      }));
       const list = messagePayload?.items || [];
       setMessages(isArray(list));
       setMessageSuggestions(isArray(suggestions?.message_suggestions));
       setTaskSuggestions(isArray(suggestions?.task_suggestions));
       setEmailInbox(inbox);
+      setWhatsappInbox(whatsapp);
       return;
     }
 
@@ -382,8 +392,10 @@ export default function App() {
     if (screenName === "Datenschutz") {
       const payload = await getPrivacy();
       const emailStatus = await getEmailAccountStatus().catch(() => null);
+      const waStatus = await getWhatsAppStatus().catch(() => null);
       setPrivacy(payload);
       setEmailAccountStatus(emailStatus);
+      setWhatsappStatus(waStatus);
     }
   };
 
@@ -1029,6 +1041,33 @@ export default function App() {
             </View>
           ))}
 
+          <SectionTitle>WhatsApp (mitgelesen, letzte 10)</SectionTitle>
+          <View style={styles.card}>
+            <View style={styles.privacyRow}>
+              <Text style={styles.privacyLabel}>Read-Bridge</Text>
+              <Chip
+                label={whatsappInbox?.status?.read_enabled ? "aktiv" : "aus"}
+                color={whatsappInbox?.status?.read_enabled ? colors.warn : colors.textSoft}
+              />
+            </View>
+            <Text style={styles.forwardSafety}>
+              Nur Mitlesen. Senden nur durch dich per WhatsApp-Link. Nutzung auf eigenes Risiko.
+            </Text>
+          </View>
+          {isArray(whatsappInbox?.items).map((item, index) => (
+            <View key={`${item.synthetic_message_id || "wa"}-${index}`} style={styles.card}>
+              <Text style={styles.cardTitle}>{item.sender_name || "WhatsApp"}</Text>
+              <Text style={styles.cardMeta}>{item.received_at || ""}</Text>
+              <Text style={styles.cardMeta}>Nummer: {item.sender_number_masked || "hash:unknown"}</Text>
+              <Text style={styles.cardBody}>{item.body || ""}</Text>
+            </View>
+          ))}
+          {isArray(whatsappInbox?.items).length === 0 && (
+            <View style={styles.card}>
+              <Text style={styles.cardBody}>Keine lokal gespiegelten WhatsApp-Nachrichten.</Text>
+            </View>
+          )}
+
           <SectionTitle>Antwort-Vorschläge</SectionTitle>
           {messageSuggestions.map((suggestion) => (
             <View key={suggestion.id} style={styles.card}>
@@ -1333,8 +1372,25 @@ export default function App() {
           </View>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>WhatsApp</Text>
+            <View style={styles.privacyRow}>
+              <Text style={styles.privacyLabel}>Read-Bridge</Text>
+              <Chip
+                label={whatsappStatus?.read_enabled ? "aktiv" : "aus"}
+                color={whatsappStatus?.read_enabled ? colors.warn : colors.textSoft}
+              />
+            </View>
+            <Text style={styles.cardMeta}>
+              Verbunden erkannt: {whatsappStatus?.connected ? "ja" : "nein"}
+            </Text>
+            <Text style={styles.cardMeta}>
+              Letzter Empfang: {whatsappStatus?.last_received_at || "-"}
+            </Text>
             <Text style={styles.cardBody}>
-              WhatsApp bleibt ueber dein Handy verbunden: Friday befuellt die Nachricht, du tippst selbst auf Senden.
+              WhatsApp-Senden bleibt ueber dein Handy: Friday befuellt die Nachricht, du tippst selbst auf Senden.
+              Die Read-Bridge liest nur eingehende Einzelchats und nutzt keine Auto-Antwort.
+            </Text>
+            <Text style={styles.forwardSafety}>
+              Risiko: WhatsApp-Web-Bridges koennen gegen WhatsApp-Regeln verstossen. Nutzung auf eigenes Risiko.
             </Text>
           </View>
         </View>

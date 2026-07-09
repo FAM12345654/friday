@@ -36,6 +36,7 @@ EXPECTED_APPROVAL_TOKENS: dict[str, str] = {
     "email_account_delete": "KONTO LOESCHEN",
     "email_real_activation": "EMAIL AKTIVIEREN",
     "email_send": "EMAIL SENDEN",
+    "whatsapp_bridge_read_activation": "WHATSAPP BRIDGE AKTIVIEREN",
 }
 
 SOFT_APPROVAL_TOKENS: set[str] = {
