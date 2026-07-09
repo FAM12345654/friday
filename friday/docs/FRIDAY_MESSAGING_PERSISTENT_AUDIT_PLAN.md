@@ -121,3 +121,5 @@ Ziel:
 - keine API,
 - keine Mobile-Schreibaktion,
 - Tests fuer Felder, Statuswerte und Safety.
+
+Status: umgesetzt in `FRIDAY_MESSAGING_PERSISTENT_AUDIT_PREVIEW_MODEL.md`.
