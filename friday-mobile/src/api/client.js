@@ -192,6 +192,13 @@ export async function createContact(payload) {
   });
 }
 
+export async function buildTaskForwardDraft(payload) {
+  return callApi("/api/ai/task-forward-draft", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getPrivacy() {
   return callApi("/api/privacy");
 }

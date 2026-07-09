@@ -112,3 +112,5 @@ Approval Screen Status: umgesetzt in `FRIDAY_MESSAGING_APPROVAL_SCREEN.md`.
 Audit Preview Status: umgesetzt in `FRIDAY_MESSAGING_AUDIT_PREVIEW.md`.
 
 Persistent Audit Plan Status: umgesetzt in `FRIDAY_MESSAGING_PERSISTENT_AUDIT_PLAN.md`.
+
+AI Task Forwarding Draft Status: umgesetzt in `FRIDAY_AI_TASK_FORWARDING_DRAFT.md`.

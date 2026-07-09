@@ -18,6 +18,7 @@ import {
   approveMessageSuggestion,
   approveTaskSuggestion,
   archiveTask,
+  buildTaskForwardDraft,
   checkHealth,
   completeTask,
   createContact,
@@ -122,6 +123,7 @@ const buildForwardDraft = (task, contact, channel) => {
     "",
     `Kanal: ${channelLabel(channel)}`,
     `Ziel: ${target}`,
+    "KI-Draft: lokaler Fallback.",
     "Noch nicht gesendet.",
   ].join("\n");
 };
@@ -451,16 +453,45 @@ export default function App() {
     setForwardAuditPreview("");
   };
 
-  const selectForwardContact = (contact) => {
+  const requestAiForwardDraft = async (task, contact, channel) => {
+    if (!task || !contact) {
+      return;
+    }
+    setForwardDraft(buildForwardDraft(task, contact, channel));
+    setForwardMockResult("KI-Draft wird lokal vorbereitet…");
+    try {
+      const draft = await buildTaskForwardDraft({
+        task_id: task.id,
+        contact_id: contact.id,
+        channel,
+      });
+      setForwardDraft(draft?.draft_text || buildForwardDraft(task, contact, channel));
+      setForwardMockResult(
+        [
+          `KI verbunden: ${draft?.provider || "mock"} (${draft?.is_mock ? "Mock" : "lokal"})`,
+          draft?.provider_output_used ? "Provider-Text übernommen." : "Sicherer lokaler Draft verwendet.",
+          `Echter Versand: ${draft?.external_send_enabled ? "aktiv" : "aus"}`,
+          draft?.blocked_reasons?.length
+            ? `Hinweise: ${draft.blocked_reasons.join(" / ")}`
+            : "Keine Blocker.",
+        ].join("\n"),
+      );
+    } catch (err) {
+      setForwardMockResult(`KI-Draft nicht erreichbar: ${normalizeApiError(err)}. Lokaler Fallback bleibt aktiv.`);
+    }
+  };
+
+  const selectForwardContact = async (contact) => {
     setForwardContact(contact);
     setForwardDraft(buildForwardDraft(forwardTask, contact, forwardChannel));
     setForwardMockResult("");
     setForwardApprovalToken("");
     setForwardApprovalResult("");
     setForwardAuditPreview("");
+    await requestAiForwardDraft(forwardTask, contact, forwardChannel);
   };
 
-  const selectForwardChannel = (channel) => {
+  const selectForwardChannel = async (channel) => {
     setForwardChannel(channel);
     if (forwardTask && forwardContact) {
       setForwardDraft(buildForwardDraft(forwardTask, forwardContact, channel));
@@ -469,6 +500,7 @@ export default function App() {
     setForwardApprovalToken("");
     setForwardApprovalResult("");
     setForwardAuditPreview("");
+    await requestAiForwardDraft(forwardTask, forwardContact, channel);
   };
 
   const simulateForwardSend = () => {

@@ -153,6 +153,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Local AI Diagnose im Sicherheitsstatus | erlaubt read-only | zeigt nur Flags, Modellstatus und lokale URL-Regel; startet keinen Ollama Live-Health-Check |
 | Ollama Runtime Opt-in | gated lokal | nur `127.0.0.1`/`localhost`, nur mit `ENABLE_LOCAL_OLLAMA=True`, Modell gesetzt, Health PASS und Validator |
 | Local AI Finalization Gate | abgeschlossen | Mock Default, Ollama disabled, keine Produktflow-Live-Calls |
+| AI Task Forwarding Draft | umgesetzt | Produktflow nutzt lokale KI-Provider-Schicht fuer sichtbare Drafts; Mock Default, kein echter Versand, kein Cloud-Modell |
 | Local Model Settings / Health Preview / Validation Pipeline | umgesetzt | Mock bleibt Default; Ollama Health Check ist localhost-only; Validator+Logic Check blockiert riskante Ausgaben |
 | Lokale Notifications | erlaubt opt-in | Default `False`; nur Konsolen-Zusammenfassung, kein Toast, kein Netzwerk |
 | Demo-Modus | getrennt | echte Arbeits-DB bleibt `friday.db`; Demo-Seeds nur in `friday_demo.db` |

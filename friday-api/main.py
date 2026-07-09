@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import asdict
 from datetime import date
 from pathlib import Path
 from typing import Any, Optional
@@ -17,6 +18,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from friday.agents import CalendarAgent, ContactContextAgent, MessageAgent, TaskAgent
+from friday.app.ai_task_forwarding_draft import build_ai_task_forwarding_draft
 from friday.config import DEMO_DATE, USE_REAL_TODAY
 from friday.storage.database import setup_local_database
 
@@ -79,6 +81,12 @@ class ContactCreateRequest(BaseModel):
     whatsapp_target: Optional[str] = None
 
 
+class TaskForwardDraftRequest(BaseModel):
+    task_id: int
+    contact_id: int
+    channel: str
+
+
 def _today() -> str:
     if USE_REAL_TODAY:
         return date.today().isoformat()
@@ -94,6 +102,13 @@ def _find_message(message_id: int) -> dict[str, Any]:
         if int(message.get("id", 0)) == message_id:
             return message
     raise HTTPException(status_code=404, detail="Message not found.")
+
+
+def _find_contact(contact_id: int) -> dict[str, Any]:
+    for contact in contact_agent.load_contacts():
+        if int(contact.get("id", 0)) == contact_id:
+            return contact
+    raise HTTPException(status_code=404, detail="Contact not found.")
 
 
 @app.get("/")
@@ -351,6 +366,20 @@ def create_contact(payload: ContactCreateRequest) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _envelope(contact)
+
+
+@app.post("/api/ai/task-forward-draft")
+def create_ai_task_forward_draft(payload: TaskForwardDraftRequest) -> dict[str, Any]:
+    task = task_agent.get_task_by_id(payload.task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    contact = _find_contact(payload.contact_id)
+    draft = build_ai_task_forwarding_draft(
+        task=task,
+        contact=contact,
+        channel=payload.channel,
+    )
+    return _envelope(asdict(draft))
 
 
 @app.get("/api/privacy")
