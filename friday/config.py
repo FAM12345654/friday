@@ -25,8 +25,8 @@ ENABLE_REAL_MUSIC = False
 ENABLE_WHATSAPP_BRIDGE_READ = False
 
 # Microsoft Graph Mail bleibt read-only und getrennt von echtem E-Mail-Senden.
-# Default: aus. Aktivierung braucht MAIL LESEN AKTIVIEREN + Konto-Test.
-ENABLE_MS_MAIL_READ = False
+# Vom Nutzer bewusst aktiviert (MAIL LESEN AKTIVIEREN); Konto-Test war erfolgreich.
+ENABLE_MS_MAIL_READ = True
 
 # Jede Aktion braucht eine Nutzerfreigabe im Vorschaumodus.
 REQUIRE_USER_APPROVAL = True
