@@ -47,3 +47,5 @@ Ziel:
 - planen, wie ein lokales Audit spaeter gespeichert werden duerfte,
 - weiterhin kein echter Versand,
 - Datenschutz und Loeschregeln definieren.
+
+Status: umgesetzt in `FRIDAY_MESSAGING_PERSISTENT_AUDIT_PLAN.md`.

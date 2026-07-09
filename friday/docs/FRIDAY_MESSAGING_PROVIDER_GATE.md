@@ -110,3 +110,5 @@ Mock Provider Status: umgesetzt in `FRIDAY_MESSAGING_MOCK_PROVIDER.md`.
 Approval Screen Status: umgesetzt in `FRIDAY_MESSAGING_APPROVAL_SCREEN.md`.
 
 Audit Preview Status: umgesetzt in `FRIDAY_MESSAGING_AUDIT_PREVIEW.md`.
+
+Persistent Audit Plan Status: umgesetzt in `FRIDAY_MESSAGING_PERSISTENT_AUDIT_PLAN.md`.
