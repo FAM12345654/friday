@@ -128,3 +128,5 @@ Local Ollama Real Project Apply Writer Dry Run:
 - keinen echten Write ausfuehren,
 - geplante Diff-Zeilen und Rollback-Plan ausgeben,
 - weiterhin keine Aktivierung.
+
+Status danach: Der Dry Run ist in `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_DRY_RUN.md` dokumentiert.
