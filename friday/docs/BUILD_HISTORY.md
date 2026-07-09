@@ -80,3 +80,13 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 | Safety Smoke | `Overall: PASS` |
 | Diff-Check | sauber |
 | Commit | keiner |
+
+## Friday Mobile/Desktop Creme-Moos Redesign
+
+| Bereich | Ergebnis |
+|---|---|
+| Ziel | Mobile- und Desktop-Oberflaeche im hellen Creme/Moos-Design finalisieren |
+| Mobile | Expo/React-Native-App mit hellem Theme, Icon-Set und LAN-API `http://192.168.178.42:8000` |
+| Desktop | Electron-Fenster mit Friday-Titel, Icon und Creme/Moos-Design |
+| Android Preview APK | `https://expo.dev/artifacts/eas/EKmkRcLTi_ZmjHcgInjy_L9QkfPUK9Cg1C7b0qZvUrs.apk` |
+| Safety | Keine echten externen Aktionen; Friday bleibt lokal-first |

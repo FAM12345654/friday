@@ -134,6 +134,14 @@ npm start
 
 `EXPO_PUBLIC_FRIDAY_API_URL` muss auf die API zeigen:
 
+Standard fuer physisches Handy im lokalen WLAN: `http://192.168.178.42:8000`
+
+Der vollstaendige Mobile-/Desktop-Guide steht hier:
+
+```text
+friday/docs/FRIDAY_MOBILE_DESKTOP_GUIDE.md
+```
+
 - Emulator (Android): `http://10.0.2.2:8000`
 - Simulator (iOS): `http://127.0.0.1:8000`
 - Physisches Gerät: `http://<pc-lan-ip>:8000`
@@ -141,6 +149,13 @@ npm start
 ### Handy-Download und automatische Updates
 
 Für eine installierbare Handy-Version nutzt Friday Mobile EAS Build mit interner Distribution. Der Android-Preview-Build erzeugt eine direkt installierbare APK über einen EAS-Link.
+
+
+Aktueller Creme/Moos-Preview-Build:
+
+```text
+https://expo.dev/artifacts/eas/EKmkRcLTi_ZmjHcgInjy_L9QkfPUK9Cg1C7b0qZvUrs.apk
+```
 
 Release-Check:
 

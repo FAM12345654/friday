@@ -48,7 +48,7 @@ Historische Build-Gates und Detailplaene liegen im Archiv unter `archive/`.
 
 ## Empfehlung fuer naechsten Build Step
 
-Naechster sinnvoller Build Step: Build Step 1.1J - Post-1.0 Commit Gate nur nach ausdruecklicher Freigabe ausfuehren.
+Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansicht planen oder read-only Preview bauen.
 
 
 | FRIDAY_1_1B_CLI_TERMS_AND_RETURN_HINTS.md | CLI-Begriffe und Rueckkehrhinweise nach 1.0 | aktiv |
@@ -67,3 +67,26 @@ Naechster sinnvoller Build Step: Build Step 1.1J - Post-1.0 Commit Gate nur nach
 | FRIDAY_1_1H_POST_1_0_COMMIT_GATE_PLAN.md | Plan fuer spaeteren Post-1.0-Commit | aktiv |
 
 | FRIDAY_1_1I_STAGED_COMMIT_READINESS_CHECK.md | Readiness Check fuer spaeteren Post-1.0-Commit | aktiv |
+
+| FRIDAY_1_1K_POST_COMMIT_SMOKE_SUMMARY.md | Post-Commit-Smoke-Summary nach 1.1J | aktiv |
+
+| FRIDAY_1_2A_PRODUCT_PLANNING_GATE.md | Produktplanung fuer Friday 1.2 | aktiv |
+
+## Post-1.0 Produktdokumente
+
+| Dokument | Zweck | Status |
+|---|---|---|
+| `FRIDAY_1_1A_CLI_POLISH.md` | CLI-Polish fuer lokale Hinweise und Hilfe | vorhanden |
+| `FRIDAY_1_1B_CLI_TERMS_AND_RETURN_HINTS.md` | Rueckkehrhinweise und konsistente Begriffe | vorhanden |
+| `FRIDAY_1_1C_BACKUP_PRIVACY_CLI_HINTS.md` | Backup-/Privacy-Menuehinweise | vorhanden |
+| `FRIDAY_1_1D_CLI_HELP_SAFETY_CONSOLIDATION.md` | Safety-Hinweise in der CLI-Hilfe | vorhanden |
+| `FRIDAY_1_1E_POST_1_0_DOC_CLEANUP.md` | Dokumentationsbereinigung nach 1.0 | vorhanden |
+| `FRIDAY_1_1F_POST_1_0_UX_VALIDATION.md` | Fokusvalidierung der Post-1.0-UX | vorhanden |
+| `FRIDAY_1_1G_FULL_REGRESSION_VALIDATION.md` | Full-Regression-Gate nach 1.1 | vorhanden |
+| `FRIDAY_1_1H_POST_1_0_COMMIT_GATE_PLAN.md` | Commit-Gate-Plan | vorhanden |
+| `FRIDAY_1_1I_STAGED_COMMIT_READINESS_CHECK.md` | Staged-Commit-Readiness | vorhanden |
+| `FRIDAY_1_1K_POST_COMMIT_SMOKE_SUMMARY.md` | Post-Commit-Smoke-Zusammenfassung | vorhanden |
+| `FRIDAY_1_2A_PRODUCT_PLANNING_GATE.md` | Produktplanung fuer naechsten kleinen Step | vorhanden |
+| `FRIDAY_1_2B_TASK_REVIEW_PREVIEW_MODEL.md` | Read-only Task-Review-Preview-Modell | vorhanden |
+| `FRIDAY_MOBILE_DESKTOP_GUIDE.md` | Handy-/Desktop-Installation, Verbindung, Updates und Design-System | vorhanden |
+| `FRIDAY_PRODUCT_FINAL_GATE.md` | Finaler Produktstand fuer CLI, Mobile und Desktop | vorhanden |

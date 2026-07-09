@@ -21,3 +21,4 @@ friday-mobile/dist/
 friday-desktop/node_modules/
 *.log
 *.bak
+friday-desktop/dist/
