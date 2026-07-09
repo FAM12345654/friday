@@ -96,6 +96,7 @@ def test_list_messages_maps_only_preview_fields() -> None:
                         "subject": "Bitte Philip Rechnung prüfen",
                         "receivedDateTime": "2026-07-09T10:00:00Z",
                         "bodyPreview": "Kurzvorschau" * 80,
+                        "body": {"contentType": "html", "content": "<p>Hallo <b>Philip</b></p><p>Bitte prüfen.</p>"},
                     }
                 ]
             }
@@ -107,6 +108,7 @@ def test_list_messages_maps_only_preview_fields() -> None:
     assert result.messages[0]["message_id"] == "graph-1"
     assert result.messages[0]["sender"] == "kunde@example.test"
     assert len(result.messages[0]["snippet"]) == 500
+    assert result.messages[0]["body_full"] == "Hallo Philip\nBitte prüfen."
     assert "body" not in result.messages[0]
 
 

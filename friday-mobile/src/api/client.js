@@ -313,6 +313,10 @@ export async function getMsMailMessages(
   return callApi(`/api/messages/ms-mail?${params.toString()}`);
 }
 
+export async function getMsMailMessage(messageId) {
+  return callApi(`/api/messages/ms-mail/${encodeURIComponent(String(messageId))}`);
+}
+
 export async function deleteMsMailAccount(accountId, payload) {
   return callApi(`/api/accounts/ms-mail/${encodeURIComponent(String(accountId))}`, {
     method: "DELETE",

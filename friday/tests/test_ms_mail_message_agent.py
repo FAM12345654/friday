@@ -178,3 +178,32 @@ def test_message_agent_skips_non_relevant_office_ms_mail_for_suggestions(tmp_pat
     assert agent.get_pending_task_suggestions() == []
     assert agent.get_ms_mail_messages_as_local_messages() == []
     assert repo.list_messages(include_all=True)[0]["relevance_reason"] == "office_not_relevant"
+
+
+def test_message_agent_uses_full_ms_mail_body_for_task_suggestions(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    repo = MsMailMessageRepository(db_path)
+    repo.upsert_messages(
+        [
+            {
+                "message_id": "graph-body-task",
+                "sender": "info@example.test",
+                "subject": "Kurze Info",
+                "received_at": "2026-07-09T10:00:00Z",
+                "snippet": "Ohne Aufgabe.",
+                "body_full": "Bitte erledigen: Philip soll die Unterlagen prüfen.",
+                "recipients": [{"name": "Philip Zeitler", "address": "philip@familienhelden.at"}],
+            }
+        ],
+        account_id="office_familienhelden_at",
+        account_username="office@familienhelden.at",
+    )
+
+    agent = MessageAgent(db_path=db_path)
+    result = agent.process_unprocessed_ms_mail_messages()
+
+    assert result["processed_count"] == 1
+    assert result["task_suggestions_created"] == 1
+    suggestion = agent.get_pending_task_suggestions()[0]
+    assert "Bitte erledigen" in suggestion["notes"]

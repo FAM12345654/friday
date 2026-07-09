@@ -171,6 +171,7 @@ class MessageAgent:
                     "recipients_json": item.get("recipients_json"),
                     "relevant_for_user": item.get("relevant_for_user", 1),
                     "relevance_reason": item.get("relevance_reason"),
+                    "relevance_method": item.get("relevance_method"),
                 }
             )
         return items
@@ -373,6 +374,7 @@ class MessageAgent:
                     for part in (
                         str(item.get("subject") or "").strip(),
                         str(item.get("snippet") or "").strip(),
+                        str(item.get("body_full") or "").strip(),
                     )
                     if part
                 ),

@@ -245,3 +245,10 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 - `office@familienhelden.at` wird in der Standardansicht lokal nach Philip-/Team-/Betreuer-Relevanz gefiltert.
 - `include_all=true`, Mobile `Alle anzeigen` und CLI `Alle Microsoft-Mails anzeigen` zeigen die lokal gespeicherten Ausnahmen.
 - Safety bleibt read-only: `Mail.Read`, kein `Mail.Send`, keine Provider-Schreibaktion.
+
+## Volle Mail-Inhalte + KI-Relevanz
+
+- Microsoft-Mail-Sync speichert `body_full`, Empfaenger-JSON, `body_fetched_at` und `relevance_method` lokal in SQLite.
+- Office-Relevanz nutzt deterministische Regeln plus lokale KI auf vollem Body. Fallback bei KI-Fehler: sichtbar markieren.
+- Mobile Detailansicht zeigt den kompletten lokal gespeicherten Mail-Text erst nach Antippen.
+- Safety: weiterhin `Mail.Read`, kein `Mail.Send`, kein `Mail.ReadWrite`, keine Cloud-KI fuer Body-Inhalte.

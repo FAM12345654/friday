@@ -133,3 +133,8 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 ## MS-Mail Sender/Relevance Gate
 
 - `FRIDAY_MS_MAIL_SENDER_RELEVANCE_GATE.md` dokumentiert den lesbaren Absender-Fix und den lokalen Office-Relevanzfilter fuer Microsoft-Mail-Vorschauen.
+
+## MS-Mail Full Body Relevance Gate
+
+- `FRIDAY_MS_MAIL_READ_GATE.md` dokumentiert die lokale Body-Speicherung, KI-Relevanz auf vollem Inhalt und die mobile Detailansicht.
+- `FRIDAY_MS_MAIL_SENDER_RELEVANCE_GATE.md` bleibt die Absender-/Office-Filter-Grundlage und wurde um Full-Body-Relevanz erweitert.

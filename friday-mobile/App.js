@@ -50,6 +50,7 @@ import {
   getMessageSuggestion,
   getMessageSuggestions,
   getMessages,
+  getMsMailMessage,
   getMsMailMessages,
   getMsMailStatus,
   getPrivacy,
@@ -269,9 +270,21 @@ const msMailRelevanceLabel = (reason) => {
     philip_trigger: "Philip erwaehnt",
     team_all_partners: "Team",
     customer_betreuer_philip: "Betreuer Philip",
+    ai_unavailable_conservative_include: "KI-Fallback: anzeigen",
     office_not_relevant: "nicht relevant",
   };
+  if (reason && !labels[reason]) {
+    return `KI: ${reason}`;
+  }
   return labels[reason] || "Relevanz lokal";
+};
+
+const msMailRecipientsText = (detail) => {
+  const recipients = Array.isArray(detail?.recipients_list) ? detail.recipients_list : [];
+  if (!recipients.length) {
+    return "-";
+  }
+  return recipients.map((item) => item.label || item.address || item.name || "-").join(", ");
 };
 
 const contactTypeOptions = [
@@ -463,6 +476,7 @@ export default function App() {
   const [msMailStatus, setMsMailStatus] = useState(null);
   const [msMailInbox, setMsMailInbox] = useState(null);
   const [msMailIncludeAll, setMsMailIncludeAll] = useState(false);
+  const [selectedMsMailDetail, setSelectedMsMailDetail] = useState(null);
   const [whatsappStatus, setWhatsappStatus] = useState(null);
   const [whatsappInbox, setWhatsappInbox] = useState(null);
   const [blockedSenders, setBlockedSenders] = useState([]);
@@ -1195,6 +1209,21 @@ export default function App() {
     }
   };
 
+  const handleOpenMsMailDetail = async (item) => {
+    if (!item?.id) {
+      return;
+    }
+    setActionBusy(true);
+    setMsMailResult("");
+    try {
+      setSelectedMsMailDetail(await getMsMailMessage(item.id));
+    } catch (err) {
+      setMsMailResult(`Mail-Detail konnte nicht geladen werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const handleSyncMsMail = async (accountId = null) => {
     const selectedAccountId = typeof accountId === "string" ? accountId : null;
     setActionBusy(true);
@@ -1908,8 +1937,43 @@ export default function App() {
             </View>
             {!!msMailInbox?.message && <Text style={styles.cardMeta}>{msMailInbox.message}</Text>}
           </View>
+          {!!selectedMsMailDetail && (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{selectedMsMailDetail.subject || "(ohne Betreff)"}</Text>
+                <Chip
+                  label={msMailRelevanceLabel(selectedMsMailDetail.relevance_reason)}
+                  color={selectedMsMailDetail.relevance_method === "ai" ? colors.warn : colors.sage}
+                />
+              </View>
+              <Text style={styles.cardMeta}>Von: {selectedMsMailDetail.sender || "-"}</Text>
+              <Text style={styles.cardMeta}>
+                Empfaenger: {msMailRecipientsText(selectedMsMailDetail)}
+              </Text>
+              <Text style={styles.cardMeta}>
+                Postfach: {selectedMsMailDetail.account_username || selectedMsMailDetail.account_id || "-"}
+              </Text>
+              <Text style={styles.cardMeta}>{selectedMsMailDetail.received_at || ""}</Text>
+              <Text style={styles.cardBody}>{selectedMsMailDetail.body_full || selectedMsMailDetail.snippet || ""}</Text>
+              <Text style={styles.forwardSafety}>
+                Volltext ist lokal in SQLite gespeichert. Friday sendet diese Mail nicht extern.
+              </Text>
+              <ActionButton
+                small
+                variant="ghost"
+                label="Detail schließen"
+                onPress={() => setSelectedMsMailDetail(null)}
+                disabled={actionBusy}
+              />
+            </View>
+          )}
           {isArray(msMailInbox?.items).map((item, index) => (
-            <View key={`${item.message_id || "ms-mail"}-${index}`} style={styles.card}>
+            <TouchableOpacity
+              key={`${item.message_id || "ms-mail"}-${index}`}
+              style={styles.card}
+              activeOpacity={0.84}
+              onPress={() => handleOpenMsMailDetail(item)}
+            >
               <Text style={styles.cardTitle}>{item.subject || "(ohne Betreff)"}</Text>
               <Text style={styles.cardMeta}>Von: {item.sender || "-"}</Text>
               <Text style={styles.cardMeta}>Postfach: {item.account_username || item.account_id || "-"}</Text>
@@ -1928,7 +1992,7 @@ export default function App() {
                   disabled={actionBusy}
                 />
               </View>
-            </View>
+            </TouchableOpacity>
           ))}
           {isArray(msMailInbox?.items).length === 0 && (
             <View style={styles.card}>

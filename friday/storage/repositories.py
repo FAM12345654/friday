@@ -9,7 +9,7 @@ import hashlib
 import json
 import re
 import sqlite3
-from typing import List
+from typing import Callable, List, Mapping
 
 from friday.config import get_database_path
 from friday.app.todo_relevance import determine_mail_relevance
@@ -728,8 +728,14 @@ class MsMailMessageRepository:
 
     SNIPPET_LIMIT = 500
 
-    def __init__(self, db_path: Path | str | None = None) -> None:
+    def __init__(
+        self,
+        db_path: Path | str | None = None,
+        *,
+        ai_relevance_decider: Callable[[str, Mapping[str, object]], Mapping[str, object]] | None = None,
+    ) -> None:
         self.db_path = db_path or get_database_path()
+        self.ai_relevance_decider = ai_relevance_decider
 
     @staticmethod
     def _clean(value: object) -> str:
@@ -748,7 +754,7 @@ class MsMailMessageRepository:
         account_id: str = "default",
         account_username: str | None = None,
     ) -> tuple[dict, ...]:
-        """Insert or update message previews without storing full bodies."""
+        """Insert or update read-only messages including full local body text."""
         normalized: list[dict[str, object]] = []
         normalized_account_id = self._clean(account_id) or "default"
         normalized_account_username = self._clean(account_username)
@@ -762,8 +768,12 @@ class MsMailMessageRepository:
             item_account_username = self._clean(item.get("account_username")) or normalized_account_username
             sender = self._clean(item.get("sender"))
             subject = self._clean(item.get("subject"))
+            body_full = str(item.get("body_full") or item.get("body") or "").strip()
             snippet = str(item.get("snippet") or "")[: self.SNIPPET_LIMIT]
+            if not snippet and body_full:
+                snippet = body_full[: self.SNIPPET_LIMIT]
             recipients = item.get("recipients") if isinstance(item.get("recipients"), list) else []
+            recipients_json = json.dumps(recipients, ensure_ascii=False, sort_keys=True)
             relevance = determine_mail_relevance(
                 account=item_account_username or item_account_id,
                 subject=subject,
@@ -771,6 +781,8 @@ class MsMailMessageRepository:
                 sender=sender,
                 recipients=recipients,
                 sender_contact=contacts.find_contact_for_sender(sender),
+                body_full=body_full,
+                ai_decider=self.ai_relevance_decider,
             )
             normalized.append(
                 {
@@ -782,10 +794,14 @@ class MsMailMessageRepository:
                     "subject": subject,
                     "received_at": self._clean(item.get("received_at")),
                     "snippet": snippet,
+                    "body_full": body_full,
+                    "body_fetched_at": _now_iso_timestamp() if body_full else None,
                     "is_spam": 1 if blocked_senders.is_sender_blocked(source="ms_mail", sender=sender) else 0,
-                    "recipients_json": json.dumps(recipients, ensure_ascii=False, sort_keys=True),
+                    "recipients": recipients_json,
+                    "recipients_json": recipients_json,
                     "relevant_for_user": 1 if relevance["relevant"] else 0,
                     "relevance_reason": str(relevance["reason"]),
+                    "relevance_method": str(relevance.get("method") or "deterministic"),
                 }
             )
 
@@ -798,12 +814,14 @@ class MsMailMessageRepository:
                 INSERT INTO ms_mail_messages (
                     account_id, account_username, message_id, provider_message_id,
                     sender, subject, received_at, snippet, processed, suggestion_created,
-                    is_spam, recipients_json, relevant_for_user, relevance_reason
+                    is_spam, recipients, recipients_json, body_full, body_fetched_at,
+                    relevant_for_user, relevance_reason, relevance_method
                 )
                 VALUES (
                     :account_id, :account_username, :message_id, :provider_message_id,
                     :sender, :subject, :received_at, :snippet, 0, 0,
-                    :is_spam, :recipients_json, :relevant_for_user, :relevance_reason
+                    :is_spam, :recipients, :recipients_json, :body_full, :body_fetched_at,
+                    :relevant_for_user, :relevance_reason, :relevance_method
                 )
                 ON CONFLICT(message_id) DO UPDATE SET
                     account_id = excluded.account_id,
@@ -817,9 +835,13 @@ class MsMailMessageRepository:
                         WHEN excluded.is_spam = 1 THEN 1
                         ELSE ms_mail_messages.is_spam
                     END,
+                    body_full = excluded.body_full,
+                    body_fetched_at = excluded.body_fetched_at,
+                    recipients = excluded.recipients,
                     recipients_json = excluded.recipients_json,
                     relevant_for_user = excluded.relevant_for_user,
-                    relevance_reason = excluded.relevance_reason
+                    relevance_reason = excluded.relevance_reason,
+                    relevance_method = excluded.relevance_method
                 """,
                 normalized,
             )
@@ -830,7 +852,8 @@ class MsMailMessageRepository:
                 SELECT
                     id, account_id, account_username, message_id, provider_message_id,
                     sender, subject, received_at, snippet, processed, suggestion_created,
-                    is_spam, recipients_json, relevant_for_user, relevance_reason
+                    is_spam, recipients, recipients_json, body_fetched_at,
+                    relevant_for_user, relevance_reason, relevance_method
                 FROM ms_mail_messages
                 WHERE message_id IN ({placeholders})
                 ORDER BY received_at DESC, id DESC
@@ -869,7 +892,8 @@ class MsMailMessageRepository:
                 SELECT
                     id, account_id, account_username, message_id, provider_message_id,
                     sender, subject, received_at, snippet, processed, suggestion_created,
-                    is_spam, recipients_json, relevant_for_user, relevance_reason
+                    is_spam, recipients, recipients_json, body_fetched_at,
+                    relevant_for_user, relevance_reason, relevance_method
                 FROM ms_mail_messages
                 {where}
                 ORDER BY received_at DESC, id DESC
@@ -878,6 +902,24 @@ class MsMailMessageRepository:
                 params,
             ).fetchall()
         return [row_to_dict(row) for row in rows]
+
+    def get_message_by_id(self, local_id: int) -> dict | None:
+        """Return one locally stored Microsoft mail with full body text."""
+        with get_connection(self.db_path) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    id, account_id, account_username, message_id, provider_message_id,
+                    sender, subject, received_at, snippet, body_full, body_fetched_at,
+                    processed, suggestion_created, is_spam, recipients, recipients_json,
+                    relevant_for_user, relevance_reason, relevance_method
+                FROM ms_mail_messages
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (int(local_id),),
+            ).fetchone()
+        return row_to_dict(row) if row is not None else None
 
     def get_unprocessed_messages(self, limit: int = 50, *, account_id: str | None = None) -> list[dict]:
         """Return MS mail previews not yet processed into review suggestions."""
@@ -895,8 +937,8 @@ class MsMailMessageRepository:
                 f"""
                 SELECT
                     id, account_id, account_username, message_id, provider_message_id,
-                    sender, subject, received_at, snippet, processed, suggestion_created,
-                    is_spam, recipients_json, relevant_for_user, relevance_reason
+                    sender, subject, received_at, snippet, body_full, processed, suggestion_created,
+                    is_spam, recipients, recipients_json, relevant_for_user, relevance_reason, relevance_method
                 FROM ms_mail_messages
                 {where}
                 ORDER BY received_at DESC, id DESC

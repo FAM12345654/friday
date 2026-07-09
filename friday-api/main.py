@@ -6,6 +6,7 @@ import os
 import sys
 from dataclasses import asdict
 from datetime import date, timedelta
+import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -396,6 +397,19 @@ def _today() -> str:
 
 def _envelope(data: Any) -> dict[str, Any]:
     return {"ok": True, "data": data}
+
+
+def _parse_ms_mail_recipients(item: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = item.get("recipients") or item.get("recipients_json")
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        parsed = json.loads(str(raw))
+    except json.JSONDecodeError:
+        return []
+    return parsed if isinstance(parsed, list) else []
 
 
 def _calendar_provider_result_payload(provider_result: Any) -> dict[str, Any]:
@@ -1930,6 +1944,22 @@ def get_ms_mail_messages(
             "include_spam": include_spam,
             "include_all": include_all,
             "status": ms_mail_account_status(),
+            "read_only": True,
+            "real_email_enabled": config.ENABLE_REAL_EMAIL,
+        }
+    )
+
+
+@app.get("/api/messages/ms-mail/{message_id}")
+def get_ms_mail_message_detail(message_id: int) -> dict[str, Any]:
+    repository = MsMailMessageRepository(message_agent.db_path)
+    item = repository.get_message_by_id(message_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Microsoft-Mail wurde nicht gefunden.")
+    item["recipients_list"] = _parse_ms_mail_recipients(item)
+    return _envelope(
+        {
+            **item,
             "read_only": True,
             "real_email_enabled": config.ENABLE_REAL_EMAIL,
         }

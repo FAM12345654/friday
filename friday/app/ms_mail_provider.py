@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from html import unescape
+from html.parser import HTMLParser
 import json
 from typing import Any, Callable
 from urllib import error, parse, request
@@ -37,6 +39,29 @@ class MsMailProviderResult:
 
 def _clean(value: Any) -> str:
     return " ".join(str(value or "").strip().split())
+
+
+class _HTMLToTextParser(HTMLParser):
+    """Small stdlib-only HTML-to-text parser for read-only mail bodies."""
+
+    BLOCK_TAGS = {"br", "div", "p", "li", "tr"}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() in self.BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if data:
+            self.parts.append(data)
+
+    def get_text(self) -> str:
+        raw = unescape("".join(self.parts))
+        lines = [" ".join(line.strip().split()) for line in raw.splitlines()]
+        return "\n".join(line for line in lines if line).strip()
 
 
 def _is_x500_address(value: str | None) -> bool:
@@ -268,6 +293,21 @@ def _recipient_list(item: dict[str, Any]) -> list[dict[str, str]]:
     return recipients
 
 
+def _body_text(item: dict[str, Any]) -> str:
+    body = item.get("body")
+    if not isinstance(body, dict):
+        return ""
+    content = str(body.get("content") or "")
+    if not content:
+        return ""
+    content_type = str(body.get("contentType") or "").strip().casefold()
+    if content_type == "html":
+        parser = _HTMLToTextParser()
+        parser.feed(content)
+        return parser.get_text()
+    return "\n".join(line.rstrip() for line in unescape(content).splitlines()).strip()
+
+
 def _map_message(item: dict[str, Any]) -> dict[str, Any] | None:
     message_id = _clean(item.get("id"))
     if not message_id:
@@ -279,6 +319,7 @@ def _map_message(item: dict[str, Any]) -> dict[str, Any] | None:
         "received_at": _clean(item.get("receivedDateTime")),
         "snippet": str(item.get("bodyPreview") or "")[:MAX_BODY_PREVIEW_CHARS],
         "recipients": _recipient_list(item),
+        "body_full": _body_text(item),
     }
 
 
@@ -288,7 +329,7 @@ def list_messages(
     top: int = 25,
     urlopen: Callable[..., Any] | None = None,
 ) -> MsMailProviderResult:
-    """Read recent message previews from Microsoft Graph without full bodies."""
+    """Read recent messages from Microsoft Graph with full body text, read-only."""
     try:
         limit = max(1, min(int(top), 50))
     except (TypeError, ValueError):
@@ -296,7 +337,7 @@ def list_messages(
     query = parse.urlencode(
         {
             "$top": str(limit),
-            "$select": "id,from,sender,toRecipients,ccRecipients,subject,receivedDateTime,bodyPreview",
+            "$select": "id,from,sender,toRecipients,ccRecipients,subject,receivedDateTime,bodyPreview,body",
             "$orderby": "receivedDateTime desc",
         }
     )

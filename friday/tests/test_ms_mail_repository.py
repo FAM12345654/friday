@@ -41,6 +41,36 @@ def test_ms_mail_repository_upserts_and_deduplicates(tmp_path) -> None:
     assert "body" not in items[0]
 
 
+def test_ms_mail_repository_stores_full_body_and_recipients(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    repo = MsMailMessageRepository(db_path)
+
+    stored = repo.upsert_messages(
+        [
+            {
+                "message_id": "graph-body",
+                "sender": "info@example.test",
+                "subject": "Bitte Philip prüfen",
+                "received_at": "2026-07-09T10:00:00Z",
+                "snippet": "Kurz",
+                "body_full": "Voller lokaler Mailtext.",
+                "recipients": [{"type": "to", "name": "Philip", "address": "philip@example.test"}],
+            }
+        ],
+        account_id="office_familienhelden_at",
+        account_username="office@familienhelden.at",
+    )[0]
+    detail = repo.get_message_by_id(stored["id"])
+
+    assert detail is not None
+    assert detail["body_full"] == "Voller lokaler Mailtext."
+    assert detail["body_fetched_at"]
+    assert '"Philip"' in detail["recipients"]
+    assert detail["recipients"] == detail["recipients_json"]
+    assert stored["relevance_method"] == "deterministic"
+
+
 def test_ms_mail_repository_marks_processed(tmp_path) -> None:
     db_path = tmp_path / "friday.db"
     setup_local_database(db_path, seed_demo_data=False)
@@ -104,6 +134,68 @@ def test_ms_mail_repository_hides_non_relevant_office_mail_by_default(tmp_path) 
     assert len(all_items) == 1
     assert all_items[0]["relevant_for_user"] == 0
     assert all_items[0]["relevance_reason"] == "office_not_relevant"
+    assert all_items[0]["relevance_method"] == "deterministic"
+
+
+def test_ms_mail_repository_uses_ai_decider_for_full_body_office_relevance(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+
+    def _ai_decider(body_full, _context):
+        assert "Nur Alex" in body_full
+        return {"relevant": False, "reason": "KI: nur Alex", "confidence": 0.9}
+
+    repo = MsMailMessageRepository(db_path, ai_relevance_decider=_ai_decider)
+
+    repo.upsert_messages(
+        [
+            {
+                "message_id": "graph-office-ai",
+                "sender": "info@example.test",
+                "subject": "Allgemeine Info",
+                "snippet": "Bitte lesen.",
+                "body_full": "Nur Alex ist betroffen.",
+                "recipients": [{"name": "Alex", "address": "alex@familienhelden.at"}],
+            }
+        ],
+        account_id="office_familienhelden_at",
+        account_username="office@familienhelden.at",
+    )
+
+    assert repo.list_messages() == []
+    item = repo.list_messages(include_all=True)[0]
+    assert item["relevant_for_user"] == 0
+    assert item["relevance_reason"] == "KI: nur Alex"
+    assert item["relevance_method"] == "ai"
+
+
+def test_ms_mail_repository_fallback_keeps_unclear_office_mail_visible(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    repo = MsMailMessageRepository(
+        db_path,
+        ai_relevance_decider=lambda _body, _context: {"invalid": "shape"},
+    )
+
+    repo.upsert_messages(
+        [
+            {
+                "message_id": "graph-office-fallback",
+                "sender": "info@example.test",
+                "subject": "Allgemeine Info",
+                "snippet": "Bitte lesen.",
+                "body_full": "Unklarer voller Text.",
+                "recipients": [{"name": "Alex", "address": "alex@familienhelden.at"}],
+            }
+        ],
+        account_id="office_familienhelden_at",
+        account_username="office@familienhelden.at",
+    )
+
+    item = repo.list_messages()[0]
+    assert item["relevant_for_user"] == 1
+    assert item["relevance_reason"] == "ai_unavailable_conservative_include"
+    assert item["relevance_method"] == "fallback"
 
 
 def test_ms_mail_repository_keeps_philip_relevant_office_mail_visible(tmp_path) -> None:

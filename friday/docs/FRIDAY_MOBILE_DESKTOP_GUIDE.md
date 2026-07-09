@@ -459,3 +459,9 @@ Details: `FRIDAY_LOCAL_SPAM_BLOCKLIST_GATE.md`.
 Siehe `FRIDAY_MS_MAIL_SENDER_RELEVANCE_GATE.md`.
 
 In der mobilen Nachrichtenansicht zeigt Friday fuer das geteilte Office-Postfach standardmaessig nur lokal relevante Mails. Mit `Alle anzeigen` werden auch lokal synchronisierte, aber nicht relevante Office-Mails sichtbar. Persoenliche Postfaecher bleiben voll sichtbar.
+
+## Volle Microsoft-Mail-Details
+
+Die Familienhelden-Mail-Ansicht zeigt weiterhin eine kurze Liste. Beim Antippen einer Microsoft-Mail laedt Friday den lokal gespeicherten Volltext aus SQLite und zeigt Absender, Empfaenger, Postfach, Datum und Relevanzgrund.
+
+Datenschutz-Hinweis: Volltexte aus Microsoft Graph werden lokal gespeichert, damit die lokale KI die Relevanz auf dem ganzen Inhalt pruefen kann. Diese Inhalte werden nicht in Git gespeichert und nicht an Cloud-KI gesendet.

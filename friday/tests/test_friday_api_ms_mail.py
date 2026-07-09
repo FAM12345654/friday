@@ -243,6 +243,39 @@ def test_ms_mail_endpoint_hides_office_irrelevant_by_default_and_include_all_res
     assert all_view["items"][0]["relevance_reason"] == "office_not_relevant"
 
 
+def test_ms_mail_detail_endpoint_returns_full_local_body_and_recipients(tmp_path) -> None:
+    api = _load_api_module()
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    api.message_agent = MessageAgent(db_path=db_path)
+    repo = MsMailMessageRepository(db_path)
+    stored = repo.upsert_messages(
+        [
+            {
+                "message_id": "graph-detail",
+                "sender": "Info <info@example.test>",
+                "subject": "Bitte Philip prüfen",
+                "received_at": "2026-07-09T10:00:00Z",
+                "snippet": "Kurz",
+                "body_full": "Der komplette lokale Mailtext.",
+                "recipients": [{"type": "to", "name": "Philip", "address": "philip@example.test"}],
+            }
+        ],
+        account_id="office_familienhelden_at",
+        account_username="office@familienhelden.at",
+    )[0]
+
+    client = TestClient(api.app)
+    response = client.get(f"/api/messages/ms-mail/{stored['id']}")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["body_full"] == "Der komplette lokale Mailtext."
+    assert payload["recipients_list"][0]["name"] == "Philip"
+    assert payload["read_only"] is True
+    assert payload["real_email_enabled"] is False
+
+
 def test_ms_mail_delete_endpoint_removes_selected_account(monkeypatch) -> None:
     api = _load_api_module()
     deleted = []

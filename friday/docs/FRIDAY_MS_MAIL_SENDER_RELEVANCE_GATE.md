@@ -21,7 +21,7 @@ Die lokale Vorschau bildet Absender so ab:
 - Interne X.500-Adresse ohne Name: `Intern <kurzer technischer Schluessel>`
 - Fallback: `Unbekannter Absender`
 
-Es werden keine Mail-Bodies gespeichert.
+Mail-Bodies werden seit dem Full-Body-Gate bewusst lokal in SQLite gespeichert, damit die lokale KI die Relevanz auf dem ganzen Inhalt pruefen kann. Sie werden nicht in Git oder Cloud-KI geschrieben.
 
 ## Office-Relevanzfilter
 
@@ -29,7 +29,7 @@ Das geteilte Office-Postfach zeigt in der Standardansicht nur relevante lokale V
 
 Relevant ist eine Office-Mail, wenn:
 
-- Philip, Phips, PH oder Zeitler im Betreff, Snippet, Absender oder Empfaenger vorkommt,
+- Philip, Phips, PH oder Zeitler im Betreff, Absender, Empfaenger oder per lokaler KI im vollen Body vorkommt,
 - alle drei Partner Philip, Alex und Flo erwaehnt werden,
 - der Absender als Kunde mit `betreuer=philip` lokal gespeichert ist.
 
@@ -54,7 +54,7 @@ Die CLI hat den Menuepunkt `Alle Microsoft-Mails anzeigen`.
 - Keine echten Sendungen.
 - Keine Provider-Schreibaktion.
 - Keine externe Aktion durch den Relevanzfilter.
-- Speicherung bleibt lokal in SQLite.
+- Speicherung bleibt lokal in SQLite; Volltexte bleiben lokal und werden nur an lokales Ollama bzw. Mock-Tests gegeben.
 
 ## Tests
 

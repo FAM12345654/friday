@@ -123,3 +123,12 @@ Es gibt keinen Auto-Reply und keinen Versand.
 - Scanner-Allowlist bleibt eng auf das Provider-Modul begrenzt.
 - Tests mocken OAuth und Graph komplett.
 - Tokens/Secrets werden nicht in Status, Tests oder Doku ausgegeben.
+
+## Volle Mail-Inhalte und KI-Relevanz
+
+- Microsoft Graph bleibt read-only mit `Mail.Read`.
+- Friday holt zusaetzlich den vollen Mail-Body, Empfaenger und CC aus demselben Read-Call.
+- Volltexte werden lokal in SQLite gespeichert (`ms_mail_messages.body_full`) und nicht ins Git geschrieben.
+- Fuer `office@familienhelden.at` entscheidet Friday zuerst deterministisch. Wenn der Fall unklar ist, prueft die lokale KI den vollen Body. Bei KI-Fehlern wird konservativ sichtbar markiert.
+- Die mobile App laedt den Volltext erst in der Mail-Detailansicht. Listen bleiben Vorschauen.
+- Es gibt weiterhin keinen Mail-Versand und keine Schreibrechte.

@@ -225,12 +225,16 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 subject TEXT,
                 received_at TEXT,
                 snippet TEXT,
+                body_full TEXT,
+                body_fetched_at TEXT,
                 processed INTEGER NOT NULL DEFAULT 0,
                 suggestion_created INTEGER NOT NULL DEFAULT 0,
                 is_spam INTEGER NOT NULL DEFAULT 0,
+                recipients TEXT,
                 recipients_json TEXT,
                 relevant_for_user INTEGER NOT NULL DEFAULT 1,
-                relevance_reason TEXT
+                relevance_reason TEXT,
+                relevance_method TEXT NOT NULL DEFAULT 'deterministic'
             );
 
             CREATE TABLE IF NOT EXISTS blocked_senders (
@@ -317,12 +321,29 @@ def _ensure_ms_mail_message_account_columns(connection: sqlite3.Connection) -> N
         )
     if "recipients_json" not in existing:
         connection.execute("ALTER TABLE ms_mail_messages ADD COLUMN recipients_json TEXT")
+    if "recipients" not in existing:
+        connection.execute("ALTER TABLE ms_mail_messages ADD COLUMN recipients TEXT")
+        connection.execute(
+            """
+            UPDATE ms_mail_messages
+            SET recipients = recipients_json
+            WHERE recipients IS NULL AND recipients_json IS NOT NULL
+            """
+        )
+    if "body_full" not in existing:
+        connection.execute("ALTER TABLE ms_mail_messages ADD COLUMN body_full TEXT")
+    if "body_fetched_at" not in existing:
+        connection.execute("ALTER TABLE ms_mail_messages ADD COLUMN body_fetched_at TEXT")
     if "relevant_for_user" not in existing:
         connection.execute(
             "ALTER TABLE ms_mail_messages ADD COLUMN relevant_for_user INTEGER NOT NULL DEFAULT 1"
         )
     if "relevance_reason" not in existing:
         connection.execute("ALTER TABLE ms_mail_messages ADD COLUMN relevance_reason TEXT")
+    if "relevance_method" not in existing:
+        connection.execute(
+            "ALTER TABLE ms_mail_messages ADD COLUMN relevance_method TEXT NOT NULL DEFAULT 'deterministic'"
+        )
 
 
 def _read_json(file_name: str) -> List[Dict[str, Any]]:

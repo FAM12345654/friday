@@ -310,3 +310,6 @@ Safety:
 - `ENABLE_MS_MAIL_READ` ist aktivierbar und wird nicht als Sendeflag behandelt.
 - Die Sende-Flags bleiben gesperrt; `ENABLE_REAL_EMAIL = False` bleibt unveraendert.
 - Kein `Mail.Send`, keine automatischen Antworten, keine echten Versandaktionen.
+| Microsoft-Mail Body-Speicherung | erlaubt lokal | nur `Mail.Read`, volle Bodies lokal in SQLite, keine Cloud-KI, keine Git-Speicherung |
+| Microsoft-Mail KI-Relevanz | erlaubt lokal | deterministisch zuerst; bei unklaren Office-Mails lokale KI/Ollama auf vollem Body; Fallback sichtbar |
+| Microsoft-Mail Detailansicht | erlaubt read-only | zeigt lokal gespeicherten Volltext, keine Provider-Schreibaktion |
