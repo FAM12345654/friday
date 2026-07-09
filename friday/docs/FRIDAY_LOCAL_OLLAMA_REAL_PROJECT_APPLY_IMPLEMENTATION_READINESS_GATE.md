@@ -97,3 +97,5 @@ Local Ollama Manual Activation Decision Gate:
 - vorher Ollama lokal pruefen,
 - weiterhin keine externen Aktionen,
 - bei Nein bleibt Friday im Mock-Modus.
+
+Status danach: Die Entscheidung ist in `FRIDAY_LOCAL_OLLAMA_MANUAL_ACTIVATION_DECISION_GATE.md` dokumentiert.
