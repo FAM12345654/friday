@@ -93,3 +93,5 @@ Local Ollama Real Project Apply Implementation Gate:
 - den echten Projekt-Write nur nach explizitem Token, Safety Smoke, Health Check
   und Dry Run erlauben,
 - Rollback technisch erzwingen.
+
+Status danach: Das Implementation Gate ist in `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_IMPLEMENTATION_GATE.md` dokumentiert.
