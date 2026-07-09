@@ -28,6 +28,7 @@ import {
   deleteTask,
   getEmailAccountStatus,
   getEmailInbox,
+  generateCalendarEventSuggestionForMessage,
   getWhatsAppMessages,
   getWhatsAppStatus,
   generateTaskSuggestionsForMessage,
@@ -39,6 +40,7 @@ import {
   getMessageSuggestions,
   getMessages,
   getPrivacy,
+  getSetupStatus,
   getTasks,
   sendTaskForwardEmail,
   testEmailAccountConnection,
@@ -53,6 +55,7 @@ const screens = [
   { key: "Kalender", icon: "▦" },
   { key: "Kontakte", icon: "☺" },
   { key: "Datenschutz", icon: "🛡" },
+  { key: "Setup", icon: "⚙" },
 ];
 
 const colors = {
@@ -235,6 +238,7 @@ export default function App() {
   const [newContactWhatsapp, setNewContactWhatsapp] = useState("");
   const [newContactNotes, setNewContactNotes] = useState("");
   const [privacy, setPrivacy] = useState(null);
+  const [setupStatus, setSetupStatus] = useState(null);
   const [emailAccountStatus, setEmailAccountStatus] = useState(null);
   const [emailInbox, setEmailInbox] = useState(null);
   const [whatsappStatus, setWhatsappStatus] = useState(null);
@@ -258,6 +262,7 @@ export default function App() {
   const [forwardDeepLink, setForwardDeepLink] = useState("");
   const [forwardExternalOpenResult, setForwardExternalOpenResult] = useState("");
   const [forwardTokenApproved, setForwardTokenApproved] = useState(false);
+  const [calendarSuggestionResult, setCalendarSuggestionResult] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
 
   useEffect(() => {
@@ -396,6 +401,12 @@ export default function App() {
       setPrivacy(payload);
       setEmailAccountStatus(emailStatus);
       setWhatsappStatus(waStatus);
+      return;
+    }
+
+    if (screenName === "Setup") {
+      const payload = await getSetupStatus();
+      setSetupStatus(payload);
     }
   };
 
@@ -751,6 +762,26 @@ export default function App() {
     }
   };
 
+  const handleGenerateCalendarSuggestionForMessage = async (messageId) => {
+    setActionBusy(true);
+    setCalendarSuggestionResult("");
+    try {
+      const result = await generateCalendarEventSuggestionForMessage(messageId);
+      if (result?.created) {
+        setCalendarSuggestionResult("Termin-Vorschlag wurde lokal im Review-Flow erstellt.");
+      } else if (result?.extraction?.has_event === false) {
+        setCalendarSuggestionResult("Kein vollstaendiger Termin erkannt. Es wurde nichts gespeichert.");
+      } else {
+        setCalendarSuggestionResult("Termin-Vorschlag ist bereits vorhanden oder wurde nicht erstellt.");
+      }
+      await refreshActive();
+    } catch (err) {
+      setCalendarSuggestionResult(`Termin-Erkennung fehlgeschlagen: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const handleMessageSuggestionDecision = async (suggestionId, status) => {
     setActionBusy(true);
     try {
@@ -1020,9 +1051,28 @@ export default function App() {
                   onPress={() => handleGenerateTaskSuggestionForMessage(message.id)}
                   disabled={actionBusy}
                 />
+                <ActionButton
+                  small
+                  variant="ghost"
+                  label="Termin erkennen"
+                  onPress={() => handleGenerateCalendarSuggestionForMessage(message.id)}
+                  disabled={actionBusy}
+                />
               </View>
             </View>
           ))}
+          {!!calendarSuggestionResult && (
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Termin-Erkennung</Text>
+                <Chip label="Review" color={colors.warn} />
+              </View>
+              <Text style={styles.cardBody}>{calendarSuggestionResult}</Text>
+              <Text style={styles.forwardSafety}>
+                Friday erstellt nur einen lokalen Vorschlag. Es wird kein Kalendertermin geschrieben.
+              </Text>
+            </View>
+          )}
           {messages.length === 0 && <EmptyState icon="✉" text="Keine Nachrichten." />}
           <SectionTitle>E-Mail-Posteingang (nur lesen)</SectionTitle>
           {!emailInbox?.connected && (
@@ -1392,6 +1442,80 @@ export default function App() {
             <Text style={styles.forwardSafety}>
               Risiko: WhatsApp-Web-Bridges koennen gegen WhatsApp-Regeln verstossen. Nutzung auf eigenes Risiko.
             </Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (active === "Setup") {
+      const safetyFlags = setupStatus?.safety_flags || {};
+      const setupSteps = Array.isArray(setupStatus?.setup_steps) ? setupStatus.setup_steps : [];
+      return (
+        <View>
+          <SectionTitle>Setup & Status</SectionTitle>
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Friday lokal</Text>
+              <Chip label={setupStatus?.local_mode ? "lokal" : "prüfen"} color={setupStatus?.local_mode ? colors.success : colors.warn} />
+            </View>
+            <Text style={styles.cardMeta}>App: {setupStatus?.app_name || "Friday"}</Text>
+            <Text style={styles.cardMeta}>Version: {setupStatus?.app_version || "-"}</Text>
+            <Text style={styles.cardBody}>
+              Setup prüft lokale Module, KI-Status und Safety-Flags. Externe Aktionen bleiben gesperrt.
+            </Text>
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>KI & Kalender</Text>
+              <Chip label={setupStatus?.ai?.enabled ? "KI aktiv" : "KI aus"} color={setupStatus?.ai?.enabled ? colors.success : colors.textSoft} />
+            </View>
+            <Text style={styles.cardMeta}>Provider: {setupStatus?.ai?.provider || "-"}</Text>
+            <Text style={styles.cardMeta}>Modell: {setupStatus?.ai?.model || "-"}</Text>
+            <Text style={styles.cardBody}>
+              Termin-Erkennung: KI darf Rohdaten liefern, Python löst Datum und Uhrzeit deterministisch auf.
+            </Text>
+            <Text style={styles.forwardSafety}>
+              Kalender-Schreiben: {setupStatus?.calendar?.real_enabled ? "aktiv" : "aus"} — Vorschläge gehen immer in den Review.
+            </Text>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Verbindungen</Text>
+            <View style={styles.privacyRow}>
+              <Text style={styles.privacyLabel}>E-Mail</Text>
+              <Chip label={setupStatus?.email?.configured ? "konfiguriert" : "nicht verbunden"} color={setupStatus?.email?.configured ? colors.warn : colors.textSoft} />
+            </View>
+            <View style={styles.privacyRow}>
+              <Text style={styles.privacyLabel}>WhatsApp Read-Bridge</Text>
+              <Chip label={setupStatus?.whatsapp?.read_enabled ? "aktiv" : "aus"} color={setupStatus?.whatsapp?.read_enabled ? colors.warn : colors.textSoft} />
+            </View>
+            <Text style={styles.forwardSafety}>
+              Echte Nachrichten werden nur nach eigenen harten Gates vorbereitet. Friday sendet hier nichts automatisch.
+            </Text>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Safety-Flags</Text>
+            {Object.entries(safetyFlags).map(([key, value]) => (
+              <View key={key} style={styles.privacyRow}>
+                <Text style={styles.privacyLabel}>{key}</Text>
+                <Chip label={String(value)} color={value === false ? colors.textSoft : colors.success} />
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Setup-Schritte</Text>
+            {setupSteps.map((step) => (
+              <View key={step.key || step.label} style={styles.privacyRow}>
+                <Text style={styles.privacyLabel}>{step.label || step.key}</Text>
+                <Chip label={step.status || "offen"} color={step.status === "ready" ? colors.success : colors.warn} />
+              </View>
+            ))}
+            {setupSteps.length === 0 && (
+              <Text style={styles.cardBody}>Setup-Status konnte noch nicht geladen werden.</Text>
+            )}
           </View>
         </View>
       );

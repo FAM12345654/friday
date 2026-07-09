@@ -507,7 +507,20 @@ class CalendarRepository:
 class ContactRepository:
     """Reads contact types from local SQLite."""
 
-    VALID_TYPES = {"customer", "friend", "family", "work", "other"}
+    VALID_TYPES = {
+        "customer",
+        "friend",
+        "family",
+        "work",
+        "other",
+        "familie",
+        "arbeit",
+        "freund",
+        "kunde",
+        "dienstleister",
+        "sonstiges",
+        "unbekannt",
+    }
 
     def __init__(self, db_path: Path | str | None = None) -> None:
         self.db_path = db_path or get_database_path()
@@ -537,8 +550,16 @@ class ContactRepository:
         if not normalized_name:
             raise ValueError("Contact name must not be empty.")
         normalized_type = (contact_type or "work").strip().lower() or "work"
+        aliases = {
+            "family": "familie",
+            "friend": "freund",
+            "work": "arbeit",
+            "customer": "kunde",
+            "other": "sonstiges",
+        }
+        normalized_type = aliases.get(normalized_type, normalized_type)
         if normalized_type not in self.VALID_TYPES:
-            normalized_type = "other"
+            normalized_type = "sonstiges"
         normalized_notes = "" if notes is None else notes
         normalized_email = (email_address or "").strip() or None
         normalized_whatsapp = (whatsapp_target or "").strip() or None
@@ -575,9 +596,17 @@ class ContactRepository:
                 (name,),
             ).fetchone()
         if row is None:
-            return "other"
+            return "sonstiges"
         contact_type = str(row[0] or "other").lower()
-        return contact_type if contact_type in self.VALID_TYPES else "other"
+        aliases = {
+            "family": "familie",
+            "friend": "freund",
+            "work": "arbeit",
+            "customer": "kunde",
+            "other": "sonstiges",
+        }
+        contact_type = aliases.get(contact_type, contact_type)
+        return contact_type if contact_type in self.VALID_TYPES else "sonstiges"
 
 
 class MessageSuggestionRepository:

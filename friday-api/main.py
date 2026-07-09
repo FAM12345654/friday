@@ -27,6 +27,8 @@ from friday.agents import (
     build_whatsapp_forward_preview,
 )
 from friday.app.ai_task_forwarding_draft import build_ai_task_forwarding_draft
+from friday.app.calendar_event_extraction import extract_calendar_event_candidate
+from friday.app.contact_category_classifier import classify_contact_category
 from friday.app.email_account_store import (
     EMAIL_ACCOUNT_DELETE_TOKEN,
     EMAIL_ACCOUNT_SAVE_TOKEN,
@@ -47,6 +49,7 @@ from friday.app.local_ollama_config_apply_guard import build_local_ollama_config
 from friday.app.local_ollama_config_preview import build_local_ollama_config_preview
 from friday.app.local_model_provider import get_local_model_fallback_count
 from friday.app.messaging_audit_preview import build_messaging_audit_preview
+from friday.app.setup_status import build_setup_status
 from friday.app.whatsapp_bridge_activation_gate import (
     WHATSAPP_BRIDGE_ACTIVATION_TOKEN,
     build_whatsapp_bridge_activation_gate,
@@ -119,6 +122,12 @@ class ContactCreateRequest(BaseModel):
     whatsapp_target: Optional[str] = None
 
 
+class ContactCategoryPreviewRequest(BaseModel):
+    display_name: str
+    context_text: str | None = None
+    model_raw_category: str | None = None
+
+
 class TaskForwardDraftRequest(BaseModel):
     task_id: int
     contact_id: int
@@ -174,6 +183,12 @@ class WhatsAppIngestRequest(BaseModel):
 class WhatsAppBridgeActivationGateRequest(BaseModel):
     approval_token: str
     scanner_smoke_passed: bool = False
+
+
+class CalendarEventExtractRequest(BaseModel):
+    text: str
+    base_date: str | None = None
+    duration_minutes: int = 60
 
 
 def _today() -> str:
@@ -236,6 +251,11 @@ def get_dashboard() -> dict[str, Any]:
             "free_slots_today": calendar_agent.get_free_slots_today(),
         },
     )
+
+
+@app.get("/api/setup/status")
+def get_setup_status() -> dict[str, Any]:
+    return _envelope(build_setup_status())
 
 
 @app.get("/api/tasks")
@@ -367,6 +387,22 @@ def create_task_suggestions_for_message(message_id: int) -> dict[str, Any]:
     )
 
 
+@app.post("/api/messages/{message_id}/calendar-event-suggestions")
+def create_calendar_event_suggestion_for_message(message_id: int) -> dict[str, Any]:
+    message = _find_message(message_id)
+    extraction = extract_calendar_event_candidate(str(message.get("text") or ""))
+    suggestion = message_agent.create_calendar_event_suggestion(message)
+    return _envelope(
+        {
+            "message_id": message_id,
+            "created": suggestion is not None,
+            "suggestion": suggestion,
+            "extraction": extraction.to_dict(),
+            "calendar_write_enabled": False,
+        }
+    )
+
+
 @app.get("/api/messages/suggestions")
 def list_suggestions() -> dict[str, Any]:
     return _envelope(
@@ -421,6 +457,22 @@ def get_calendar(date: Optional[str] = Query(default=None)) -> dict[str, Any]:
     )
 
 
+@app.post("/api/calendar/extract-event")
+def extract_calendar_event(payload: CalendarEventExtractRequest) -> dict[str, Any]:
+    extraction = extract_calendar_event_candidate(
+        payload.text,
+        base_date=payload.base_date,
+        duration_minutes=payload.duration_minutes,
+    )
+    return _envelope(
+        {
+            "extraction": extraction.to_dict(),
+            "calendar_write_enabled": False,
+            "review_required": True,
+        }
+    )
+
+
 @app.get("/api/calendar/{message_id}/slots")
 def generate_slots(message_id: int, duration_minutes: int = Query(default=60)) -> dict[str, Any]:
     _find_message(message_id)
@@ -455,6 +507,16 @@ def create_contact(payload: ContactCreateRequest) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _envelope(contact)
+
+
+@app.post("/api/contacts/category-preview")
+def preview_contact_category(payload: ContactCategoryPreviewRequest) -> dict[str, Any]:
+    preview = classify_contact_category(
+        display_name=payload.display_name,
+        context_text=payload.context_text,
+        model_raw_category=payload.model_raw_category,
+    )
+    return _envelope(preview.to_dict())
 
 
 @app.post("/api/ai/task-forward-draft")

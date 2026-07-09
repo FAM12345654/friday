@@ -181,6 +181,19 @@ export async function generateTaskSuggestionsForMessage(messageId) {
   });
 }
 
+export async function generateCalendarEventSuggestionForMessage(messageId) {
+  return callApi(`/api/messages/${messageId}/calendar-event-suggestions`, {
+    method: "POST",
+  });
+}
+
+export async function extractCalendarEvent(payload) {
+  return callApi("/api/calendar/extract-event", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getContacts() {
   return callApi("/api/contacts");
 }
@@ -240,6 +253,10 @@ export async function getWhatsAppStatus() {
 
 export async function getWhatsAppMessages(limit = 10) {
   return callApi(`/api/whatsapp/messages?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export async function getSetupStatus() {
+  return callApi("/api/setup/status");
 }
 
 export async function getPrivacy() {

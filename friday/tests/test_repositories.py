@@ -48,12 +48,12 @@ def test_calendar_repository_reads_for_date_and_free_slots(tmp_path) -> None:
 
 
 def test_contact_repository_reads_and_defaults(tmp_path) -> None:
-    """Contact repository returns known categories and 'other' as fallback."""
+    """Contact repository returns known categories and German fallback."""
     db_file = _build_repo_db(tmp_path)
     repo = ContactRepository(db_file)
 
     contacts = repo.get_contacts()
     assert isinstance(contacts, list)
     assert contacts
-    assert repo.get_contact_type_by_name("Kundenbetreuung Blau") in {"customer", "other"}
-    assert repo.get_contact_type_by_name("Keine Person") == "other"
+    assert repo.get_contact_type_by_name("Kundenbetreuung Blau") in {"kunde", "sonstiges"}
+    assert repo.get_contact_type_by_name("Keine Person") == "sonstiges"

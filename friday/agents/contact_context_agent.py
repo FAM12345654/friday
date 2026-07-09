@@ -7,13 +7,14 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from friday.config import DATA_DIR, USE_SQLITE_STORAGE, get_database_path
+from friday.app.contact_category_classifier import normalize_contact_category
 from friday.storage.repositories import ContactRepository
 
 
 class ContactContextAgent:
     """Load local contacts and return their class labels."""
 
-    VALID_TYPES = {"customer", "friend", "family", "work", "other"}
+    VALID_TYPES = {"customer", "friend", "family", "work", "other", "familie", "arbeit", "freund", "kunde", "dienstleister", "sonstiges", "unbekannt"}
 
     def __init__(self, db_path: Path | None = None) -> None:
         # Contacts come only from local data for this skeleton.
@@ -53,6 +54,6 @@ class ContactContextAgent:
             for contact in self.load_contacts():
                 if str(contact.get("name", "")).lower() == sender_lower:
                     category = str(contact.get("contact_type") or contact.get("category", "other")).lower()
-                    return category if category in self.VALID_TYPES else "other"
-            return "other"
+                    return normalize_contact_category(category)
+            return "sonstiges"
         return self.contact_repository.get_contact_type_by_name(sender)

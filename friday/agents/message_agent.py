@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from friday.config import DATA_DIR, USE_SQLITE_STORAGE, get_database_path
+from friday.app.calendar_event_extraction import (
+    extract_calendar_event_candidate,
+    render_calendar_event_review_text,
+)
 from friday.app.whatsapp_inbox_store import (
     WHATSAPP_MESSAGE_ID_OFFSET,
     WhatsAppProcessResult,
@@ -189,6 +193,20 @@ class MessageAgent:
                 )
             )
         return suggestions
+
+    def create_calendar_event_suggestion(self, message: Dict[str, Any]) -> dict | None:
+        """Create one reviewable calendar-event suggestion from a local message."""
+        if self.suggestion_repository is None:
+            return None
+        extraction = extract_calendar_event_candidate(str(message.get("text") or ""))
+        if not extraction.has_event:
+            return None
+        return self.suggestion_repository.create_suggestion(
+            message_id=int(message["id"]),
+            draft_text=render_calendar_event_review_text(extraction),
+            suggestion_type="calendar_event",
+            notes="Termin-Vorschlag: Datum/Zeit wurden lokal durch Python aufgeloest. Kein Kalendertermin wurde erstellt.",
+        )
 
     def process_unprocessed_whatsapp_messages(self) -> WhatsAppProcessResult:
         """Create local review suggestions from mirrored WhatsApp messages."""
