@@ -29,12 +29,13 @@ Kurze lokale Build-Historie fuer den aktuellen Friday-1.0-Abschlussstand.
 | Lokale KI-Aktivierung | abgeschlossen | `ENABLE_LOCAL_OLLAMA=True`, Modell `qwen3:8b`, Timeout `30`, localhost-only, kein Cloud-Fallback |
 | Messaging Agents | abgeschlossen | E-Mail-/WhatsApp-Deep-Links werden nur als Vorschau/App-Link erzeugt; Friday sendet keine echte Nachricht |
 | Mobile Weiterleiten | abgeschlossen | Weiterleiten-Flow zeigt lokalen KI-Draft und oeffnet nach hartem Token nur externe App zur manuellen Nutzerfreigabe |
+| E-Mail Konto-Anbindung | vorbereitet/gated | Konto-Store, SMTP/IMAP-Test, read-only Inbox-Preview, API/CLI/Mobile-Kontoansicht und Send-Guard vorbereitet; `ENABLE_REAL_EMAIL` bleibt `False` |
 
 ## Letzter validierter Stand
 
 | Kommando | Ergebnis |
 |---|---|
-| `python -m pytest friday/tests` | `1151 passed, 4 skipped` |
+| `python -m pytest friday/tests` | `1171 passed, 4 skipped` |
 | `python -m compileall friday friday-api` | erfolgreich |
 | `python scripts/friday_safety_smoke.py` | `Overall: PASS` |
 | `git diff --check` | sauber |

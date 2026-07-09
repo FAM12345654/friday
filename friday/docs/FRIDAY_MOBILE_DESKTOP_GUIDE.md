@@ -103,6 +103,35 @@ Dabei kann E-Mail oder WhatsApp als Zielkanal ausgewaehlt werden.
 Auch dieser Flow sendet nichts echt; Details stehen in `FRIDAY_MOBILE_TASK_DELEGATION_DRAFT_FLOW.md`.
 Der Weg zu spaeterem echtem Versand ist in `FRIDAY_MESSAGING_PROVIDER_GATE.md` dokumentiert.
 
+## E-Mail-Konto verbinden (Gate)
+
+Friday kann ein einzelnes E-Mail-Konto lokal vorbereiten und testen. Das Konto bleibt auf dem Windows-PC in `local_data/accounts/email_account.json`.
+Das App-Passwort wird unter Windows mit DPAPI geschuetzt. Falls DPAPI nicht verfuegbar ist, zeigt Friday einen Warnstatus und nutzt nur eine unsichere lokale Fallback-Codierung.
+
+Wichtig:
+
+- `ENABLE_REAL_EMAIL` bleibt standardmaessig `False`.
+- Ein verbundenes Konto aktiviert noch keinen echten Versand.
+- Echte E-Mail waere erst in einem spaeteren Gate erlaubt.
+- Empfaenger muessen als lokale Kontakte gespeichert sein.
+- Die spaetere Tagesgrenze ist auf 20 E-Mails vorbereitet.
+- Jeder spaetere echte Versand braucht den harten Token `EMAIL SENDEN`.
+- WhatsApp bleibt weiterhin nur Deep-Link/App-Oeffnung. Friday automatisiert WhatsApp nicht.
+
+Gmail-App-Passwort vorbereiten:
+
+1. Im Google-Konto die Zwei-Faktor-Authentifizierung aktivieren.
+2. Ein App-Passwort fuer Mail erstellen.
+3. Dieses App-Passwort in Friday als E-Mail-Passwort eintragen.
+4. Token `KONTO SPEICHERN` verwenden, wenn Friday das Konto lokal speichern soll.
+5. Danach die Verbindung testen.
+
+Empfohlener sicherer Weg:
+
+- Konto zuerst am PC im lokalen Netzwerk einrichten.
+- Danach in der Handy-App nur den Status pruefen.
+- Keine echten Zugangsdaten in Screenshots, Logs, Chat oder Git kopieren.
+
 ## Aufgaben weiterleiten mit KI-Draft
 
 Der Weiterleiten-Flow erstellt jetzt einen lokalen KI-Entwurf mit dem lokalen Ollama-Modell `qwen3:8b`, wenn Ollama auf dem Windows-PC erreichbar ist.

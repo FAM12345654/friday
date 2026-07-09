@@ -173,6 +173,13 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Local Ollama Real Project Apply Implementation Readiness Gate | abgeschlossen | bestaetigt isolierten Apply-Baustein mit Rollback; keine CLI/API/Mobile-Anbindung und echter Projekt-Apply bleibt manuelle Entscheidung |
 | Local Ollama Manual Activation Decision Gate | aktiviert | Token `OLLAMA AKTIVIEREN`, Safety Smoke PASS und lokaler Health Check haben Projekt-Config aktiviert |
 | Local Model Settings / Health Preview / Validation Pipeline | umgesetzt | Ollama ist lokal aktiviert; Health Check ist localhost-only; Validator+Logic Check blockiert riskante Ausgaben; Fallback bleibt lokal |
+| E-Mail Konto speichern | gated lokal | genau ein Konto unter `local_data/accounts/email_account.json`, Token `KONTO SPEICHERN`, Passwort per DPAPI oder Warn-Fallback |
+| E-Mail Konto loeschen | gated lokal | Token `KONTO LOESCHEN`, keine externen Aktionen |
+| E-Mail Konto testen | erlaubt mit Nutzeraktion | SMTP/IMAP Login-Test fuer gespeichertes Konto, kein Versand, keine Inbox-Persistenz |
+| E-Mail Posteingang lesen | read-only gated durch gespeichertes Konto | IMAP read-only Preview, keine Loeschung, keine Markierung, keine Persistenz von E-Mail-Inhalten |
+| E-Mail Aktivierungs-Gate | vorbereitet, nicht aktiviert | Token `EMAIL AKTIVIEREN`, Account+Tests+Safety erforderlich; `ENABLE_REAL_EMAIL` bleibt in diesem Stand `False` |
+| Realer E-Mail-Versand | weiterhin blockiert | erst wenn `ENABLE_REAL_EMAIL=True`, Account getestet, Kontakt-Empfaenger vorhanden, Tageslimit frei und Token `EMAIL SENDEN` exakt gesetzt |
+| E-Mail Sendelog | lokal vorbereitet | `email_send_log` in SQLite speichert spaeter Status, Empfaenger, Betreff und Message-ID ohne Passwort |
 | Lokale Notifications | erlaubt opt-in | Default `False`; nur Konsolen-Zusammenfassung, kein Toast, kein Netzwerk |
 | Demo-Modus | getrennt | echte Arbeits-DB bleibt `friday.db`; Demo-Seeds nur in `friday_demo.db` |
 | Wiederkehrende Aufgaben | erlaubt lokal | nur additive nullable Spalte `recurrence`; Folgeaufgabe nur beim Erledigen |
@@ -207,8 +214,8 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Script Network Scanner Readiness Gate | umgesetzt | bounded Preview mit Projekt-Root und Size-Limit; Standard-Smoke-Integration bleibt deferred |
 | No Input/Print Scanner | umgesetzt | erkennt direkte `input()`-/`print()`-Nutzung in isolierten Modulen |
 | Markdown Link Checker | geplant | optionaler lokaler Doku-Check ohne Netzwerk |
-| E-Mail senden | verboten | Flag false |
-| WhatsApp senden | verboten | Flag false |
+| E-Mail senden | verboten | Flag false; Guard bleibt vorbereitet, aber blockiert |
+| WhatsApp senden | verboten | Flag false; nur Deep-Link/App-Oeffnung, keine Automatisierung |
 | SMS senden | verboten | Flag false |
 | Kalendertermin erstellen | verboten | Flag false |
 | lokale Ollama Modellaufrufe | erlaubt lokal | nur `http://localhost:11434` oder `http://127.0.0.1:11434`, kein Cloud-Fallback |
@@ -233,7 +240,10 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | `RESTORE AUFRAEUMEN` | lokale Restore-Kopien aufraeumen |
 | `REVIEW AUFRAEUMEN` | lokale Review-History aufraeumen |
 | `OLLAMA AKTIVIEREN` | lokale Ollama-Konfiguration fuer Projekt-Config aktivieren, nur nach Safety Smoke PASS und lokalem Health Check |
-| `EMAIL SENDEN` | Mobile/Backend darf E-Mail-App mit vorbereitetem Entwurf oeffnen; Friday sendet nicht selbst |
+| `KONTO SPEICHERN` | lokales E-Mail-Konto verschluesselt speichern |
+| `KONTO LOESCHEN` | lokales E-Mail-Konto entfernen |
+| `EMAIL AKTIVIEREN` | spaeteres E-Mail-Aktivierungs-Gate pruefen; aktueller Stand setzt `ENABLE_REAL_EMAIL` nicht live |
+| `EMAIL SENDEN` | E-Mail-Deep-Link oder spaeterer echter Versand nur nach zusaetzlichem Guard; aktueller Stand sendet real nicht |
 | `WHATSAPP SENDEN` | Mobile/Backend darf WhatsApp mit vorbereitetem Entwurf oeffnen; Friday sendet nicht selbst |
 
 ## Delete-Policy

@@ -117,3 +117,4 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_PRODUCT_FINAL_GATE.md` | Finaler Produktstand fuer CLI, Mobile und Desktop | vorhanden |
 | `FRIDAY_AI_MESSAGING_AGENTS_GATE.md` | lokale Ollama-Aktivierung, KI-Drafts und Messaging-Deep-Links ohne echten Versand | vorhanden |
 | `FRIDAY_AI_DRAFT_QUALITY_REPORT.md` | Qualitaetsvergleich `qwen3:8b` vs. `qwen3:14b` fuer lokale Weiterleiten-Drafts | vorhanden |
+| `FRIDAY_EMAIL_ACCOUNT_CONNECT_GATE.md` | E-Mail-Konto-Anbindung mit Store, Tests, IMAP-Preview und Send-Guard ohne Live-Aktivierung | vorhanden |
