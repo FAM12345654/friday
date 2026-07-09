@@ -882,12 +882,12 @@ def list_messages() -> dict[str, Any]:
     )
 
 
-@app.get("/api/messages/{message_id}")
+@app.get("/api/messages/{message_id:int}")
 def get_message(message_id: int) -> dict[str, Any]:
     return _envelope(_find_message(message_id))
 
 
-@app.get("/api/messages/{message_id}/reply")
+@app.get("/api/messages/{message_id:int}/reply")
 def reply_hint(message_id: int) -> dict[str, Any]:
     message = _find_message(message_id)
     return _envelope(
@@ -900,7 +900,7 @@ def reply_hint(message_id: int) -> dict[str, Any]:
     )
 
 
-@app.post("/api/messages/{message_id}/reply")
+@app.post("/api/messages/{message_id:int}/reply")
 def send_message_reply(message_id: int) -> dict[str, Any]:
     return _envelope(
         {
@@ -911,7 +911,7 @@ def send_message_reply(message_id: int) -> dict[str, Any]:
     )
 
 
-@app.post("/api/messages/{message_id}/task-suggestions")
+@app.post("/api/messages/{message_id:int}/task-suggestions")
 def create_task_suggestions_for_message(message_id: int) -> dict[str, Any]:
     _find_message(message_id)
     suggestions = message_agent.generate_local_task_suggestions()
@@ -924,7 +924,7 @@ def create_task_suggestions_for_message(message_id: int) -> dict[str, Any]:
     )
 
 
-@app.post("/api/messages/{message_id}/calendar-event-suggestions")
+@app.post("/api/messages/{message_id:int}/calendar-event-suggestions")
 def create_calendar_event_suggestion_for_message(message_id: int) -> dict[str, Any]:
     message = _find_message(message_id)
     extraction = extract_calendar_event_candidate(str(message.get("text") or ""))
@@ -1119,7 +1119,7 @@ def preview_calendar_event_delete(payload: CalendarEventDeleteGuardRequest) -> d
     )
 
 
-@app.get("/api/calendar/{message_id}/slots")
+@app.get("/api/calendar/{message_id:int}/slots")
 def generate_slots(message_id: int, duration_minutes: int = Query(default=60)) -> dict[str, Any]:
     _find_message(message_id)
     return _envelope(
