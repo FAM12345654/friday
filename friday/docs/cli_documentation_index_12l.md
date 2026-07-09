@@ -120,3 +120,4 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_EMAIL_ACCOUNT_CONNECT_GATE.md` | E-Mail-Konto-Anbindung mit Store, Tests, IMAP-Preview und Send-Guard ohne Live-Aktivierung | vorhanden |
 | `FRIDAY_WHATSAPP_BRIDGE_GATE.md` | lokale WhatsApp-Read-Bridge, Safety-Grenzen, Risiko, Rollback und Tests | vorhanden |
 | `FRIDAY_SETUP_CALENDAR_CONTACT_GATE.md` | Setup-Screen, deterministische Termin-Erkennung und Kontakt-Kategorien ohne echte Kalenderaktion | vorhanden |
+| `FRIDAY_CALENDAR_ACCOUNTS_GATE.md` | Account-Policy-Engine, Google-Kalender-Fundament und Kalender-Gates | vorhanden |

@@ -109,6 +109,25 @@ Friday erstellt daraus nur einen lokalen Review-Vorschlag.
 Datum und Uhrzeit werden deterministisch in Python aufgeloest; das Modell darf relative Angaben nicht allein entscheiden.
 Es wird kein echter Kalendertermin erstellt.
 
+## Kalender-Konten und Account-Policies
+
+Im Setup-Tab gibt es einen Bereich fuer Kalender-Konten und Account-Policies.
+Eine Policy beschreibt pro Konto:
+
+- Provider, z. B. `google_calendar`,
+- Rolle, z. B. `main` oder `source`,
+- Zugriff, z. B. `read` oder `read_write`,
+- harte Filter, z. B. Titel enthaelt `PH`,
+- Notizen fuer lokalen KI-Kontext.
+
+Policies werden nur mit dem Token `POLICY SPEICHERN` gespeichert.
+Das Aktivierungs-Gate `KALENDER AKTIVIEREN` prueft nur, ob ein echter Kalender spaeter aktiviert werden duerfte.
+Solange `ENABLE_REAL_CALENDAR=False` bleibt, schreibt Friday keinen echten Kalendertermin.
+Ein echter Termin-Write braucht spaeter zusaetzlich exakt `TERMIN SPEICHERN`.
+
+Google OAuth laeuft am PC. Client-Secrets und OAuth-Tokens gehoeren nicht in Git, nicht in Screenshots und nicht in Chat-Nachrichten.
+Details stehen in `FRIDAY_CALENDAR_ACCOUNTS_GATE.md`.
+
 Im Aufgabenbereich gibt es zusaetzlich ein lokales Feld `Weiterleiten an Kollege`.
 Es speichert nur eine Notiz an der Aufgabe und sendet keine Nachricht.
 Details stehen in `FRIDAY_MOBILE_TASK_FORWARD_FIELD.md`.

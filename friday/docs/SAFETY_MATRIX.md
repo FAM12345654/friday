@@ -31,6 +31,10 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Termin-Erkennung aus Nachrichten | erlaubt lokal | erstellt nur Review-Vorschlag; Python loest Datum/Uhrzeit deterministisch |
 | Kalender-Link-Vorschau | erlaubt preview-only | Link wird angezeigt/vorbereitet, aber Friday erstellt keinen Kalendertermin |
 | Echter Kalender-Write | verboten | `ENABLE_REAL_CALENDAR=False`; erst spaeteres separates Gate |
+| Account-Policy speichern | gated lokal | Token `POLICY SPEICHERN`; speichert Provider-Regeln, Filter und Notizen lokal |
+| Google-Kalender OAuth-URL | gated/preview | nur im dedizierten Google-Provider-Modul; Client-Secrets/Tokens nie ins Git |
+| Kalender aktivieren | gated preview | Token `KALENDER AKTIVIEREN`, verbundenes Konto, Test OK und Safety Smoke erforderlich; Config-Apply separat |
+| Kalendertermin schreiben | gated extern | `ENABLE_REAL_CALENDAR=True`, main Policy, Verbindung OK und Token `TERMIN SPEICHERN` |
 | Kontakt-Kategorie-Preview | erlaubt lokal | normalisiert `familie`, `arbeit`, `freund` usw.; keine externe Suche, keine Speicherung |
 | Kontakt anzeigen | erlaubt | lokal |
 | Kontakt suchen | erlaubt | lokal |

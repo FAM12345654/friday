@@ -128,3 +128,16 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 | Kontakte | Kategorien `familie`, `arbeit`, `freund`, `kunde`, `dienstleister`, `sonstiges`, `unbekannt` normalisiert |
 | Safety | `ENABLE_REAL_CALENDAR=False`, keine externen Aktionen |
 | Doku | `FRIDAY_SETUP_CALENDAR_CONTACT_GATE.md` |
+
+## Friday Account-Policy + Google Calendar Foundation
+
+| Bereich | Ergebnis |
+|---|---|
+| Ziel | Account-Policy-Engine und Google-Kalender-Fundament |
+| Policies | lokale Tabelle `account_policies`, Token `POLICY SPEICHERN` |
+| Filter | deterministisch in Python, z. B. `title_contains: PH` |
+| KI-Kontext | Policy-Notizen werden als Kontextblock gebaut |
+| Google | Provider-Modul und OAuth-URL-Preview vorbereitet |
+| Kalender-Write | weiterhin blockiert, solange `ENABLE_REAL_CALENDAR=False`; Token `TERMIN SPEICHERN` erforderlich |
+| Safety | Google-Imports nur in `calendar_provider_google.py`; Tests mocken Provider |
+| Doku | `FRIDAY_CALENDAR_ACCOUNTS_GATE.md` |
