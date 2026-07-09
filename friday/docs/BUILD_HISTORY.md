@@ -153,3 +153,17 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 | API | `/api/calendar/events/write-guard` erstellt bei erlaubtem Guard genau einen Google-Event und speichert lokale Referenz |
 | Tests | Provider/API-Write gemockt; keine echten Google-Calls in pytest |
 | Rollback | `ENABLE_REAL_CALENDAR=False` setzen und Scanner-Baseline fuer Kalender zurueck auf `False` stellen |
+
+## Friday Outlook-ICS, Termin-Flow und Guarded Delete
+
+| Bereich | Ergebnis |
+|---|---|
+| Ziel | Outlook-ICS read-only Quelle, Termin-aus-Nachricht-Write-Flow und guarded Google-Delete |
+| ICS | `calendar_provider_ics.py` liest ICS mit stdlib Fetch und `icalendar`/`recurring-ical-events`; keine Write-/Delete-Operation |
+| Account-Policy | `outlook_ics` speichert ICS-URL verschluesselt und URL-frei in API-Antworten |
+| Kalender-Merge | `/api/calendar` fuehrt lokale Items und gefilterte Source-Events zusammen; Quellenfehler bleiben isoliert |
+| Termin-Flow | `/api/calendar/events/from-message` schreibt erst nach Review und `TERMIN SPEICHERN` |
+| Delete | `/api/calendar/events/delete-guard` loescht erst nach `TERMIN LOESCHEN` und entfernt danach lokale Referenz |
+| Mobile | Kalenderquellen, Termin-Uebernahme, ICS-URL-Feld und Delete-Token-Feld ergaenzt |
+| Safety | E-Mail, WhatsApp, SMS, Wetter und Musik bleiben `False`; Kalender bleibt pro Event hart gegatet |
+| Doku | `FRIDAY_CALENDAR_SOURCES_AND_FLOW_GATE.md` |

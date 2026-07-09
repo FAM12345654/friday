@@ -194,6 +194,13 @@ export async function extractCalendarEvent(payload) {
   });
 }
 
+export async function createCalendarEventFromMessage(payload) {
+  return callApi("/api/calendar/events/from-message", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getContacts() {
   return callApi("/api/contacts");
 }
@@ -296,6 +303,13 @@ export async function getGoogleCalendarReadPreview(rangeStart, rangeEnd) {
     range_end: String(rangeEnd),
   }).toString();
   return callApi(`/api/accounts/calendar/google/read-preview?${query}`);
+}
+
+export async function deleteCalendarEvent(payload) {
+  return callApi("/api/calendar/events/delete-guard", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getCalendarSlots(messageId, durationMinutes = 60) {

@@ -40,6 +40,10 @@ def _expected_tokens_source() -> str:
             'EMAIL_ACTIVATION_TOKEN = "EMAIL AKTIVIEREN"',
             'EMAIL_SEND_TOKEN = "EMAIL SENDEN"',
             'WHATSAPP_BRIDGE_ACTIVATION_TOKEN = "WHATSAPP BRIDGE AKTIVIEREN"',
+            'CALENDAR_EVENT_SAVE_TOKEN = "TERMIN SPEICHERN"',
+            'CALENDAR_EVENT_DELETE_TOKEN = "TERMIN LOESCHEN"',
+            'CALENDAR_EVENT_SAVE_TOKEN = "TERMIN SPEICHERN"',
+            'CALENDAR_EVENT_DELETE_TOKEN = "TERMIN LOESCHEN"',
         ]
     )
 
@@ -192,6 +196,8 @@ def test_scan_paths_for_approval_token_regressions_checks_multiple_files(tmp_pat
                 'EMAIL_ACTIVATION_TOKEN = "EMAIL AKTIVIEREN"',
                 'EMAIL_SEND_TOKEN = "EMAIL SENDEN"',
                 'WHATSAPP_BRIDGE_ACTIVATION_TOKEN = "WHATSAPP BRIDGE AKTIVIEREN"',
+            'CALENDAR_EVENT_SAVE_TOKEN = "TERMIN SPEICHERN"',
+            'CALENDAR_EVENT_DELETE_TOKEN = "TERMIN LOESCHEN"',
             ]
         ),
         encoding="utf-8",

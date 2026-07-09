@@ -44,6 +44,9 @@ class _Events:
             }
         )
 
+    def delete(self, **_kwargs):
+        return _Executable({})
+
 
 class _CalendarList:
     def get(self, **_kwargs):
@@ -112,6 +115,16 @@ def test_google_provider_maps_create_event_without_real_network() -> None:
     assert result.ok is True
     assert result.provider_event_id == "created-1"
     assert result.event is not None
+
+
+def test_google_provider_maps_delete_event_without_real_network() -> None:
+    provider = GoogleCalendarProvider(service=_Service())
+
+    result = provider.delete_event(event_id="created-1", calendar_id="primary")
+
+    assert result.ok is True
+    assert result.provider_event_id == "created-1"
+    assert result.external_call_used is True
 
 
 def test_google_oauth_exchange_uses_authorization_response_without_returning_secret(

@@ -24,8 +24,10 @@ import {
   completeTask,
   connectEmailAccount,
   createAccountPolicy,
+  createCalendarEventFromMessage,
   createContact,
   createTask,
+  deleteCalendarEvent,
   deleteTask,
   getAccountPolicies,
   getCalendarAccountStatus,
@@ -292,6 +294,7 @@ export default function App() {
   const [policyAccess, setPolicyAccess] = useState("read_write");
   const [policyTitleContains, setPolicyTitleContains] = useState("");
   const [policyNotes, setPolicyNotes] = useState("");
+  const [policyIcsUrl, setPolicyIcsUrl] = useState("");
   const [policyToken, setPolicyToken] = useState("");
   const [policyResult, setPolicyResult] = useState("");
   const [calendarActivationToken, setCalendarActivationToken] = useState("");
@@ -320,6 +323,16 @@ export default function App() {
   const [forwardExternalOpenResult, setForwardExternalOpenResult] = useState("");
   const [forwardTokenApproved, setForwardTokenApproved] = useState(false);
   const [calendarSuggestionResult, setCalendarSuggestionResult] = useState("");
+  const [calendarMessageText, setCalendarMessageText] = useState("");
+  const [calendarDraftTitle, setCalendarDraftTitle] = useState("");
+  const [calendarDraftDate, setCalendarDraftDate] = useState("");
+  const [calendarDraftStart, setCalendarDraftStart] = useState("");
+  const [calendarDraftEnd, setCalendarDraftEnd] = useState("");
+  const [calendarDraftLocation, setCalendarDraftLocation] = useState("");
+  const [calendarWriteToken, setCalendarWriteToken] = useState("");
+  const [calendarWriteResult, setCalendarWriteResult] = useState("");
+  const [calendarDeleteTokens, setCalendarDeleteTokens] = useState({});
+  const [calendarDeleteResult, setCalendarDeleteResult] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
 
   useEffect(() => {
@@ -793,9 +806,13 @@ export default function App() {
         notes: policyNotes,
         enabled: true,
         approval_token: policyToken.trim(),
+        ics_url: policyProvider.trim() === "outlook_ics" ? policyIcsUrl.trim() : undefined,
       });
       setPolicyResult(result?.message || "Policy wurde gespeichert.");
       setPolicyToken("");
+      if (policyProvider.trim() === "outlook_ics") {
+        setPolicyIcsUrl("");
+      }
       await refreshActive();
     } catch (err) {
       setPolicyResult(`Policy wurde nicht gespeichert: ${normalizeApiError(err)}`);
@@ -819,6 +836,63 @@ export default function App() {
       );
     } catch (err) {
       setCalendarActivationResult(`Gate konnte nicht geprueft werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleCreateCalendarEventFromMessage = async () => {
+    setActionBusy(true);
+    setCalendarWriteResult("");
+    try {
+      const result = await createCalendarEventFromMessage({
+        approval_token: calendarWriteToken.trim(),
+        text: calendarMessageText.trim(),
+        title: calendarDraftTitle.trim() || undefined,
+        date: calendarDraftDate.trim() || undefined,
+        start: calendarDraftStart.trim() || undefined,
+        end: calendarDraftEnd.trim() || undefined,
+        location: calendarDraftLocation.trim() || undefined,
+      });
+      if (result?.provider_event_created) {
+        setCalendarWriteResult("Termin wurde im Google-Kalender gespeichert.");
+        setCalendarWriteToken("");
+        await refreshActive();
+      } else {
+        const reasons = result?.guard?.blocked_reasons || [];
+        setCalendarWriteResult(`Termin wurde nicht gespeichert: ${reasons.join(", ") || result?.guard?.message || "unbekannt"}`);
+      }
+    } catch (err) {
+      setCalendarWriteResult(`Termin konnte nicht uebernommen werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleDeleteCalendarEvent = async (entry) => {
+    const eventId = entry?.id || entry?.provider_event_id;
+    if (!eventId) {
+      setCalendarDeleteResult("Termin konnte nicht geloescht werden: Event-ID fehlt.");
+      return;
+    }
+    setActionBusy(true);
+    setCalendarDeleteResult("");
+    try {
+      const result = await deleteCalendarEvent({
+        approval_token: (calendarDeleteTokens[eventId] || "").trim(),
+        provider_event_id: eventId,
+        calendar_id: entry?.calendar_id || calendarAccountStatus?.google?.calendar_id || "primary",
+      });
+      if (result?.provider_event_deleted) {
+        setCalendarDeleteResult("Termin wurde geloescht.");
+        setCalendarDeleteTokens((current) => ({ ...current, [eventId]: "" }));
+        await refreshActive();
+      } else {
+        const reasons = result?.guard?.blocked_reasons || [];
+        setCalendarDeleteResult(`Termin wurde nicht geloescht: ${reasons.join(", ") || result?.guard?.message || "unbekannt"}`);
+      }
+    } catch (err) {
+      setCalendarDeleteResult(`Termin konnte nicht geloescht werden: ${normalizeApiError(err)}`);
     } finally {
       setActionBusy(false);
     }
@@ -1318,9 +1392,78 @@ export default function App() {
       const items = isArray(calendar?.items || calendar?.calendar_items || []);
       const slots = isArray(calendar?.free_slots || []);
       const googleEvents = isArray(googleCalendarPreview?.events);
+      const sourceEvents = isArray(calendar?.source_events);
+      const sourceErrors = isArray(calendar?.source_errors);
       const googleConnected = Boolean(calendarAccountStatus?.google?.connected);
       return (
         <View>
+          <SectionTitle>Termin übernehmen</SectionTitle>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Nachricht in Kalendertermin umwandeln</Text>
+            <Text style={styles.cardBody}>
+              Friday erkennt den Termin lokal, du kannst alles bearbeiten und erst `TERMIN SPEICHERN` schreibt in Google.
+            </Text>
+            <TextInput
+              value={calendarMessageText}
+              onChangeText={setCalendarMessageText}
+              style={styles.input}
+              placeholder="Nachricht mit Termintext"
+              placeholderTextColor={colors.textSoft}
+              multiline
+            />
+            <TextInput
+              value={calendarDraftTitle}
+              onChangeText={setCalendarDraftTitle}
+              style={styles.input}
+              placeholder="Titel optional überschreiben"
+              placeholderTextColor={colors.textSoft}
+            />
+            <TextInput
+              value={calendarDraftDate}
+              onChangeText={setCalendarDraftDate}
+              style={styles.input}
+              placeholder="Datum optional: 2026-07-15"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+            />
+            <TextInput
+              value={calendarDraftStart}
+              onChangeText={setCalendarDraftStart}
+              style={styles.input}
+              placeholder="Start optional: 10:00"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+            />
+            <TextInput
+              value={calendarDraftEnd}
+              onChangeText={setCalendarDraftEnd}
+              style={styles.input}
+              placeholder="Ende optional: 11:00"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+            />
+            <TextInput
+              value={calendarDraftLocation}
+              onChangeText={setCalendarDraftLocation}
+              style={styles.input}
+              placeholder="Ort optional"
+              placeholderTextColor={colors.textSoft}
+            />
+            <TextInput
+              value={calendarWriteToken}
+              onChangeText={setCalendarWriteToken}
+              style={styles.input}
+              placeholder="TERMIN SPEICHERN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <ActionButton
+              label="Termin übernehmen"
+              onPress={handleCreateCalendarEventFromMessage}
+              disabled={actionBusy || !calendarMessageText.trim()}
+            />
+            {!!calendarWriteResult && <Text style={styles.approvalResultText}>{calendarWriteResult}</Text>}
+          </View>
           <SectionTitle>Google-Kalender</SectionTitle>
           <View style={styles.card}>
             <View style={styles.cardHeader}>
@@ -1353,14 +1496,50 @@ export default function App() {
                 {formatCalendarMoment(entry.start)} – {formatCalendarMoment(entry.end)}
               </Text>
               {!!entry.location && <Text style={styles.cardMeta}>Ort: {entry.location}</Text>}
+              <TextInput
+                value={calendarDeleteTokens[entry.id] || ""}
+                onChangeText={(value) =>
+                  setCalendarDeleteTokens((current) => ({ ...current, [entry.id]: value }))
+                }
+                style={styles.input}
+                placeholder="TERMIN LOESCHEN"
+                placeholderTextColor={colors.textSoft}
+                autoCapitalize="characters"
+              />
+              <ActionButton
+                label="Termin löschen"
+                onPress={() => handleDeleteCalendarEvent(entry)}
+                disabled={actionBusy || !entry.id}
+                tone="danger"
+              />
             </View>
           ))}
+          {!!calendarDeleteResult && <Text style={styles.approvalResultText}>{calendarDeleteResult}</Text>}
           {googleConnected && googleEvents.length === 0 && (
             <EmptyState icon="▦" text="Keine Google-Termine in den nächsten 30 Tagen gefunden." />
           )}
           {!googleConnected && (
             <EmptyState icon="▦" text="Google-Kalender ist noch nicht verbunden." />
           )}
+          <SectionTitle>Kalender-Quellen</SectionTitle>
+          {sourceEvents.map((entry) => (
+            <View key={`${entry.provider}-${entry.id}-${entry.start}`} style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{entry.title || "Quellen-Termin"}</Text>
+                <Chip label={entry.policy_label || entry.provider || "Quelle"} color={colors.sage} />
+              </View>
+              <Text style={styles.cardMeta}>
+                {formatCalendarMoment(entry.start)} – {formatCalendarMoment(entry.end)}
+              </Text>
+              {!!entry.location && <Text style={styles.cardMeta}>Ort: {entry.location}</Text>}
+            </View>
+          ))}
+          {sourceEvents.length === 0 && <EmptyState icon="▦" text="Keine gefilterten Quellen-Termine gefunden." />}
+          {sourceErrors.map((error, index) => (
+            <Text key={`${error.policy_id}-${index}`} style={styles.cardMeta}>
+              Quelle nicht geladen: {error.provider} · {(error.blocked_reasons || []).join(", ")}
+            </Text>
+          ))}
           <SectionTitle>Termine am {calendar?.date || "-"}</SectionTitle>
           {items.map((entry) => (
             <View key={entry.id ?? `${entry.date}-${entry.start}-${entry.end}`} style={styles.card}>
@@ -1715,6 +1894,14 @@ export default function App() {
               placeholder="Notiz fuer KI-Kontext"
               placeholderTextColor={colors.textSoft}
               multiline
+            />
+            <TextInput
+              value={policyIcsUrl}
+              onChangeText={setPolicyIcsUrl}
+              style={styles.input}
+              placeholder="Outlook ICS URL nur fuer provider outlook_ics"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
             />
             <TextInput
               value={policyToken}

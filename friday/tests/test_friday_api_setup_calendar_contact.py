@@ -6,8 +6,8 @@ import importlib.util
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from friday.app.account_policy_store import AccountPolicy
-from friday.app.calendar_provider_base import CalendarProviderEvent
+from friday.app.account_policy_store import AccountPolicy, AccountPolicyWriteResult
+from friday.app.calendar_provider_base import CalendarProviderEvent, CalendarProviderResult
 from friday.storage.database import setup_local_database
 from friday.storage.repositories import CalendarRepository
 
@@ -428,5 +428,335 @@ def test_calendar_event_write_guard_endpoint_does_not_call_provider_when_blocked
     payload = response.json()["data"]
     assert payload["guard"]["allowed"] is False
     assert payload["provider_event_created"] is False
+    assert payload["provider_result"] is None
+    assert "approval_token_invalid" in payload["guard"]["blocked_reasons"]
+
+
+def test_outlook_ics_policy_create_stores_secret_without_returning_url(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    policy = AccountPolicy(
+        id=8,
+        provider="outlook_ics",
+        label="Outlook PH",
+        role="source",
+        access="read",
+        include_filters={"title_contains": ["PH"]},
+        exclude_filters={},
+        notes="PH nur als Quelle.",
+        enabled=True,
+        created_at="2026-07-09T00:00:00+00:00",
+    )
+
+    monkeypatch.setattr(
+        api,
+        "create_account_policy",
+        lambda **_kwargs: AccountPolicyWriteResult(
+            allowed=True,
+            persisted=True,
+            message="Policy wurde lokal gespeichert.",
+            blocked_reasons=(),
+            policy=policy,
+        ),
+    )
+    monkeypatch.setattr(api, "build_outlook_ics_account", lambda **kwargs: kwargs)
+    monkeypatch.setattr(
+        api,
+        "save_outlook_ics_account",
+        lambda _account, approval_token: {
+            "allowed": True,
+            "persisted": approval_token == "POLICY SPEICHERN",
+            "message": "Outlook-ICS-Quelle wurde lokal verschluesselt gespeichert.",
+            "blocked_reasons": (),
+        },
+    )
+    monkeypatch.setattr(
+        api,
+        "outlook_ics_account_status",
+        lambda policy_id: {
+            "connected": True,
+            "policy_id": policy_id,
+            "provider": "outlook_ics",
+        },
+    )
+
+    response = client.post(
+        "/api/accounts/policies",
+        json={
+            "provider": "outlook_ics",
+            "label": "Outlook PH",
+            "role": "source",
+            "access": "read",
+            "include_filters": {"title_contains": ["PH"]},
+            "notes": "PH nur als Quelle.",
+            "approval_token": "POLICY SPEICHERN",
+            "ics_url": "https://example.invalid/private.ics",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["ics_account_saved"] is True
+    assert payload["ics_account_status"]["connected"] is True
+    assert "example.invalid" not in str(payload)
+
+
+def test_calendar_endpoint_merges_and_filters_outlook_ics_source(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    policy = AccountPolicy(
+        id=8,
+        provider="outlook_ics",
+        label="Outlook PH",
+        role="source",
+        access="read",
+        include_filters={"title_contains": ["PH"]},
+        exclude_filters={},
+        notes="PH nur als Quelle.",
+        enabled=True,
+        created_at="2026-07-09T00:00:00+00:00",
+    )
+    monkeypatch.setattr(api, "list_account_policies", lambda: [policy])
+
+    class _Provider:
+        def __init__(self, policy_id):
+            self.policy_id = policy_id
+
+        def list_events(self, *, range_start: str, range_end: str):
+            return CalendarProviderResult(
+                ok=True,
+                events=(
+                    CalendarProviderEvent(
+                        id="ph-1",
+                        provider="outlook_ics",
+                        calendar_id="outlook_ics",
+                        title="PH Dienst",
+                        start="2026-07-15T08:00:00+00:00",
+                        end="2026-07-15T12:00:00+00:00",
+                    ),
+                    CalendarProviderEvent(
+                        id="private-1",
+                        provider="outlook_ics",
+                        calendar_id="outlook_ics",
+                        title="Privat",
+                        start="2026-07-15T13:00:00+00:00",
+                        end="2026-07-15T14:00:00+00:00",
+                    ),
+                ),
+            )
+
+    monkeypatch.setattr(api, "OutlookIcsCalendarProvider", _Provider)
+
+    response = client.get("/api/calendar?date=2026-07-15")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert [item["title"] for item in payload["source_events"]] == ["PH Dienst"]
+    assert payload["source_errors"] == []
+    assert "PH nur als Quelle." in payload["policy_context"]
+
+
+def test_calendar_from_message_endpoint_writes_edited_suggestion_with_guard(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path)
+    api.calendar_agent.calendar_repository = CalendarRepository(db_path)
+    policy = AccountPolicy(
+        id=1,
+        provider="google_calendar",
+        label="Google Hauptkalender",
+        role="main",
+        access="read_write",
+        include_filters={},
+        exclude_filters={},
+        notes="",
+        enabled=True,
+        created_at="2026-07-09T00:00:00+00:00",
+    )
+    created_events: list[CalendarProviderEvent] = []
+    monkeypatch.setattr(api, "list_account_policies", lambda: [policy])
+    monkeypatch.setattr(
+        api,
+        "google_calendar_account_status",
+        lambda: {
+            "connected": True,
+            "calendar_id": "primary",
+            "last_test_ok": True,
+            "real_calendar_enabled": True,
+        },
+    )
+
+    class _Provider:
+        def create_event(self, event: CalendarProviderEvent):
+            created_events.append(event)
+            return CalendarProviderResult(
+                ok=True,
+                event=CalendarProviderEvent(
+                    id="created-from-message",
+                    provider="google_calendar",
+                    calendar_id="primary",
+                    title=event.title,
+                    start=event.start,
+                    end=event.end,
+                    location=event.location,
+                ),
+                message="Google-Kalendertermin erstellt.",
+                provider_event_id="created-from-message",
+                external_call_used=True,
+            )
+
+    monkeypatch.setattr(api, "GoogleCalendarProvider", lambda: _Provider())
+
+    response = client.post(
+        "/api/calendar/events/from-message",
+        json={
+            "approval_token": "TERMIN SPEICHERN",
+            "text": "Termin am 15.07.2026 um 10:00 im Buero",
+            "base_date": "2026-07-09",
+            "title": "Editierter Termin",
+            "date": "2026-07-15",
+            "start": "11:30",
+            "end": "12:30",
+            "location": "Raum 1",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["provider_event_created"] is True
+    assert payload["calendar_entry"]["provider_event_id"] == "created-from-message"
+    assert created_events[0].title == "Editierter Termin"
+    assert created_events[0].start == "2026-07-15T11:30:00+02:00"
+    assert created_events[0].location == "Raum 1"
+
+
+def test_calendar_delete_guard_endpoint_deletes_provider_and_local_entry(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path)
+    repository = CalendarRepository(db_path)
+    api.calendar_agent.calendar_repository = repository
+    repository.record_calendar_entry(
+        provider="google_calendar",
+        provider_event_id="created-1",
+        policy_id=1,
+        title="Termin",
+        start="2026-07-15T10:00:00+02:00",
+        end="2026-07-15T11:00:00+02:00",
+    )
+    policy = AccountPolicy(
+        id=1,
+        provider="google_calendar",
+        label="Google Hauptkalender",
+        role="main",
+        access="read_write",
+        include_filters={},
+        exclude_filters={},
+        notes="",
+        enabled=True,
+        created_at="2026-07-09T00:00:00+00:00",
+    )
+    deleted: list[str] = []
+    monkeypatch.setattr(api, "list_account_policies", lambda: [policy])
+    monkeypatch.setattr(
+        api,
+        "google_calendar_account_status",
+        lambda: {
+            "connected": True,
+            "calendar_id": "primary",
+            "last_test_ok": True,
+            "real_calendar_enabled": True,
+        },
+    )
+
+    class _Provider:
+        def delete_event(self, *, event_id: str, calendar_id: str):
+            deleted.append(f"{calendar_id}:{event_id}")
+            return CalendarProviderResult(
+                ok=True,
+                message="Google-Kalendertermin geloescht.",
+                provider_event_id=event_id,
+                external_call_used=True,
+            )
+
+    monkeypatch.setattr(api, "GoogleCalendarProvider", lambda: _Provider())
+
+    response = client.post(
+        "/api/calendar/events/delete-guard",
+        json={
+            "approval_token": "TERMIN LOESCHEN",
+            "provider_event_id": "created-1",
+            "calendar_id": "primary",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["guard"]["allowed"] is True
+    assert payload["provider_event_deleted"] is True
+    assert payload["calendar_entry_deleted"]["provider_event_id"] == "created-1"
+    assert repository.get_calendar_entry_by_provider_event_id(
+        provider="google_calendar",
+        provider_event_id="created-1",
+    ) is None
+    assert deleted == ["primary:created-1"]
+
+
+def test_calendar_delete_guard_endpoint_does_not_call_provider_when_blocked(
+    monkeypatch,
+) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    policy = AccountPolicy(
+        id=1,
+        provider="google_calendar",
+        label="Google Hauptkalender",
+        role="main",
+        access="read_write",
+        include_filters={},
+        exclude_filters={},
+        notes="",
+        enabled=True,
+        created_at="2026-07-09T00:00:00+00:00",
+    )
+    monkeypatch.setattr(api, "list_account_policies", lambda: [policy])
+    monkeypatch.setattr(
+        api,
+        "google_calendar_account_status",
+        lambda: {
+            "connected": True,
+            "calendar_id": "primary",
+            "last_test_ok": True,
+            "real_calendar_enabled": True,
+        },
+    )
+
+    class _Provider:
+        def delete_event(self, *, event_id: str, calendar_id: str):
+            raise AssertionError("Provider must not be called when the hard token is wrong.")
+
+    monkeypatch.setattr(api, "GoogleCalendarProvider", lambda: _Provider())
+
+    response = client.post(
+        "/api/calendar/events/delete-guard",
+        json={
+            "approval_token": "JA",
+            "provider_event_id": "created-1",
+            "calendar_id": "primary",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["guard"]["allowed"] is False
+    assert payload["provider_event_deleted"] is False
     assert payload["provider_result"] is None
     assert "approval_token_invalid" in payload["guard"]["blocked_reasons"]

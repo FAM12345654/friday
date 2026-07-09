@@ -91,6 +91,24 @@ def test_no_network_scanner_allows_google_provider_allowlist() -> None:
     assert findings == ()
 
 
+def test_no_network_scanner_allows_ics_provider_urllib_allowlist() -> None:
+    findings = scan_python_source_for_network_usage(
+        'from urllib import request\nrequest.urlopen("https://example.invalid/calendar.ics")\n',
+        file_path="friday/app/calendar_provider_ics.py",
+    )
+
+    assert findings == ()
+
+
+def test_no_network_scanner_blocks_urllib_outside_ics_provider() -> None:
+    findings = scan_python_source_for_network_usage(
+        'from urllib import request\nrequest.urlopen("https://example.invalid/calendar.ics")\n',
+        file_path="friday/app/unsafe_calendar_fetch.py",
+    )
+
+    assert {finding.matched_pattern for finding in findings} == {"urllib.request.urlopen"}
+
+
 def test_no_network_scanner_detects_socket() -> None:
     assert _matched_patterns("import socket\nsocket.socket()\n") == {"socket.socket"}
 

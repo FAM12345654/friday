@@ -509,6 +509,49 @@ class CalendarRepository:
             ).fetchone()
         return row_to_dict(row)
 
+    def get_calendar_entry_by_provider_event_id(
+        self,
+        *,
+        provider: str,
+        provider_event_id: str,
+    ) -> dict | None:
+        """Return one local calendar entry reference by provider event id."""
+        with get_connection(self.db_path) as connection:
+            row = connection.execute(
+                """
+                SELECT id, provider, provider_event_id, policy_id, title, start, end, location, notes, created_at
+                FROM calendar_entries
+                WHERE provider = ? AND provider_event_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (provider, provider_event_id),
+            ).fetchone()
+        return None if row is None else row_to_dict(row)
+
+    def delete_calendar_entry_by_provider_event_id(
+        self,
+        *,
+        provider: str,
+        provider_event_id: str,
+    ) -> dict | None:
+        """Delete and return one local calendar entry reference by provider event id."""
+        existing = self.get_calendar_entry_by_provider_event_id(
+            provider=provider,
+            provider_event_id=provider_event_id,
+        )
+        if existing is None:
+            return None
+        with get_connection(self.db_path) as connection:
+            connection.execute(
+                """
+                DELETE FROM calendar_entries
+                WHERE id = ?
+                """,
+                (existing["id"],),
+            )
+        return existing
+
     def get_free_slots_for_date(self, date_iso: str, duration_minutes: int = 60) -> List[dict]:
         """Return explicit free slots if present; otherwise compute from busy blocks."""
         items = self.get_items_for_date(date_iso)

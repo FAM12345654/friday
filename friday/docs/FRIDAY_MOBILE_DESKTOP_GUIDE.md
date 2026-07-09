@@ -9,7 +9,7 @@ Friday bleibt lokal-first:
 - keine echten E-Mails,
 - kein echtes WhatsApp,
 - keine echte SMS,
-- keine echten Kalenderaktionen,
+- echte Kalenderaktionen nur als bewusst aktivierte Ausnahme mit hartem Token pro Termin,
 - keine Cloud-AI,
 - keine externen Provider-Aktionen.
 
@@ -324,3 +324,14 @@ Fuer verpackte Desktop-Builds gilt:
 - Es werden keine echten Kalendertermine erstellt.
 - Externe Integrationen bleiben deaktiviert.
 - Safety-Flags bleiben unveraendert.
+
+## Outlook-ICS, Termin-Flow und Delete
+
+- Outlook-ICS kann als read-only Kalenderquelle ueber eine Account-Policy gespeichert werden.
+- Die ICS-URL wird lokal verschluesselt abgelegt und nicht in API-Antworten angezeigt.
+- Kalenderquellen werden in der Kalenderansicht zusammengefuehrt; PH-Filter laufen deterministisch in Python.
+- Termin-aus-Nachricht ist ein Review-Flow: bearbeiten, pruefen, dann erst mit `TERMIN SPEICHERN` in Google schreiben.
+- Google-Termine koennen nur mit `TERMIN LOESCHEN` geloescht werden.
+- E-Mail, WhatsApp, SMS, Wetter und Musik bleiben deaktiviert.
+
+Details: `FRIDAY_CALENDAR_SOURCES_AND_FLOW_GATE.md`.

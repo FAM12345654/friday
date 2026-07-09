@@ -283,3 +283,37 @@ class GoogleCalendarProvider:
                 blocked_reasons=("google_create_failed",),
                 external_call_used=True,
             )
+
+    def delete_event(self, *, event_id: str, calendar_id: str) -> CalendarProviderResult:
+        """Delete one Google Calendar event after an upstream guard has allowed it."""
+        try:
+            clean_event_id = str(event_id or "").strip()
+            if not clean_event_id:
+                return CalendarProviderResult(
+                    ok=False,
+                    message="Google-Kalendertermin wurde nicht geloescht: Event-ID fehlt.",
+                    blocked_reasons=("provider_event_id_missing",),
+                    external_call_used=False,
+                )
+            service = self._build_service()
+            target_calendar_id = str(calendar_id or "").strip() or (
+                self.account.calendar_id if self.account else "primary"
+            )
+            service.events().delete(
+                calendarId=target_calendar_id,
+                eventId=clean_event_id,
+            ).execute()
+            return CalendarProviderResult(
+                ok=True,
+                message="Google-Kalendertermin geloescht.",
+                provider_event_id=clean_event_id,
+                external_call_used=True,
+            )
+        except Exception as exc:  # pragma: no cover - real provider defensive boundary
+            return CalendarProviderResult(
+                ok=False,
+                message=f"Google-Kalender-Loeschen fehlgeschlagen: {exc}",
+                blocked_reasons=("google_delete_failed",),
+                provider_event_id=str(event_id or "").strip() or None,
+                external_call_used=True,
+            )

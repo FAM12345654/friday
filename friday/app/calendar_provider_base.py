@@ -50,3 +50,5 @@ class CalendarProvider(Protocol):
     def create_event(self, event: CalendarProviderEvent) -> CalendarProviderResult:
         """Create one event in the provider."""
 
+    def delete_event(self, *, event_id: str, calendar_id: str) -> CalendarProviderResult:
+        """Delete one event in the provider."""

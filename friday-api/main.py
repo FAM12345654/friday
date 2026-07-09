@@ -27,7 +27,7 @@ from friday.agents import (
     build_whatsapp_forward_preview,
 )
 from friday.app.ai_task_forwarding_draft import build_ai_task_forwarding_draft
-from friday.app.account_policy_engine import build_ai_context, resolve_write_target
+from friday.app.account_policy_engine import build_ai_context, filter_events, resolve_write_target
 from friday.app.account_policy_store import (
     POLICY_SAVE_TOKEN,
     create_account_policy,
@@ -37,6 +37,7 @@ from friday.app.account_policy_store import (
 )
 from friday.app.calendar_activation_gate import build_calendar_activation_gate
 from friday.app.calendar_event_extraction import extract_calendar_event_candidate
+from friday.app.calendar_event_delete_guard import check_calendar_event_delete_allowed
 from friday.app.calendar_event_write_guard import check_calendar_event_write_allowed
 from friday.app.calendar_google_account_store import (
     GOOGLE_CALENDAR_CONNECT_TOKEN,
@@ -44,12 +45,18 @@ from friday.app.calendar_google_account_store import (
     google_calendar_account_status,
     save_google_calendar_account,
 )
+from friday.app.calendar_ics_account_store import (
+    build_outlook_ics_account,
+    outlook_ics_account_status,
+    save_outlook_ics_account,
+)
 from friday.app.calendar_provider_base import CalendarProviderEvent
 from friday.app.calendar_provider_google import (
     GoogleCalendarProvider,
     build_google_oauth_authorization_url,
     exchange_google_oauth_authorization_response,
 )
+from friday.app.calendar_provider_ics import OutlookIcsCalendarProvider
 from friday.app.contact_category_classifier import classify_contact_category
 from friday.app.email_account_store import (
     EMAIL_ACCOUNT_DELETE_TOKEN,
@@ -223,6 +230,7 @@ class AccountPolicyCreateRequest(BaseModel):
     notes: str | None = ""
     enabled: bool = True
     approval_token: str
+    ics_url: str | None = None
 
 
 class AccountPolicyUpdateRequest(BaseModel):
@@ -235,6 +243,7 @@ class AccountPolicyUpdateRequest(BaseModel):
     notes: str | None = None
     enabled: bool | None = None
     approval_token: str
+    ics_url: str | None = None
 
 
 class PolicyDeleteRequest(BaseModel):
@@ -265,6 +274,37 @@ class CalendarEventWriteGuardRequest(BaseModel):
     location: str | None = None
 
 
+class CalendarEventFromMessageWriteRequest(BaseModel):
+    approval_token: str
+    text: str
+    base_date: str | None = None
+    duration_minutes: int = 60
+    title: str | None = None
+    date: str | None = None
+    start: str | None = None
+    end: str | None = None
+    location: str | None = None
+
+
+class CalendarEventDeleteGuardRequest(BaseModel):
+    approval_token: str
+    provider_event_id: str
+    calendar_id: str | None = None
+
+
+for _request_model in (
+    CalendarEventExtractRequest,
+    AccountPolicyCreateRequest,
+    AccountPolicyUpdateRequest,
+    GoogleOAuthConnectRequest,
+    CalendarActivationGateRequest,
+    CalendarEventWriteGuardRequest,
+    CalendarEventFromMessageWriteRequest,
+    CalendarEventDeleteGuardRequest,
+):
+    _request_model.model_rebuild()
+
+
 def _today() -> str:
     if USE_REAL_TODAY:
         return date.today().isoformat()
@@ -273,6 +313,147 @@ def _today() -> str:
 
 def _envelope(data: Any) -> dict[str, Any]:
     return {"ok": True, "data": data}
+
+
+def _calendar_provider_result_payload(provider_result: Any) -> dict[str, Any]:
+    return {
+        "ok": provider_result.ok,
+        "message": provider_result.message,
+        "blocked_reasons": provider_result.blocked_reasons,
+        "provider_event_id": provider_result.provider_event_id,
+        "external_call_used": provider_result.external_call_used,
+        "event": provider_result.event.to_dict() if provider_result.event else None,
+    }
+
+
+def _build_datetime_value(date_text: str | None, time_or_datetime: str | None) -> str:
+    value = str(time_or_datetime or "").strip()
+    if not value:
+        return ""
+    if "T" in value:
+        return value
+    clean_date = str(date_text or "").strip()
+    if not clean_date:
+        return value
+    return f"{clean_date}T{value}:00+02:00" if len(value) == 5 else f"{clean_date}T{value}+02:00"
+
+
+def _collect_source_calendar_events(
+    policies: list[Any],
+    *,
+    range_start: str,
+    range_end: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    events: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for policy in policies:
+        if not policy.enabled or policy.role != "source" or policy.access not in {"read", "read_write"}:
+            continue
+        if policy.provider not in {"google_calendar", "outlook_ics"}:
+            continue
+        try:
+            if policy.provider == "outlook_ics":
+                result = OutlookIcsCalendarProvider(policy_id=policy.id).list_events(
+                    range_start=range_start,
+                    range_end=range_end,
+                )
+            else:
+                result = GoogleCalendarProvider().list_events(
+                    range_start=range_start,
+                    range_end=range_end,
+                )
+            if not result.ok:
+                errors.append(
+                    {
+                        "policy_id": policy.id,
+                        "provider": policy.provider,
+                        "message": result.message,
+                        "blocked_reasons": result.blocked_reasons,
+                    }
+                )
+                continue
+            provider_events = [event.to_dict() for event in result.events]
+            filtered = filter_events(provider_events, policy)
+            for event in filtered:
+                event["policy_id"] = policy.id
+                event["policy_label"] = policy.label
+            events.extend(filtered)
+        except Exception as exc:  # pragma: no cover - provider boundary
+            errors.append(
+                {
+                    "policy_id": policy.id,
+                    "provider": policy.provider,
+                    "message": "Kalender-Quelle konnte nicht gelesen werden.",
+                    "blocked_reasons": ("source_calendar_read_failed",),
+                    "detail": str(exc),
+                }
+            )
+    return events, errors
+
+
+def _write_google_calendar_event_after_guard(
+    *,
+    approval_token: str,
+    title: str,
+    start: str,
+    end: str,
+    location: str | None = None,
+    notes: str = "Created via Friday calendar write gate.",
+) -> dict[str, Any]:
+    policies = list_account_policies()
+    main_target = resolve_write_target(policies)
+    account_status = google_calendar_account_status()
+    guard = check_calendar_event_write_allowed(
+        approval_token=approval_token,
+        real_calendar_enabled=config.ENABLE_REAL_CALENDAR,
+        main_policy_ok=main_target.ok,
+        connection_ok=bool(account_status["last_test_ok"]),
+    )
+    provider_event_created = False
+    provider_result_payload: dict[str, Any] | None = None
+    local_calendar_entry: dict[str, Any] | None = None
+
+    if guard.allowed:
+        calendar_id = str(account_status.get("calendar_id") or "primary")
+        provider_event = CalendarProviderEvent(
+            id=None,
+            provider="google_calendar",
+            calendar_id=calendar_id,
+            title=title,
+            start=start,
+            end=end,
+            location=location,
+            raw=None,
+        )
+        provider_result = GoogleCalendarProvider().create_event(provider_event)
+        provider_result_payload = _calendar_provider_result_payload(provider_result)
+        if provider_result.ok and provider_result.event is not None:
+            provider_event_created = True
+            repository = calendar_agent.calendar_repository
+            if repository is not None:
+                local_calendar_entry = repository.record_calendar_entry(
+                    provider="google_calendar",
+                    provider_event_id=provider_result.provider_event_id or provider_result.event.id,
+                    policy_id=main_target.policy.id if main_target.policy else None,
+                    title=provider_result.event.title,
+                    start=provider_result.event.start,
+                    end=provider_result.event.end,
+                    location=provider_result.event.location,
+                    notes=notes,
+                )
+    return {
+        "guard": guard.to_dict(),
+        "event_preview": {
+            "title": title,
+            "start": start,
+            "end": end,
+            "location": location,
+        },
+        "main_policy": main_target.policy.to_dict() if main_target.policy else None,
+        "provider_event_created": provider_event_created,
+        "provider_result": provider_result_payload,
+        "calendar_entry": local_calendar_entry,
+    }
 
 
 def _find_message(message_id: int) -> dict[str, Any]:
@@ -370,17 +551,33 @@ def create_policy(payload: AccountPolicyCreateRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not result.persisted:
         raise HTTPException(status_code=403, detail=result.message)
+    ics_status: dict[str, Any] | None = None
+    ics_save_result: dict[str, Any] | None = None
+    if result.policy is not None and result.policy.provider == "outlook_ics" and payload.ics_url:
+        account = build_outlook_ics_account(
+            policy_id=int(result.policy.id),
+            ics_url=payload.ics_url,
+            last_test_ok=False,
+        )
+        ics_save_result = save_outlook_ics_account(
+            account,
+            approval_token=payload.approval_token,
+        )
+        ics_status = outlook_ics_account_status(int(result.policy.id))
     return _envelope(
         {
             **result.__dict__,
             "policy": result.policy.to_dict() if result.policy else None,
+            "ics_account_saved": bool(ics_save_result and ics_save_result["persisted"]),
+            "ics_account_status": ics_status,
+            "ics_account_message": ics_save_result["message"] if ics_save_result else None,
         }
     )
 
 
 @app.patch("/api/accounts/policies/{policy_id}")
 def update_policy(policy_id: int, payload: AccountPolicyUpdateRequest) -> dict[str, Any]:
-    values = payload.dict(exclude={"approval_token"}, exclude_none=True)
+    values = payload.dict(exclude={"approval_token", "ics_url"}, exclude_none=True)
     try:
         result = update_account_policy(
             policy_id,
@@ -391,10 +588,26 @@ def update_policy(policy_id: int, payload: AccountPolicyUpdateRequest) -> dict[s
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not result.persisted:
         raise HTTPException(status_code=403, detail=result.message)
+    ics_status: dict[str, Any] | None = None
+    ics_save_result: dict[str, Any] | None = None
+    if payload.ics_url and result.policy is not None and result.policy.provider == "outlook_ics":
+        account = build_outlook_ics_account(
+            policy_id=policy_id,
+            ics_url=payload.ics_url,
+            last_test_ok=False,
+        )
+        ics_save_result = save_outlook_ics_account(
+            account,
+            approval_token=payload.approval_token,
+        )
+        ics_status = outlook_ics_account_status(policy_id)
     return _envelope(
         {
             **result.__dict__,
             "policy": result.policy.to_dict() if result.policy else None,
+            "ics_account_saved": bool(ics_save_result and ics_save_result["persisted"]),
+            "ics_account_status": ics_status,
+            "ics_account_message": ics_save_result["message"] if ics_save_result else None,
         }
     )
 
@@ -418,9 +631,15 @@ def delete_policy(policy_id: int, payload: PolicyDeleteRequest) -> dict[str, Any
 @app.get("/api/accounts/calendar/status")
 def get_calendar_account_status() -> dict[str, Any]:
     policies = list_account_policies()
+    outlook_ics = [
+        outlook_ics_account_status(policy.id)
+        for policy in policies
+        if policy.id is not None and policy.provider == "outlook_ics"
+    ]
     return _envelope(
         {
             "google": google_calendar_account_status(),
+            "outlook_ics": outlook_ics,
             "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,
             "policies": [policy.to_dict() for policy in policies],
             "ai_context": build_ai_context(policies),
@@ -738,10 +957,19 @@ def reject_task_suggestion(suggestion_id: int) -> dict[str, Any]:
 def get_calendar(date: Optional[str] = Query(default=None)) -> dict[str, Any]:
     date_value = date or _today()
     policies = list_account_policies()
+    source_events, source_errors = _collect_source_calendar_events(
+        policies,
+        range_start=date_value,
+        range_end=date_value,
+    )
+    local_items = calendar_agent.get_items_for_date(date_value)
     return _envelope(
         {
             "date": date_value,
-            "items": calendar_agent.get_items_for_date(date_value),
+            "items": local_items,
+            "source_events": source_events,
+            "source_errors": source_errors,
+            "merged_items": [*local_items, *source_events],
             "free_slots": calendar_agent.get_free_slots_for_date(date_value),
             "account_policies": [policy.to_dict() for policy in policies],
             "policy_context": build_ai_context(policies),
@@ -768,67 +996,91 @@ def extract_calendar_event(payload: CalendarEventExtractRequest) -> dict[str, An
 
 @app.post("/api/calendar/events/write-guard")
 def preview_calendar_event_write(payload: CalendarEventWriteGuardRequest) -> dict[str, Any]:
+    return _envelope(
+        _write_google_calendar_event_after_guard(
+            approval_token=payload.approval_token,
+            title=payload.title,
+            start=payload.start,
+            end=payload.end,
+            location=payload.location,
+        )
+    )
+
+
+@app.post("/api/calendar/events/from-message")
+def create_calendar_event_from_message(payload: CalendarEventFromMessageWriteRequest) -> dict[str, Any]:
+    extraction = extract_calendar_event_candidate(
+        payload.text,
+        base_date=payload.base_date,
+        duration_minutes=payload.duration_minutes,
+    )
+    if not extraction.has_event:
+        return _envelope(
+            {
+                "extraction": extraction.to_dict(),
+                "guard": {
+                    "allowed": False,
+                    "message": "Kein vollstaendiger Termin erkannt.",
+                    "blocked_reasons": ("calendar_event_incomplete",),
+                    "preview_only": True,
+                    "external_call_allowed": False,
+                },
+                "provider_event_created": False,
+                "provider_result": None,
+                "calendar_entry": None,
+            }
+        )
+    date_text = payload.date or extraction.proposed_date
+    start_text = payload.start or extraction.proposed_start
+    end_text = payload.end or extraction.proposed_end
+    result = _write_google_calendar_event_after_guard(
+        approval_token=payload.approval_token,
+        title=payload.title or extraction.title,
+        start=_build_datetime_value(date_text, start_text),
+        end=_build_datetime_value(date_text, end_text),
+        location=payload.location if payload.location is not None else extraction.location,
+        notes="Created via Friday message calendar review flow.",
+    )
+    result["extraction"] = extraction.to_dict()
+    return _envelope(result)
+
+
+@app.post("/api/calendar/events/delete-guard")
+def preview_calendar_event_delete(payload: CalendarEventDeleteGuardRequest) -> dict[str, Any]:
     policies = list_account_policies()
     main_target = resolve_write_target(policies)
     account_status = google_calendar_account_status()
-    guard = check_calendar_event_write_allowed(
+    guard = check_calendar_event_delete_allowed(
         approval_token=payload.approval_token,
         real_calendar_enabled=config.ENABLE_REAL_CALENDAR,
         main_policy_ok=main_target.ok,
         connection_ok=bool(account_status["last_test_ok"]),
     )
-    provider_event_created = False
     provider_result_payload: dict[str, Any] | None = None
-    local_calendar_entry: dict[str, Any] | None = None
-
+    provider_event_deleted = False
+    deleted_calendar_entry: dict[str, Any] | None = None
     if guard.allowed:
-        calendar_id = str(account_status.get("calendar_id") or "primary")
-        provider_event = CalendarProviderEvent(
-            id=None,
-            provider="google_calendar",
+        calendar_id = payload.calendar_id or str(account_status.get("calendar_id") or "primary")
+        provider_result = GoogleCalendarProvider().delete_event(
+            event_id=payload.provider_event_id,
             calendar_id=calendar_id,
-            title=payload.title,
-            start=payload.start,
-            end=payload.end,
-            location=payload.location,
-            raw=None,
         )
-        provider_result = GoogleCalendarProvider().create_event(provider_event)
-        provider_result_payload = {
-            "ok": provider_result.ok,
-            "message": provider_result.message,
-            "blocked_reasons": provider_result.blocked_reasons,
-            "provider_event_id": provider_result.provider_event_id,
-            "external_call_used": provider_result.external_call_used,
-            "event": provider_result.event.to_dict() if provider_result.event else None,
-        }
-        if provider_result.ok and provider_result.event is not None:
-            provider_event_created = True
+        provider_result_payload = _calendar_provider_result_payload(provider_result)
+        if provider_result.ok:
+            provider_event_deleted = True
             repository = calendar_agent.calendar_repository
             if repository is not None:
-                local_calendar_entry = repository.record_calendar_entry(
+                deleted_calendar_entry = repository.delete_calendar_entry_by_provider_event_id(
                     provider="google_calendar",
-                    provider_event_id=provider_result.provider_event_id or provider_result.event.id,
-                    policy_id=main_target.policy.id if main_target.policy else None,
-                    title=provider_result.event.title,
-                    start=provider_result.event.start,
-                    end=provider_result.event.end,
-                    location=provider_result.event.location,
-                    notes="Created via Friday calendar write gate.",
+                    provider_event_id=payload.provider_event_id,
                 )
     return _envelope(
         {
             "guard": guard.to_dict(),
-            "event_preview": {
-                "title": payload.title,
-                "start": payload.start,
-                "end": payload.end,
-                "location": payload.location,
-            },
-            "main_policy": main_target.policy.to_dict() if main_target.policy else None,
-            "provider_event_created": provider_event_created,
+            "provider_event_id": payload.provider_event_id,
+            "provider_event_deleted": provider_event_deleted,
             "provider_result": provider_result_payload,
-            "calendar_entry": local_calendar_entry,
+            "calendar_entry_deleted": deleted_calendar_entry,
         }
     )
 

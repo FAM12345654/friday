@@ -276,3 +276,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Friday 1.0 lokal | abgeschlossen | Baseline Commit 7e9580; externe Aktionen bleiben deaktiviert |
 | E-Mail-Draft | lokal erlaubt | kein Provider, kein Login, kein Versand |
 | Post-1.0 Arbeit | gated | neue Produktlogik, externe Dienste oder weitere Commits brauchen eigenes Gate |
+| Outlook-ICS lesen | erlaubt read-only | ICS-URL verschluesselt unter `local_data/accounts`; Netzwerk nur in `calendar_provider_ics.py`; kein ICS-Write/Delete |
+| Kalenderquellen mergen | erlaubt read-only | Source-Policies werden gefiltert; defekte Quellen erzeugen isolierte Fehler |
+| Termin aus Nachricht uebernehmen | gated extern | Review + editierbare Felder + Google-Write nur mit `TERMIN SPEICHERN` |
+| Kalendertermin loeschen | gated extern | Google-Delete nur mit `TERMIN LOESCHEN`, Haupt-Policy und Verbindung OK |
