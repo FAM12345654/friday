@@ -6,14 +6,19 @@
   <title>Friday Desktop</title>
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #0b1220;
-      --card: #111827;
-      --muted: #94a3b8;
-      --text: #e5e7eb;
-      --line: #1f2937;
-      --accent: #2563eb;
-      --danger: #991b1b;
+      color-scheme: light;
+      --bg: #f6f1e4;
+      --surface: #fdfaf1;
+      --card: #fbf7ec;
+      --muted: #84907b;
+      --text: #2e3627;
+      --line: #e7dfca;
+      --accent: #5c7150;
+      --accent-soft: #e9eddd;
+      --sage: #7d9270;
+      --success: #5f7f52;
+      --danger: #bb6b58;
+      --shadow: 0 4px 16px rgba(54, 68, 46, 0.08);
     }
 
     * {
@@ -22,7 +27,7 @@
 
     body {
       margin: 0;
-      font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+      font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
@@ -36,39 +41,76 @@
 
     .sidebar {
       border-right: 1px solid var(--line);
-      padding: 16px;
-      background: #0f172a;
+      padding: 20px 16px;
+      background: linear-gradient(180deg, #f2ecdc 0%, #f6f1e4 100%);
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
     }
 
-    .sidebar h1 {
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .brand-logo {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #36442e 0%, #5c7150 55%, #7d9270 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-weight: 800;
+      color: #f5efe2;
+      box-shadow: 0 4px 18px rgba(54, 68, 46, 0.3);
+    }
+
+    .brand h1 {
       margin: 0;
-      font-size: 20px;
+      font-size: 19px;
+      letter-spacing: 0.2px;
+    }
+
+    .brand .muted {
+      margin-top: 2px;
     }
 
     .menu-btn {
       appearance: none;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #1e293b;
-      color: var(--text);
-      padding: 10px 12px;
+      border: 1px solid transparent;
+      border-radius: 12px;
+      background: transparent;
+      color: var(--muted);
+      padding: 11px 14px;
       text-align: left;
       cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .menu-btn:hover {
+      background: var(--surface);
+      color: var(--text);
     }
 
     .menu-btn.active {
       background: var(--accent);
-      border-color: #60a5fa;
+      border-color: var(--accent);
+      color: #f5efe2;
+      box-shadow: 0 4px 14px rgba(54, 68, 46, 0.25);
     }
 
     .content {
-      padding: 20px;
+      padding: 24px 28px;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 14px;
+      max-width: 1100px;
     }
 
     .header {
@@ -79,39 +121,51 @@
 
     .title {
       margin: 0;
-      font-size: 28px;
-      font-weight: 700;
+      font-size: 26px;
+      font-weight: 800;
+    }
+
+    .header-side {
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
     button {
       cursor: pointer;
+      font-family: inherit;
     }
 
     .status {
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--surface);
+      border-radius: 999px;
+      padding: 8px 14px;
+      box-shadow: var(--shadow);
     }
 
     .card {
       background: var(--card);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 14px;
+      border-radius: 20px;
+      padding: 18px;
+      box-shadow: var(--shadow);
     }
 
     .row {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
-      margin-top: 8px;
+      margin-top: 10px;
     }
 
     .list-item {
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: #0b1220;
-      padding: 10px;
-      margin-bottom: 8px;
+      border-radius: 16px;
+      background: var(--surface);
+      padding: 14px 15px;
+      margin-bottom: 10px;
+      box-shadow: var(--shadow);
     }
 
     .muted {
@@ -121,20 +175,33 @@
     }
 
     .error {
-      color: #f87171;
+      color: var(--danger);
     }
 
     .small-btn {
-      border: 1px solid var(--line);
-      background: #334155;
-      color: var(--text);
-      border-radius: 8px;
-      padding: 6px 10px;
+      border: none;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-radius: 12px;
+      padding: 8px 13px;
+      font-size: 12px;
+      font-weight: 700;
+      transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .small-btn:hover {
+      background: var(--accent);
+      color: #f5efe2;
     }
 
     .danger-btn {
+      background: #f3e2dc;
+      color: var(--danger);
+    }
+
+    .danger-btn:hover {
       background: var(--danger);
-      border-color: #b91c1c;
+      color: #f5efe2;
     }
 
     .actions {
@@ -145,40 +212,66 @@
     }
 
     .refresh {
-      border: 1px solid #60a5fa;
-      border-radius: 10px;
-      background: #2563eb;
-      color: #fff;
-      padding: 9px 12px;
+      border: none;
+      border-radius: 14px;
+      background: var(--accent);
+      color: #f5efe2;
+      padding: 10px 17px;
+      font-size: 13px;
+      font-weight: 700;
+      box-shadow: var(--shadow);
+      transition: filter 0.15s ease;
+    }
+
+    .refresh:hover {
+      filter: brightness(1.15);
     }
 
     h2, h3 {
-      margin: 0 0 6px;
+      margin: 0 0 8px;
+    }
+
+    h3 {
+      font-size: 15px;
+      color: var(--text);
     }
 
     .empty {
       color: var(--muted);
-      margin: 6px 0;
+      margin: 8px 0;
+    }
+
+    .sidebar-footer {
+      margin-top: auto;
+      color: #a8a390;
+      font-size: 11px;
+      line-height: 1.5;
     }
   </style>
 </head>
 <body>
   <div class="app-shell">
     <nav class="sidebar">
-      <h1>Friday Desktop</h1>
-      <p class="muted">Dark UI • 6 Bereiche</p>
-      <button class="menu-btn active" data-screen="dashboard">Dashboard</button>
-      <button class="menu-btn" data-screen="tasks">Tasks</button>
-      <button class="menu-btn" data-screen="messages">Nachrichten</button>
-      <button class="menu-btn" data-screen="calendar">Kalender</button>
-      <button class="menu-btn" data-screen="contacts">Kontakte</button>
-      <button class="menu-btn" data-screen="privacy">Datenschutz</button>
+      <div class="brand">
+        <div class="brand-logo">F</div>
+        <div>
+          <h1>Friday</h1>
+          <div class="muted">Dein lokaler Assistent</div>
+        </div>
+      </div>
+      <button class="menu-btn active" data-screen="dashboard">◈ Dashboard</button>
+      <button class="menu-btn" data-screen="tasks">✓ Aufgaben</button>
+      <button class="menu-btn" data-screen="messages">✉ Nachrichten</button>
+      <button class="menu-btn" data-screen="calendar">▦ Kalender</button>
+      <button class="menu-btn" data-screen="contacts">☺ Kontakte</button>
+      <button class="menu-btn" data-screen="privacy">🛡 Datenschutz</button>
+      <div class="sidebar-footer">Friday 1.0<br />lokal &amp; privat</div>
     </nav>
 
     <main class="content">
       <div class="header">
         <h2 class="title" id="screen-title">Dashboard</h2>
-        <div>
+        <div class="header-side">
           <div class="status" id="status">Bereit</div>
           <button class="refresh" id="refresh">Aktualisieren</button>
         </div>

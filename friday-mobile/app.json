@@ -5,9 +5,11 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "friday",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
     "splash": {
-      "backgroundColor": "#111111",
+      "image": "./assets/splash-icon.png",
+      "backgroundColor": "#f6f1e4",
       "resizeMode": "contain"
     },
     "assetBundlePatterns": [
@@ -27,14 +29,25 @@
     "android": {
       "package": "com.phili.friday",
       "adaptiveIcon": {
-        "backgroundColor": "#111111"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#5c7150"
       }
     },
     "extra": {
-      "fridayApiDefaultUrl": "https://cholesterol-ampland-donated-treat.trycloudflare.com",
+      "fridayApiDefaultUrl": "http://192.168.178.42:8000",
       "eas": {
         "projectId": "72728242-5f76-4994-9d19-1033b0db7fe6"
       }
-    }
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ]
   }
 }

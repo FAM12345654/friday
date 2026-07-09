@@ -12,7 +12,7 @@ const skipEmbeddedApi = [
   "true",
   "yes",
   "y",
-].includes(String(process.env.FRIDAY_SKIP_EMBEDDED_API || "").toLowerCase());
+].includes(String(process.env.FRIDAY_SKIP_EMBEDDED_API || "").toLowerCase()) || app.isPackaged;
 
 function isApiPortReachable() {
   const maxAttempts = 12;
@@ -111,7 +111,10 @@ function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1180,
     height: 760,
-    backgroundColor: "#0f172a",
+    backgroundColor: "#f6f1e4",
+    title: "Friday",
+    icon: path.join(__dirname, "assets", "icon.png"),
+    autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

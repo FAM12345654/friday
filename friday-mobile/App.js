@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Button,
+  Platform,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -15,10 +17,12 @@ import {
   approveMessageSuggestion,
   approveTaskSuggestion,
   archiveTask,
+  checkHealth,
   completeTask,
   createTask,
   deleteTask,
   generateTaskSuggestionsForMessage,
+  getApiUrl,
   getCalendar,
   getContacts,
   getDashboard,
@@ -32,13 +36,37 @@ import {
 } from "./src/api/client";
 
 const screens = [
-  "Dashboard",
-  "Tasks",
-  "Nachrichten",
-  "Kalender",
-  "Kontakte",
-  "Datenschutz",
+  { key: "Dashboard", icon: "◈" },
+  { key: "Tasks", icon: "✓" },
+  { key: "Nachrichten", icon: "✉" },
+  { key: "Kalender", icon: "▦" },
+  { key: "Kontakte", icon: "☺" },
+  { key: "Datenschutz", icon: "🛡" },
 ];
+
+const colors = {
+  bg: "#f6f1e4",
+  surface: "#fdfaf1",
+  card: "#fbf7ec",
+  border: "#e7dfca",
+  accent: "#5c7150",
+  accentSoft: "#e9eddd",
+  sage: "#7d9270",
+  deep: "#36442e",
+  text: "#2e3627",
+  textSoft: "#84907b",
+  success: "#5f7f52",
+  warn: "#b8924a",
+  danger: "#bb6b58",
+};
+
+const softShadow = {
+  shadowColor: colors.deep,
+  shadowOffset: { width: 0, height: 3 },
+  shadowOpacity: 0.08,
+  shadowRadius: 10,
+  elevation: 2,
+};
 
 const formatDate = (value) => {
   if (!value) {
@@ -49,7 +77,18 @@ const formatDate = (value) => {
 
 const isArray = (value) => (Array.isArray(value) ? value : []);
 
-const toPriorityLabel = (value) => value ? String(value).trim() || "normal" : "normal";
+const toPriorityLabel = (value) => (value ? String(value).trim() || "normal" : "normal");
+
+const priorityColor = (value) => {
+  const label = toPriorityLabel(value).toLowerCase();
+  if (label === "hoch" || label === "high") {
+    return colors.danger;
+  }
+  if (label === "mittel" || label === "medium" || label === "normal") {
+    return colors.warn;
+  }
+  return colors.success;
+};
 
 const normalizeApiError = (error) => {
   if (!error || !error.message) {
@@ -58,10 +97,87 @@ const normalizeApiError = (error) => {
   return String(error.message);
 };
 
+const greeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 5) {
+    return "Gute Nacht";
+  }
+  if (hour < 11) {
+    return "Guten Morgen";
+  }
+  if (hour < 18) {
+    return "Guten Tag";
+  }
+  return "Guten Abend";
+};
+
+const todayLabel = () =>
+  new Date().toLocaleDateString("de-DE", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
+function ActionButton({ label, onPress, disabled, variant = "primary", small }) {
+  const variantStyle =
+    variant === "danger"
+      ? styles.buttonDanger
+      : variant === "ghost"
+        ? styles.buttonGhost
+        : variant === "success"
+          ? styles.buttonSuccess
+          : styles.buttonPrimary;
+  const textStyle =
+    variant === "ghost" ? styles.buttonGhostText : styles.buttonText;
+  return (
+    <TouchableOpacity
+      style={[styles.button, variantStyle, small && styles.buttonSmall, disabled && styles.buttonDisabled]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.7}
+    >
+      <Text style={[textStyle, small && styles.buttonTextSmall]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function Chip({ label, color }) {
+  return (
+    <View style={[styles.chip, { backgroundColor: `${color}1f` }]}>
+      <View style={[styles.chipDot, { backgroundColor: color }]} />
+      <Text style={[styles.chipText, { color }]}>{label}</Text>
+    </View>
+  );
+}
+
+function SectionTitle({ children }) {
+  return <Text style={styles.sectionTitle}>{children}</Text>;
+}
+
+function EmptyState({ icon, text }) {
+  return (
+    <View style={styles.empty}>
+      <Text style={styles.emptyIcon}>{icon}</Text>
+      <Text style={styles.emptyText}>{text}</Text>
+    </View>
+  );
+}
+
+function StatCard({ label, value, tint }) {
+  return (
+    <View style={[styles.statCard, { borderTopColor: tint }]}>
+      <Text style={[styles.statValue, { color: tint }]}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
 export default function App() {
   const [active, setActive] = useState("Dashboard");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [online, setOnline] = useState(null);
   const [dashboard, setDashboard] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [messages, setMessages] = useState([]);
@@ -72,6 +188,24 @@ export default function App() {
   const [privacy, setPrivacy] = useState(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const ping = async () => {
+      const ok = await checkHealth();
+      if (isMounted) {
+        setOnline(ok);
+      }
+    };
+
+    ping();
+    const timer = setInterval(ping, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -146,6 +280,16 @@ export default function App() {
       await loadScreenData(active);
     } catch (err) {
       setError(normalizeApiError(err));
+    }
+  };
+
+  const handlePullRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await refreshActive();
+      setOnline(await checkHealth());
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -267,11 +411,13 @@ export default function App() {
       const summary = dashboard?.summary || {};
       return (
         <View>
-          <Text style={styles.title}>Dashboard ({dashboard?.date || "-"})</Text>
-          <Text style={styles.item}>Offene Tasks: {summary.open_tasks || 0}</Text>
-          <Text style={styles.item}>Nachrichten: {summary.messages || 0}</Text>
-          <Text style={styles.item}>Kalender-Events heute: {summary.calendar_items_today || 0}</Text>
-          <Text style={styles.item}>Kontakte: {summary.contacts || 0}</Text>
+          <View style={styles.statGrid}>
+            <StatCard label="Offene Aufgaben" value={summary.open_tasks || 0} tint={colors.accent} />
+            <StatCard label="Nachrichten" value={summary.messages || 0} tint={colors.sage} />
+            <StatCard label="Termine heute" value={summary.calendar_items_today || 0} tint={colors.warn} />
+            <StatCard label="Kontakte" value={summary.contacts || 0} tint={colors.danger} />
+          </View>
+          <Text style={styles.dashboardDate}>Stand: {dashboard?.date || "-"}</Text>
         </View>
       );
     }
@@ -279,51 +425,54 @@ export default function App() {
     if (active === "Tasks") {
       return (
         <View>
-          <Text style={styles.title}>Aufgaben</Text>
-          <Text style={styles.item}>Neue Aufgabe:</Text>
-          <View style={styles.row}>
+          <View style={styles.inputRow}>
             <TextInput
               value={newTaskTitle}
               onChangeText={setNewTaskTitle}
               style={styles.input}
-              placeholder="Titel..."
-              placeholderTextColor="#94a3b8"
+              placeholder="Neue Aufgabe eingeben…"
+              placeholderTextColor={colors.textSoft}
+              onSubmitEditing={handleCreateTask}
+              returnKeyType="done"
             />
-            <Button title="Hinzufügen" onPress={handleCreateTask} disabled={actionBusy} />
+            <ActionButton label="＋" onPress={handleCreateTask} disabled={actionBusy} />
           </View>
           {tasks.map((task) => (
             <View key={task.id} style={styles.card}>
-              <Text style={styles.item}>#{task.id} {task.title}</Text>
-              <Text style={styles.hint}>
-                {task.category || "allgemein"} • {task.status || "open"} • {toPriorityLabel(task.priority)}
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{task.title}</Text>
+                <Chip label={toPriorityLabel(task.priority)} color={priorityColor(task.priority)} />
+              </View>
+              <Text style={styles.cardMeta}>
+                #{task.id} • {task.category || "allgemein"} • {task.status || "open"}
+                {task.due_date ? ` • fällig ${formatDate(task.due_date)}` : ""}
               </Text>
-              <Text style={styles.hint}>Fällig: {formatDate(task.due_date) || "-"}</Text>
               <View style={styles.row}>
-                <TouchableOpacity
-                  style={styles.smallButton}
+                <ActionButton
+                  small
+                  variant="success"
+                  label="✓ Erledigt"
                   onPress={() => handleCompleteTask(task.id)}
                   disabled={actionBusy}
-                >
-                  <Text style={styles.smallButtonText}>Erledigt</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.smallButton}
+                />
+                <ActionButton
+                  small
+                  variant="ghost"
+                  label="Archiv"
                   onPress={() => handleArchiveTask(task.id)}
                   disabled={actionBusy}
-                >
-                  <Text style={styles.smallButtonText}>Archiv</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.smallButtonDanger}
+                />
+                <ActionButton
+                  small
+                  variant="danger"
+                  label="Löschen"
                   onPress={() => handleDeleteTask(task.id)}
                   disabled={actionBusy}
-                >
-                  <Text style={styles.smallButtonText}>Löschen</Text>
-                </TouchableOpacity>
+                />
               </View>
             </View>
           ))}
-          {tasks.length === 0 && <Text style={styles.empty}>Keine Aufgaben gefunden.</Text>}
+          {tasks.length === 0 && <EmptyState icon="✓" text="Alles erledigt — keine Aufgaben offen." />}
         </View>
       );
     }
@@ -331,45 +480,59 @@ export default function App() {
     if (active === "Nachrichten") {
       return (
         <View>
-          <Text style={styles.title}>Nachrichten &amp; Vorschläge</Text>
-          <Text style={styles.subtitle}>Nachrichten ({messages.length})</Text>
+          <SectionTitle>Nachrichten ({messages.length})</SectionTitle>
           {messages.map((message) => (
             <View key={message.id} style={styles.card}>
-              <Text style={styles.item}>#{message.id} {message.sender || "-"}</Text>
-              <Text style={styles.hint}>{message.text || ""}</Text>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{message.sender || "Unbekannt"}</Text>
+                <Text style={styles.cardMeta}>#{message.id}</Text>
+              </View>
+              <Text style={styles.cardBody}>{message.text || ""}</Text>
               <View style={styles.row}>
-                <Button
-                  title="Reply-Vorschlag"
+                <ActionButton
+                  small
+                  label="Antwort-Vorschlag"
                   onPress={() => handleMessageSuggestionReply(message.id)}
                   disabled={actionBusy}
                 />
-                <Button
-                  title="Task-Suggestion prüfen"
+                <ActionButton
+                  small
+                  variant="ghost"
+                  label="Aufgabe ableiten"
                   onPress={() => handleGenerateTaskSuggestionForMessage(message.id)}
                   disabled={actionBusy}
                 />
               </View>
             </View>
           ))}
-          {messages.length === 0 && <Text style={styles.empty}>Keine Nachrichten.</Text>}
+          {messages.length === 0 && <EmptyState icon="✉" text="Keine Nachrichten." />}
 
-          <Text style={styles.subtitle}>Nachrichten-Vorschläge</Text>
+          <SectionTitle>Antwort-Vorschläge</SectionTitle>
           {messageSuggestions.map((suggestion) => (
             <View key={suggestion.id} style={styles.card}>
-              <Text style={styles.item}>ID {suggestion.id} {suggestion.status || ""}</Text>
-              <Text style={styles.hint}>
-                Message #{suggestion.message_id || "-"} • {suggestion.suggestion_type || "reply"}
-              </Text>
-              <Text style={styles.hint}>{suggestion.draft_text || "(keine Vorlage)"}</Text>
-              <Text style={styles.hint}>{suggestion.notes || ""}</Text>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardMeta}>
+                  Nachricht #{suggestion.message_id || "-"} • {suggestion.suggestion_type || "reply"}
+                </Text>
+                <Chip
+                  label={suggestion.status || "offen"}
+                  color={suggestion.status === "preview" ? colors.sage : colors.warn}
+                />
+              </View>
+              <Text style={styles.cardBody}>{suggestion.draft_text || "(keine Vorlage)"}</Text>
+              {!!suggestion.notes && <Text style={styles.cardMeta}>{suggestion.notes}</Text>}
               <View style={styles.row}>
-                <Button
-                  title="Annehmen"
+                <ActionButton
+                  small
+                  variant="success"
+                  label="Annehmen"
                   onPress={() => handleMessageSuggestionDecision(suggestion.id, "approved")}
                   disabled={actionBusy || suggestion.id.toString().startsWith("preview-")}
                 />
-                <Button
-                  title="Ablehnen"
+                <ActionButton
+                  small
+                  variant="danger"
+                  label="Ablehnen"
                   onPress={() => handleMessageSuggestionDecision(suggestion.id, "rejected")}
                   disabled={actionBusy || suggestion.id.toString().startsWith("preview-")}
                 />
@@ -377,22 +540,29 @@ export default function App() {
             </View>
           ))}
 
-          <Text style={styles.subtitle}>Task-Vorschläge</Text>
+          <SectionTitle>Aufgaben-Vorschläge</SectionTitle>
           {taskSuggestions.map((suggestion) => (
             <View key={suggestion.id} style={styles.card}>
-              <Text style={styles.item}>ID {suggestion.id} {suggestion.status || ""}</Text>
-              <Text style={styles.hint}>From message #{suggestion.message_id || "-"}</Text>
-              <Text style={styles.item}>{suggestion.title}</Text>
-              <Text style={styles.hint}>{suggestion.notes || ""}</Text>
-              <Text style={styles.hint}>Priorität: {toPriorityLabel(suggestion.priority)}</Text>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{suggestion.title}</Text>
+                <Chip label={toPriorityLabel(suggestion.priority)} color={priorityColor(suggestion.priority)} />
+              </View>
+              <Text style={styles.cardMeta}>
+                Aus Nachricht #{suggestion.message_id || "-"} • {suggestion.status || "offen"}
+              </Text>
+              {!!suggestion.notes && <Text style={styles.cardBody}>{suggestion.notes}</Text>}
               <View style={styles.row}>
-                <Button
-                  title="Annehmen"
+                <ActionButton
+                  small
+                  variant="success"
+                  label="Annehmen"
                   onPress={() => handleTaskSuggestionDecision(suggestion.id, "approved")}
                   disabled={actionBusy}
                 />
-                <Button
-                  title="Ablehnen"
+                <ActionButton
+                  small
+                  variant="danger"
+                  label="Ablehnen"
                   onPress={() => handleTaskSuggestionDecision(suggestion.id, "rejected")}
                   disabled={actionBusy}
                 />
@@ -400,7 +570,7 @@ export default function App() {
             </View>
           ))}
           {messageSuggestions.length === 0 && taskSuggestions.length === 0 && (
-            <Text style={styles.empty}>Noch keine Vorschläge.</Text>
+            <EmptyState icon="💡" text="Noch keine Vorschläge." />
           )}
         </View>
       );
@@ -411,24 +581,29 @@ export default function App() {
       const slots = isArray(calendar?.free_slots || []);
       return (
         <View>
-          <Text style={styles.title}>Kalender ({calendar?.date || "-"})</Text>
-          <Text style={styles.subtitle}>Termine</Text>
+          <SectionTitle>Termine am {calendar?.date || "-"}</SectionTitle>
           {items.map((entry) => (
             <View key={entry.id ?? `${entry.date}-${entry.start}-${entry.end}`} style={styles.card}>
-              <Text style={styles.item}>
-                {entry.title || "Termin"} ({entry.start || "?"} - {entry.end || "?"})
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{entry.title || "Termin"}</Text>
+                <Chip label={entry.item_type || "busy"} color={colors.accent} />
+              </View>
+              <Text style={styles.cardMeta}>
+                {entry.start || "?"} – {entry.end || "?"} • {entry.date || calendar?.date}
               </Text>
-              <Text style={styles.hint}>Typ: {entry.item_type || "busy"} • Datum: {entry.date || calendar?.date}</Text>
             </View>
           ))}
-          {items.length === 0 && <Text style={styles.empty}>Keine Termine.</Text>}
-          <Text style={styles.subtitle}>Freie Slots</Text>
+          {items.length === 0 && <EmptyState icon="▦" text="Keine Termine heute." />}
+          <SectionTitle>Freie Slots</SectionTitle>
           {slots.map((slot, index) => (
-            <View key={`${slot.start}-${slot.end}-${index}`} style={styles.card}>
-              <Text style={styles.item}>von {slot.start || "-"} bis {slot.end || "-"}</Text>
+            <View key={`${slot.start}-${slot.end}-${index}`} style={styles.slotCard}>
+              <Text style={styles.slotText}>
+                {slot.start || "-"} – {slot.end || "-"}
+              </Text>
+              <Text style={styles.slotFree}>frei</Text>
             </View>
           ))}
-          {slots.length === 0 && <Text style={styles.empty}>Keine Freizeiten im Standardfenster.</Text>}
+          {slots.length === 0 && <EmptyState icon="◷" text="Keine Freizeiten im Standardfenster." />}
         </View>
       );
     }
@@ -436,15 +611,23 @@ export default function App() {
     if (active === "Kontakte") {
       return (
         <View>
-          <Text style={styles.title}>Kontakte</Text>
           {contacts.map((contact) => (
             <View key={contact.id ?? contact.name} style={styles.card}>
-              <Text style={styles.item}>{contact.name || "Unbekannt"}</Text>
-              <Text style={styles.hint}>{contact.contact_type || "other"} • {contact.id ? `ID ${contact.id}` : ""}</Text>
-              <Text style={styles.hint}>{contact.notes || ""}</Text>
+              <View style={styles.cardHeader}>
+                <View style={styles.contactRow}>
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>
+                      {(contact.name || "?").trim().charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <Text style={styles.cardTitle}>{contact.name || "Unbekannt"}</Text>
+                </View>
+                <Chip label={contact.contact_type || "other"} color={colors.sage} />
+              </View>
+              {!!contact.notes && <Text style={styles.cardBody}>{contact.notes}</Text>}
             </View>
           ))}
-          {contacts.length === 0 && <Text style={styles.empty}>Keine Kontakte.</Text>}
+          {contacts.length === 0 && <EmptyState icon="☺" text="Keine Kontakte." />}
         </View>
       );
     }
@@ -453,23 +636,52 @@ export default function App() {
       const external = privacy?.external_services || {};
       const writes = privacy?.writes || {};
       const note = privacy?.notes || "";
+      const services = [
+        ["E-Mail", external.email],
+        ["WhatsApp", external.whatsapp],
+        ["SMS", external.sms],
+        ["Kalender", external.calendar],
+        ["Wetter", external.weather],
+        ["Musik", external.music],
+      ];
+      const writeRows = [
+        ["Exporte", writes.exports],
+        ["Nachrichten senden", writes.messages_send],
+        ["Kontakte ändern", writes.contacts_write],
+      ];
       return (
         <View>
-          <Text style={styles.title}>Datenschutz</Text>
-          <Text style={styles.item}>Mode: {privacy?.mode || "local"}</Text>
-          <Text style={styles.subtitle}>Externe Dienste</Text>
-          <Text style={styles.hint}>Email: {String(external.email)}</Text>
-          <Text style={styles.hint}>WhatsApp: {String(external.whatsapp)}</Text>
-          <Text style={styles.hint}>SMS: {String(external.sms)}</Text>
-          <Text style={styles.hint}>Kalender: {String(external.calendar)}</Text>
-          <Text style={styles.hint}>Weather: {String(external.weather)}</Text>
-          <Text style={styles.hint}>Music: {String(external.music)}</Text>
-          <Text style={styles.subtitle}>Lokale Schreibzugriffe</Text>
-          <Text style={styles.hint}>Exports: {String(writes.exports)}</Text>
-          <Text style={styles.hint}>Nachrichten senden: {String(writes.messages_send)}</Text>
-          <Text style={styles.hint}>Kontakte-Änderung: {String(writes.contacts_write)}</Text>
-          <Text style={styles.subtitle}>Hinweis</Text>
-          <Text style={styles.hint}>{note}</Text>
+          <View style={styles.privacyBanner}>
+            <Text style={styles.privacyBannerIcon}>🛡</Text>
+            <Text style={styles.privacyBannerText}>
+              Modus: {privacy?.mode || "local"} — deine Daten bleiben auf deinen Geräten.
+            </Text>
+          </View>
+          <SectionTitle>Externe Dienste</SectionTitle>
+          <View style={styles.card}>
+            {services.map(([label, value]) => (
+              <View key={label} style={styles.privacyRow}>
+                <Text style={styles.privacyLabel}>{label}</Text>
+                <Chip
+                  label={value ? "aktiv" : "aus"}
+                  color={value ? colors.warn : colors.success}
+                />
+              </View>
+            ))}
+          </View>
+          <SectionTitle>Lokale Schreibzugriffe</SectionTitle>
+          <View style={styles.card}>
+            {writeRows.map(([label, value]) => (
+              <View key={label} style={styles.privacyRow}>
+                <Text style={styles.privacyLabel}>{label}</Text>
+                <Chip
+                  label={value ? "erlaubt" : "gesperrt"}
+                  color={value ? colors.sage : colors.textSoft}
+                />
+              </View>
+            ))}
+          </View>
+          {!!note && <Text style={styles.privacyNote}>{note}</Text>}
         </View>
       );
     }
@@ -479,28 +691,72 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.heading}>Friday Mobile</Text>
-        <Text style={styles.subheading}>Dark Theme • 6 Bereiche</Text>
-        <View style={styles.tabs}>
-          {screens.map((screenName) => (
-            <TouchableOpacity
-              key={screenName}
-              onPress={() => setActive(screenName)}
-              style={[styles.tab, active === screenName && styles.tabActive]}
-            >
-              <Text style={[styles.tabText, active === screenName && styles.tabTextActive]}>{screenName}</Text>
-            </TouchableOpacity>
-          ))}
+      <StatusBar barStyle="dark-content" backgroundColor={colors.bg} />
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handlePullRefresh}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+            progressBackgroundColor={colors.surface}
+          />
+        }
+      >
+        <View style={styles.header}>
+          <View style={styles.brandRow}>
+            <View style={styles.logo}>
+              <Text style={styles.logoText}>F</Text>
+            </View>
+            <View>
+              <Text style={styles.heading}>{greeting()}!</Text>
+              <Text style={styles.subheading}>{todayLabel()}</Text>
+            </View>
+          </View>
+          <View style={styles.statusPill}>
+            <View
+              style={[
+                styles.statusDot,
+                { backgroundColor: online === null ? colors.warn : online ? colors.success : colors.danger },
+              ]}
+            />
+            <Text style={styles.statusText}>
+              {online === null ? "Prüfe…" : online ? "Verbunden" : "Offline"}
+            </Text>
+          </View>
         </View>
 
-        <View style={styles.contentCard}>
-          {loading && <ActivityIndicator color="#60a5fa" />}
-          {!!error && <Text style={styles.error}>Fehler: {error}</Text>}
-          {!loading && !error && renderScreenContent()}
-          {!loading && <Button title="Aktualisieren" onPress={refreshActive} />}
-          {actionBusy && <Text style={styles.hint}>Aktion läuft…</Text>}
-        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll}>
+          <View style={styles.tabs}>
+            {screens.map(({ key, icon }) => (
+              <TouchableOpacity
+                key={key}
+                onPress={() => setActive(key)}
+                style={[styles.tab, active === key && styles.tabActive]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.tabIcon, active === key && styles.tabTextActive]}>{icon}</Text>
+                <Text style={[styles.tabText, active === key && styles.tabTextActive]}>{key}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+
+        {loading && (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color={colors.accent} />
+          </View>
+        )}
+        {!!error && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorText}>{error}</Text>
+            <ActionButton small variant="ghost" label="Erneut versuchen" onPress={refreshActive} />
+          </View>
+        )}
+        {!loading && !error && renderScreenContent()}
+        {actionBusy && <Text style={styles.busyHint}>Aktion läuft…</Text>}
+        <Text style={styles.footer}>Friday 1.0 • lokal & privat • {getApiUrl()}</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -508,134 +764,364 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: "#0b1220",
+    backgroundColor: colors.bg,
     flex: 1,
+    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
   },
   scroll: {
     padding: 16,
+    paddingBottom: 40,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  logo: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    ...softShadow,
+  },
+  logoText: {
+    color: "#f5efe2",
+    fontSize: 25,
+    fontWeight: "800",
   },
   heading: {
-    color: "#e5e7eb",
-    fontSize: 24,
-    fontWeight: "700",
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: "800",
   },
   subheading: {
-    color: "#94a3b8",
-    marginTop: 8,
+    color: colors.textSoft,
+    fontSize: 13,
+    marginTop: 2,
   },
-  title: {
-    color: "#f8fafc",
-    fontSize: 20,
-    marginBottom: 8,
-    marginTop: 12,
-    fontWeight: "700",
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.surface,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    ...softShadow,
   },
-  subtitle: {
-    color: "#cbd5e1",
-    fontSize: 18,
-    marginBottom: 8,
-    marginTop: 12,
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  statusText: {
+    color: colors.textSoft,
+    fontSize: 11,
     fontWeight: "600",
   },
-  item: {
-    color: "#cbd5e1",
-    fontSize: 16,
-    marginBottom: 4,
-  },
-  hint: {
-    color: "#94a3b8",
-    fontSize: 13,
-    marginBottom: 4,
+  tabScroll: {
+    marginTop: 16,
+    marginBottom: 16,
   },
   tabs: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 8,
-    marginTop: 12,
-    marginBottom: 14,
   },
   tab: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#334155",
-    backgroundColor: "#0f172a",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    ...softShadow,
   },
   tabActive: {
-    backgroundColor: "#2563eb",
-    borderColor: "#60a5fa",
+    backgroundColor: colors.accent,
+  },
+  tabIcon: {
+    color: colors.textSoft,
+    fontSize: 13,
   },
   tabText: {
-    color: "#cbd5e1",
-    fontSize: 12,
+    color: colors.textSoft,
+    fontSize: 13,
     fontWeight: "600",
   },
   tabTextActive: {
-    color: "#f8fafc",
+    color: "#f5efe2",
   },
-  contentCard: {
-    backgroundColor: "#111827",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#1f2937",
-    padding: 12,
+  loadingBox: {
+    paddingVertical: 48,
+    alignItems: "center",
+  },
+  errorBanner: {
+    backgroundColor: "#f7e7e1",
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 14,
+    gap: 10,
+    ...softShadow,
+  },
+  errorText: {
+    color: "#a4543f",
+    fontSize: 14,
+  },
+  statGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  statCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    borderTopWidth: 4,
+    padding: 16,
+    width: "48%",
+    flexGrow: 1,
+    ...softShadow,
+  },
+  statValue: {
+    fontSize: 32,
+    fontWeight: "800",
+  },
+  statLabel: {
+    color: colors.textSoft,
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: "600",
+  },
+  dashboardDate: {
+    color: colors.textSoft,
+    fontSize: 12,
+    marginTop: 16,
+    textAlign: "center",
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "700",
+    marginTop: 18,
+    marginBottom: 10,
   },
   card: {
-    borderWidth: 1,
-    borderColor: "#1f2937",
-    backgroundColor: "#0b1220",
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 10,
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
+    ...softShadow,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  cardTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "700",
+    flexShrink: 1,
+  },
+  cardBody: {
+    color: "#4a5344",
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 4,
+  },
+  cardMeta: {
+    color: colors.textSoft,
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  chipDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  chipText: {
+    fontSize: 11,
+    fontWeight: "700",
   },
   row: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
-    marginTop: 10,
-    marginBottom: 4,
-  },
-  smallButton: {
-    backgroundColor: "#334155",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  smallButtonDanger: {
-    backgroundColor: "#7f1d1d",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  smallButtonText: {
-    color: "#f8fafc",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#334155",
-    borderRadius: 8,
-    color: "#f8fafc",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginBottom: 8,
-    flex: 1,
-    minWidth: 180,
-  },
-  empty: {
-    color: "#94a3b8",
     marginTop: 8,
   },
-  error: {
-    color: "#f87171",
-    marginTop: 12,
-    fontSize: 16,
+  button: {
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    ...softShadow,
   },
-  divider: {
-    height: 1,
-    backgroundColor: "#1e293b",
-    marginVertical: 16,
+  buttonSmall: {
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    borderRadius: 12,
+  },
+  buttonPrimary: {
+    backgroundColor: colors.accent,
+  },
+  buttonSuccess: {
+    backgroundColor: colors.success,
+  },
+  buttonDanger: {
+    backgroundColor: colors.danger,
+  },
+  buttonGhost: {
+    backgroundColor: colors.accentSoft,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  buttonText: {
+    color: "#f8f5ec",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  buttonTextSmall: {
+    fontSize: 12,
+  },
+  buttonGhostText: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  inputRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 14,
+  },
+  input: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: 14,
+    color: colors.text,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 14,
+    ...softShadow,
+  },
+  slotCard: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    marginBottom: 8,
+    ...softShadow,
+  },
+  slotText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  slotFree: {
+    color: colors.success,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  contactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flexShrink: 1,
+  },
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.accentSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    color: colors.accent,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  privacyBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: colors.accentSoft,
+    borderRadius: 18,
+    padding: 16,
+    ...softShadow,
+  },
+  privacyBannerIcon: {
+    fontSize: 20,
+  },
+  privacyBannerText: {
+    color: colors.deep,
+    fontSize: 13,
+    flex: 1,
+    lineHeight: 18,
+  },
+  privacyRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 7,
+  },
+  privacyLabel: {
+    color: "#4a5344",
+    fontSize: 14,
+  },
+  privacyNote: {
+    color: colors.textSoft,
+    fontSize: 12,
+    marginTop: 12,
+    lineHeight: 18,
+  },
+  empty: {
+    alignItems: "center",
+    paddingVertical: 28,
+  },
+  emptyIcon: {
+    fontSize: 28,
+    color: colors.textSoft,
+    marginBottom: 8,
+  },
+  emptyText: {
+    color: colors.textSoft,
+    fontSize: 13,
+  },
+  busyHint: {
+    color: colors.textSoft,
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 10,
+  },
+  footer: {
+    color: "#a8a390",
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 26,
   },
 });

@@ -3,7 +3,21 @@ import Constants from "expo-constants";
 const API_URL =
   process.env.EXPO_PUBLIC_FRIDAY_API_URL ||
   Constants.expoConfig?.extra?.fridayApiDefaultUrl ||
-  "https://cholesterol-ampland-donated-treat.trycloudflare.com";
+  "http://192.168.178.42:8000";
+
+export function getApiUrl() {
+  return API_URL;
+}
+
+export async function checkHealth() {
+  try {
+    const response = await fetch(`${API_URL}/health`);
+    const payload = await response.json().catch(() => null);
+    return Boolean(response.ok && payload?.ok !== false);
+  } catch (err) {
+    return false;
+  }
+}
 
 async function callApi(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
@@ -14,7 +28,7 @@ async function callApi(path, options = {}) {
     ...options,
   });
 
-  const payload = await response.json().catch(() => ({ ok: false, message: "Ung?ltiges JSON" }));
+  const payload = await response.json().catch(() => ({ ok: false, message: "Ungültiges JSON" }));
   if (!response.ok || payload?.ok === false) {
     throw new Error(payload?.detail || payload?.message || `HTTP ${response.status}`);
   }
