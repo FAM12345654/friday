@@ -169,6 +169,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Local Ollama Real Project Apply Execution Plan | geplant | finaler Ablauf fuer spaeteren echten Projekt-Apply mit Rollback; aktuell kein Write |
 | Local Ollama Real Project Apply Execution Readiness Gate | abgeschlossen | bestaetigt finalen Ablaufplan; echter Projekt-Write bleibt bis separatem Gate blockiert |
 | Local Ollama Real Project Apply Implementation Gate | umgesetzt isoliert | echter Apply-Baustein mit `execute_write=True` und Post-Write-Validation; keine Produktanbindung, Tests nur `tmp_path` |
+| Local Ollama Real Project Apply Implementation Readiness Gate | abgeschlossen | bestaetigt isolierten Apply-Baustein mit Rollback; keine CLI/API/Mobile-Anbindung und echter Projekt-Apply bleibt manuelle Entscheidung |
 | Local Model Settings / Health Preview / Validation Pipeline | umgesetzt | Mock bleibt Default; Ollama Health Check ist localhost-only; Validator+Logic Check blockiert riskante Ausgaben |
 | Lokale Notifications | erlaubt opt-in | Default `False`; nur Konsolen-Zusammenfassung, kein Toast, kein Netzwerk |
 | Demo-Modus | getrennt | echte Arbeits-DB bleibt `friday.db`; Demo-Seeds nur in `friday_demo.db` |

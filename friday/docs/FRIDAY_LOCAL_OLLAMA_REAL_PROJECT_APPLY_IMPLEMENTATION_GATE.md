@@ -82,3 +82,5 @@ Local Ollama Real Project Apply Implementation Readiness Gate:
 - Apply-Baustein, Dry Run, Guard und Writer gemeinsam pruefen,
 - bestaetigen, dass keine Produktanbindung existiert,
 - entscheiden, ob die echte lokale Aktivierung manuell durchgefuehrt werden soll.
+
+Status danach: Das Implementation Readiness Gate ist in `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_IMPLEMENTATION_READINESS_GATE.md` dokumentiert.
