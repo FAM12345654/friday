@@ -91,3 +91,5 @@ Local Ollama Real Project Apply Execution Plan:
 - den echten Apply-Schritt als finalen Ablauf planen,
 - Validierungs- und Rollback-Punkte nochmals festlegen,
 - weiterhin keinen Write in der Planungsrunde ausfuehren.
+
+Status danach: Der Execution Plan ist in `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_EXECUTION_PLAN.md` dokumentiert.
