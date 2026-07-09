@@ -40,6 +40,8 @@ def build_setup_status() -> dict:
         },
         "ms_mail": {
             "connected": ms_mail_status["connected"],
+            "account_count": ms_mail_status.get("account_count", 0),
+            "accounts": ms_mail_status.get("accounts", []),
             "read_enabled": config.ENABLE_MS_MAIL_READ,
             "last_test_ok": ms_mail_status["last_test_ok"],
             "read_only": True,

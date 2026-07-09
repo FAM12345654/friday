@@ -148,6 +148,7 @@ from friday.app.privacy_cleanup_write_guard import (
 )
 from friday.app.privacy_cleanup_writer import apply_privacy_cleanup
 from friday import config
+from friday.app.ms_mail_account_store import ms_mail_account_status
 from friday.storage.contact_context_repository import ContactContextRepository
 
 
@@ -3029,10 +3030,18 @@ class FridayInterface:
     def _show_safety_status(self) -> None:
         """Show which real services are currently disabled."""
         self._section_title("Sicherheitsstatus")
+        ms_mail_status = ms_mail_account_status()
         print(f"E-Mail echt aktiv: {config.ENABLE_REAL_EMAIL}")
         print(f"WhatsApp echt aktiv: {config.ENABLE_REAL_WHATSAPP}")
         print(f"WhatsApp Read-Bridge aktiv: {config.ENABLE_WHATSAPP_BRIDGE_READ}")
         print(f"Microsoft Mail Lesen aktiv: {config.ENABLE_MS_MAIL_READ}")
+        print(f"Microsoft Mail Postfaecher: {ms_mail_status.get('account_count', 0)}")
+        for account in ms_mail_status.get("accounts", []):
+            print(
+                " - "
+                f"{account.get('username_masked') or account.get('account_id')}: "
+                f"Test OK: {account.get('last_test_ok')}"
+            )
         print(f"SMS echt aktiv: {config.ENABLE_REAL_SMS}")
         print(f"Kalender echt aktiv: {config.ENABLE_REAL_CALENDAR}")
         print(f"Wetter echt aktiv: {config.ENABLE_REAL_WEATHER}")

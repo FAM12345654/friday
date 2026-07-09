@@ -142,6 +142,10 @@ class MessageAgent:
                     "contact_type": "email",
                     "source": "ms_mail",
                     "ms_mail_message_id": item.get("message_id"),
+                    "ms_mail_provider_message_id": item.get("provider_message_id"),
+                    "ms_mail_account_id": item.get("account_id"),
+                    "account_id": item.get("account_id"),
+                    "account_username": item.get("account_username"),
                     "subject": subject,
                     "snippet": snippet,
                 }
@@ -352,6 +356,11 @@ class MessageAgent:
                 "received_at": item.get("received_at"),
                 "contact_type": "email",
                 "source": "ms_mail",
+                "ms_mail_message_id": item.get("message_id"),
+                "ms_mail_provider_message_id": item.get("provider_message_id"),
+                "ms_mail_account_id": item.get("account_id"),
+                "account_id": item.get("account_id"),
+                "account_username": item.get("account_username"),
             }
             suggestion_created = False
             text = str(synthetic_message.get("text") or "")

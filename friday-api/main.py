@@ -88,6 +88,7 @@ from friday.app.ms_mail_account_store import (
     build_ms_mail_account,
     decrypt_ms_mail_token_bundle,
     delete_ms_mail_account,
+    list_ms_mail_accounts,
     load_ms_mail_account,
     ms_mail_account_status,
     save_ms_mail_account,
@@ -258,6 +259,7 @@ class MsMailActivationGateRequest(BaseModel):
 
 class MsMailSyncRequest(BaseModel):
     top: int = 25
+    account_id: str | None = None
 
 
 class EmailSendRequest(BaseModel):
@@ -1754,6 +1756,8 @@ def connect_ms_mail_account(payload: MsMailConnectRequest) -> dict[str, Any]:
         {
             "connected": True,
             "saved": True,
+            "account_id": account.account_id,
+            "username": account.username,
             "message": result.message,
             "status": ms_mail_account_status(),
             "read_only": True,
@@ -1787,22 +1791,62 @@ def get_ms_mail_activation_gate(payload: MsMailActivationGateRequest) -> dict[st
 def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str, Any]:
     if not config.ENABLE_MS_MAIL_READ:
         raise HTTPException(status_code=403, detail="Microsoft-Mail-Lesen ist deaktiviert.")
-    account = load_ms_mail_account()
-    if account is None:
+    requested_account_id = payload.account_id if payload is not None else None
+    if requested_account_id:
+        account = load_ms_mail_account(account_id=requested_account_id)
+        accounts = (account,) if account is not None else ()
+    else:
+        accounts = list_ms_mail_accounts()
+    if not accounts:
         raise HTTPException(status_code=404, detail="Kein Microsoft-Mail-Konto verbunden.")
-    token_bundle = decrypt_ms_mail_token_bundle(account)
     top = payload.top if payload is not None else 25
-    result = list_ms_mail_messages(token_bundle=token_bundle, top=top)
-    if not result.ok:
-        return _envelope(asdict(result))
     repository = MsMailMessageRepository(message_agent.db_path)
-    stored = repository.upsert_messages(list(result.messages))
+
+    stored_count = 0
+    provider_count = 0
+    account_results: list[dict[str, Any]] = []
+    for account in accounts:
+        token_bundle = decrypt_ms_mail_token_bundle(account)
+        result = list_ms_mail_messages(token_bundle=token_bundle, top=top)
+        if not result.ok:
+            account_results.append(
+                {
+                    "account_id": account.account_id,
+                    "username": account.username,
+                    "ok": False,
+                    "message": result.message,
+                    "blocked_reasons": result.blocked_reasons,
+                    "stored_count": 0,
+                    "provider_count": 0,
+                }
+            )
+            continue
+        stored = repository.upsert_messages(
+            list(result.messages),
+            account_id=account.account_id,
+            account_username=account.username,
+        )
+        stored_count += len(stored)
+        provider_count += len(result.messages)
+        account_results.append(
+            {
+                "account_id": account.account_id,
+                "username": account.username,
+                "ok": True,
+                "message": result.message,
+                "stored_count": len(stored),
+                "provider_count": len(result.messages),
+            }
+        )
+
     process_result = message_agent.process_unprocessed_ms_mail_messages()
     return _envelope(
         {
             "synced": True,
-            "stored_count": len(stored),
-            "provider_count": len(result.messages),
+            "accounts_synced": len([item for item in account_results if item["ok"]]),
+            "accounts": account_results,
+            "stored_count": stored_count,
+            "provider_count": provider_count,
             "process_result": process_result,
             "read_only": True,
             "real_email_enabled": config.ENABLE_REAL_EMAIL,
@@ -1811,9 +1855,12 @@ def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str,
 
 
 @app.get("/api/messages/ms-mail")
-def get_ms_mail_messages(limit: int = Query(default=10)) -> dict[str, Any]:
+def get_ms_mail_messages(
+    limit: int = Query(default=10),
+    account_id: str | None = Query(default=None),
+) -> dict[str, Any]:
     repository = MsMailMessageRepository(message_agent.db_path)
-    items = repository.list_messages(limit=limit)
+    items = repository.list_messages(limit=limit, account_id=account_id)
     return _envelope(
         {
             "items": items,
@@ -1823,6 +1870,17 @@ def get_ms_mail_messages(limit: int = Query(default=10)) -> dict[str, Any]:
             "real_email_enabled": config.ENABLE_REAL_EMAIL,
         }
     )
+
+
+@app.delete("/api/accounts/ms-mail/{account_id}")
+def delete_ms_mail_account_by_id_endpoint(account_id: str, payload: EmailAccountDeleteRequest) -> dict[str, Any]:
+    result = delete_ms_mail_account(
+        approval_token=payload.approval_token,
+        account_id=account_id,
+    )
+    if not result.allowed:
+        raise HTTPException(status_code=403, detail=result.message)
+    return _envelope({"deleted": True, "account_id": account_id, "status": ms_mail_account_status()})
 
 
 @app.delete("/api/accounts/ms-mail")

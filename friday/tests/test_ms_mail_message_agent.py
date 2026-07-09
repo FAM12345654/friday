@@ -20,13 +20,17 @@ def test_message_agent_exposes_ms_mail_as_local_messages(tmp_path) -> None:
                 "received_at": "2026-07-09T10:00:00Z",
                 "snippet": "Passt 15.07.2026 10:00?",
             }
-        ]
+        ],
+        account_id="office_familienhelden_at",
+        account_username="office@familienhelden.at",
     )[0]
 
     messages = MessageAgent(db_path=db_path).get_ms_mail_messages_as_local_messages()
 
     assert messages[0]["id"] == MS_MAIL_MESSAGE_ID_OFFSET + stored["id"]
     assert messages[0]["source"] == "ms_mail"
+    assert messages[0]["account_id"] == "office_familienhelden_at"
+    assert messages[0]["account_username"] == "office@familienhelden.at"
     assert "Termin morgen" in messages[0]["text"]
 
 

@@ -215,7 +215,10 @@ def initialize_database(db_path: Path | str | None = None) -> None:
 
             CREATE TABLE IF NOT EXISTS ms_mail_messages (
                 id INTEGER PRIMARY KEY,
+                account_id TEXT NOT NULL DEFAULT 'default',
+                account_username TEXT,
                 message_id TEXT NOT NULL UNIQUE,
+                provider_message_id TEXT,
                 sender TEXT,
                 subject TEXT,
                 received_at TEXT,
@@ -229,6 +232,7 @@ def initialize_database(db_path: Path | str | None = None) -> None:
         _ensure_task_recurrence_column(connection)
         _ensure_contact_target_columns(connection)
         _ensure_account_policy_transform_column(connection)
+        _ensure_ms_mail_message_account_columns(connection)
 
 
 def _ensure_task_priority_column(connection: sqlite3.Connection) -> None:
@@ -264,6 +268,25 @@ def _ensure_account_policy_transform_column(connection: sqlite3.Connection) -> N
     if "transform" not in existing:
         connection.execute(
             "ALTER TABLE account_policies ADD COLUMN transform TEXT NOT NULL DEFAULT '{}'"
+        )
+
+
+def _ensure_ms_mail_message_account_columns(connection: sqlite3.Connection) -> None:
+    """Add mailbox metadata for older Microsoft mail preview databases."""
+    columns = connection.execute("PRAGMA table_info(ms_mail_messages)").fetchall()
+    existing = {column[1] for column in columns}
+    if "account_id" not in existing:
+        connection.execute("ALTER TABLE ms_mail_messages ADD COLUMN account_id TEXT NOT NULL DEFAULT 'default'")
+    if "account_username" not in existing:
+        connection.execute("ALTER TABLE ms_mail_messages ADD COLUMN account_username TEXT")
+    if "provider_message_id" not in existing:
+        connection.execute("ALTER TABLE ms_mail_messages ADD COLUMN provider_message_id TEXT")
+        connection.execute(
+            """
+            UPDATE ms_mail_messages
+            SET provider_message_id = message_id
+            WHERE provider_message_id IS NULL OR provider_message_id = ''
+            """
         )
 
 

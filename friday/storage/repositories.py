@@ -459,16 +459,35 @@ class MsMailMessageRepository:
     def _clean(value: object) -> str:
         return " ".join(str(value or "").strip().split())
 
-    def upsert_messages(self, messages: list[dict] | tuple[dict, ...]) -> tuple[dict, ...]:
+    @staticmethod
+    def _stored_message_id(account_id: str, provider_message_id: str) -> str:
+        if account_id == "default":
+            return provider_message_id
+        return f"{account_id}:{provider_message_id}"
+
+    def upsert_messages(
+        self,
+        messages: list[dict] | tuple[dict, ...],
+        *,
+        account_id: str = "default",
+        account_username: str | None = None,
+    ) -> tuple[dict, ...]:
         """Insert or update message previews without storing full bodies."""
         normalized: list[dict[str, object]] = []
+        normalized_account_id = self._clean(account_id) or "default"
+        normalized_account_username = self._clean(account_username)
         for item in messages:
-            message_id = self._clean(item.get("message_id"))
-            if not message_id:
+            provider_message_id = self._clean(item.get("provider_message_id") or item.get("message_id"))
+            if not provider_message_id:
                 continue
+            item_account_id = self._clean(item.get("account_id")) or normalized_account_id
+            item_account_username = self._clean(item.get("account_username")) or normalized_account_username
             normalized.append(
                 {
-                    "message_id": message_id,
+                    "account_id": item_account_id,
+                    "account_username": item_account_username,
+                    "message_id": self._stored_message_id(item_account_id, provider_message_id),
+                    "provider_message_id": provider_message_id,
                     "sender": self._clean(item.get("sender")),
                     "subject": self._clean(item.get("subject")),
                     "received_at": self._clean(item.get("received_at")),
@@ -483,12 +502,17 @@ class MsMailMessageRepository:
             connection.executemany(
                 """
                 INSERT INTO ms_mail_messages (
-                    message_id, sender, subject, received_at, snippet, processed, suggestion_created
+                    account_id, account_username, message_id, provider_message_id,
+                    sender, subject, received_at, snippet, processed, suggestion_created
                 )
                 VALUES (
-                    :message_id, :sender, :subject, :received_at, :snippet, 0, 0
+                    :account_id, :account_username, :message_id, :provider_message_id,
+                    :sender, :subject, :received_at, :snippet, 0, 0
                 )
                 ON CONFLICT(message_id) DO UPDATE SET
+                    account_id = excluded.account_id,
+                    account_username = excluded.account_username,
+                    provider_message_id = excluded.provider_message_id,
                     sender = excluded.sender,
                     subject = excluded.subject,
                     received_at = excluded.received_at,
@@ -500,7 +524,9 @@ class MsMailMessageRepository:
             placeholders = ", ".join("?" for _ in ids)
             rows = connection.execute(
                 f"""
-                SELECT id, message_id, sender, subject, received_at, snippet, processed, suggestion_created
+                SELECT
+                    id, account_id, account_username, message_id, provider_message_id,
+                    sender, subject, received_at, snippet, processed, suggestion_created
                 FROM ms_mail_messages
                 WHERE message_id IN ({placeholders})
                 ORDER BY received_at DESC, id DESC
@@ -509,34 +535,55 @@ class MsMailMessageRepository:
             ).fetchall()
         return tuple(row_to_dict(row) for row in rows)
 
-    def list_messages(self, limit: int = 25) -> list[dict]:
+    def list_messages(self, limit: int = 25, *, account_id: str | None = None) -> list[dict]:
         """Return recent read-only Microsoft mail previews."""
         safe_limit = max(1, min(int(limit), 100))
+        normalized_account_id = self._clean(account_id)
         with get_connection(self.db_path) as connection:
+            params: tuple[object, ...]
+            where = ""
+            if normalized_account_id:
+                where = "WHERE account_id = ?"
+                params = (normalized_account_id, safe_limit)
+            else:
+                params = (safe_limit,)
             rows = connection.execute(
-                """
-                SELECT id, message_id, sender, subject, received_at, snippet, processed, suggestion_created
+                f"""
+                SELECT
+                    id, account_id, account_username, message_id, provider_message_id,
+                    sender, subject, received_at, snippet, processed, suggestion_created
                 FROM ms_mail_messages
+                {where}
                 ORDER BY received_at DESC, id DESC
                 LIMIT ?
                 """,
-                (safe_limit,),
+                params,
             ).fetchall()
         return [row_to_dict(row) for row in rows]
 
-    def get_unprocessed_messages(self, limit: int = 50) -> list[dict]:
+    def get_unprocessed_messages(self, limit: int = 50, *, account_id: str | None = None) -> list[dict]:
         """Return MS mail previews not yet processed into review suggestions."""
         safe_limit = max(1, min(int(limit), 100))
+        normalized_account_id = self._clean(account_id)
         with get_connection(self.db_path) as connection:
+            params: tuple[object, ...]
+            where = "WHERE processed = 0"
+            if normalized_account_id:
+                where += " AND account_id = ?"
+                params = (normalized_account_id, safe_limit)
+            else:
+                params = (safe_limit,)
             rows = connection.execute(
-                """
-                SELECT id, message_id, sender, subject, received_at, snippet, processed, suggestion_created
+                f"""
+                SELECT
+                    id, account_id, account_username, message_id, provider_message_id,
+                    sender, subject, received_at, snippet, processed, suggestion_created
                 FROM ms_mail_messages
-                WHERE processed = 0
+                {where}
                 ORDER BY received_at DESC, id DESC
                 LIMIT ?
                 """,
-                (safe_limit,),
+                params,
             ).fetchall()
         return [row_to_dict(row) for row in rows]
 
