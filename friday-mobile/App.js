@@ -229,6 +229,7 @@ export default function App() {
   const [forwardMockResult, setForwardMockResult] = useState("");
   const [forwardApprovalToken, setForwardApprovalToken] = useState("");
   const [forwardApprovalResult, setForwardApprovalResult] = useState("");
+  const [forwardAuditPreview, setForwardAuditPreview] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
 
   useEffect(() => {
@@ -428,6 +429,7 @@ export default function App() {
     setForwardMockResult("");
     setForwardApprovalToken("");
     setForwardApprovalResult("");
+    setForwardAuditPreview("");
     if (contacts.length === 0) {
       try {
         const payload = await getContacts();
@@ -446,6 +448,7 @@ export default function App() {
     setForwardMockResult("");
     setForwardApprovalToken("");
     setForwardApprovalResult("");
+    setForwardAuditPreview("");
   };
 
   const selectForwardContact = (contact) => {
@@ -454,6 +457,7 @@ export default function App() {
     setForwardMockResult("");
     setForwardApprovalToken("");
     setForwardApprovalResult("");
+    setForwardAuditPreview("");
   };
 
   const selectForwardChannel = (channel) => {
@@ -464,6 +468,7 @@ export default function App() {
     setForwardMockResult("");
     setForwardApprovalToken("");
     setForwardApprovalResult("");
+    setForwardAuditPreview("");
   };
 
   const simulateForwardSend = () => {
@@ -485,10 +490,27 @@ export default function App() {
       setForwardApprovalResult(
         `Freigabe abgelehnt. Erwarteter Token: ${expected}. Es wurde nichts gesendet.`,
       );
+      setForwardAuditPreview("");
       return;
     }
     setForwardApprovalResult(
       `Mock-Freigabe akzeptiert (${expected}). Der echte Versand bleibt deaktiviert.`,
+    );
+    const target =
+      forwardChannel === "whatsapp"
+        ? forwardContact?.whatsapp_target || "kein WhatsApp-Ziel gespeichert"
+        : forwardContact?.email_address || "keine E-Mail-Adresse gespeichert";
+    setForwardAuditPreview(
+      [
+        "Audit Preview",
+        `Zeit: ${new Date().toISOString()}`,
+        `Aufgabe: #${forwardTask?.id || "-"} ${forwardTask?.title || "-"}`,
+        `Kontakt: ${forwardContact?.name || "-"}`,
+        `Kanal: ${channelLabel(forwardChannel)}`,
+        `Ziel: ${target}`,
+        `Token: ${expected}`,
+        "Status: Mock-Freigabe akzeptiert, echter Versand deaktiviert",
+      ].join("\n"),
     );
   };
 
@@ -719,6 +741,12 @@ export default function App() {
                   {!!forwardApprovalResult && (
                     <Text style={styles.approvalResultText}>{forwardApprovalResult}</Text>
                   )}
+                </View>
+              )}
+              {!!forwardAuditPreview && (
+                <View style={styles.auditBox}>
+                  <Text style={styles.forwardLabel}>Lokale Audit-Vorschau</Text>
+                  <Text style={styles.auditText}>{forwardAuditPreview}</Text>
                 </View>
               )}
               <Text style={styles.forwardSafety}>
@@ -1449,6 +1477,17 @@ const styles = StyleSheet.create({
     color: colors.deep,
     fontSize: 12,
     fontWeight: "700",
+    lineHeight: 18,
+  },
+  auditBox: {
+    backgroundColor: "#f4ead8",
+    borderRadius: 16,
+    marginTop: 12,
+    padding: 12,
+  },
+  auditText: {
+    color: colors.deep,
+    fontSize: 12,
     lineHeight: 18,
   },
   forwardSafety: {

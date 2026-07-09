@@ -81,3 +81,7 @@ Die lokale Versandsimulation ist dokumentiert in:
 Die lokale Freigabepruefung mit harten Tokens ist dokumentiert in:
 
 `FRIDAY_MESSAGING_APPROVAL_SCREEN.md`
+
+Die lokale Audit-Vorschau ist dokumentiert in:
+
+`FRIDAY_MESSAGING_AUDIT_PREVIEW.md`

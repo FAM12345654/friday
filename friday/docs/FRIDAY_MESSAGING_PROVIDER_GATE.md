@@ -108,3 +108,5 @@ Status: umgesetzt in `FRIDAY_MESSAGING_CONTACT_TARGET_FIELDS.md`.
 Mock Provider Status: umgesetzt in `FRIDAY_MESSAGING_MOCK_PROVIDER.md`.
 
 Approval Screen Status: umgesetzt in `FRIDAY_MESSAGING_APPROVAL_SCREEN.md`.
+
+Audit Preview Status: umgesetzt in `FRIDAY_MESSAGING_AUDIT_PREVIEW.md`.

@@ -59,3 +59,5 @@ Ziel:
 - lokale Vorschau eines Versand-Audits,
 - weiterhin kein echter Versand,
 - dokumentieren, welcher Entwurf wann freigegeben wuerde.
+
+Status: umgesetzt in `FRIDAY_MESSAGING_AUDIT_PREVIEW.md`.
