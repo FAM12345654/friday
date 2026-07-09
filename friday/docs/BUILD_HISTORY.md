@@ -20,6 +20,13 @@ Kurze lokale Build-Historie fuer den aktuellen Friday-1.0-Abschlussstand.
 | E-Mail Draft-only | in Abschlusslauf | Lokales Draft-Modell und CLI-Preview ohne Provider, Login, Netzwerk oder Versand |
 | Live Roadmap | abgeschlossen | E-Mail Draft-only als erster Live-Vorbereitungsblock gewaehlt; echte Live-Aktionen bleiben deferred |
 
+## Stand 2026-07-09
+
+| Bereich | Status | Ergebnis |
+|---|---|---|
+| Mobile Cleartext-Fix | abgeschlossen | `expo-build-properties` mit `usesCleartextTraffic: true`; Release-APK darf lokale HTTP-API erreichen |
+| Finaler Mobile-Build | abgeschlossen | EAS Build `ad7d6749` (versionCode 5) ersetzt `1ef0090b`; APK-Link im Final Gate und Mobile/Desktop Guide aktualisiert |
+
 ## Letzter validierter Stand
 
 | Kommando | Ergebnis |

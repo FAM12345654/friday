@@ -17,16 +17,20 @@ Friday ist als lokales Produkt fertiggestellt. Weiterarbeit erfolgt nur mit neue
 
 ## Mobile APK
 
-Aktueller Android-Preview-Build:
+Aktueller Android-Preview-Build (final, mit `usesCleartextTraffic` fuer lokale HTTP-API):
 
-`https://expo.dev/artifacts/eas/EKmkRcLTi_ZmjHcgInjy_L9QkfPUK9Cg1C7b0qZvUrs.apk`
+`https://expo.dev/artifacts/eas/3cfGZ3nlTERdjOa7nHdsqlvatKwbk6veBVSWLd5KP3c.apk`
 
 EAS Build:
 
-- Build ID: `1ef0090b-481d-4077-a338-8b1154605368`
+- Build ID: `ad7d6749-21bf-409b-88c0-9941df70483f`
 - Status: `FINISHED`
 - Channel: `preview`
 - Runtime: `1.0.0-sdk54`
+
+Hinweis: Der Vorgaenger-Build `1ef0090b-481d-4077-a338-8b1154605368` enthielt das
+Creme/Moos-Design, aber noch keine Cleartext-Freigabe — er kann die lokale API nicht
+erreichen und ist damit ueberholt.
 
 OTA-Update:
 
@@ -54,7 +58,7 @@ Hinweis:
 | `e7e9580` | Initial baseline: Friday local product v1.0.0 |
 | `f6617db` | Post-1.0: document and polish local CLI UX |
 | `1f420bf` | Mobile & Desktop: cream/moss redesign, Revolut-style icon, APK wiring |
-| Docs & packaging commit | Dieses Final-Gate wird zusammen mit Python-/Doku-/Packaging-Aenderungen im zweiten Abschluss-Commit committed |
+| `e467e08` | Docs & packaging: mobile guide, desktop dist, 1.2 closure |
 
 ## Validierungsergebnisse
 

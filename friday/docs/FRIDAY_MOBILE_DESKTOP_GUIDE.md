@@ -15,9 +15,13 @@ Friday bleibt lokal-first:
 
 ## Handy-Installation
 
-Aktueller Android-Preview-Build im Creme/Moos-Design:
+Aktueller Android-Preview-Build im Creme/Moos-Design (inklusive Cleartext-Freigabe fuer lokales HTTP):
 
-`https://expo.dev/artifacts/eas/EKmkRcLTi_ZmjHcgInjy_L9QkfPUK9Cg1C7b0qZvUrs.apk`
+`https://expo.dev/artifacts/eas/3cfGZ3nlTERdjOa7nHdsqlvatKwbk6veBVSWLd5KP3c.apk`
+
+Wichtig: Nur dieser Build (und neuere) kann die lokale API ueber `http://` erreichen.
+Aeltere Builds blockieren unverschluesseltes HTTP durch die Android-Netzwerkrichtlinie
+und zeigen dauerhaft `Offline`.
 
 Installation:
 
