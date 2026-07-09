@@ -102,5 +102,6 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_READINESS_GATE.md` | Readiness Gate fuer die Real-Project-Apply-Kette ohne echten Write | vorhanden |
 | `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_IMPLEMENTATION_PLAN.md` | Implementierungsplan fuer spaeteren echten Projekt-Apply mit Rollback, aktuell ohne Write | vorhanden |
 | `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_DRY_RUN.md` | Dry Run fuer geplante Ollama-Projekt-Config-Aenderung ohne Write | vorhanden |
+| `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_DRY_RUN_READINESS_GATE.md` | Readiness Gate fuer Dry Run ohne echten Write | vorhanden |
 | `FRIDAY_MOBILE_DESKTOP_GUIDE.md` | Handy-/Desktop-Installation, Verbindung, Updates und Design-System | vorhanden |
 | `FRIDAY_PRODUCT_FINAL_GATE.md` | Finaler Produktstand fuer CLI, Mobile und Desktop | vorhanden |

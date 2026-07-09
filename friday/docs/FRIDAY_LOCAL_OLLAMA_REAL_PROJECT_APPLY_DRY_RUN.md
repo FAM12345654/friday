@@ -78,3 +78,5 @@ Local Ollama Real Project Apply Dry Run Readiness Gate:
 - Dry Run, Guard und Writer gemeinsam pruefen,
 - bestaetigen, dass kein Write erfolgt,
 - danach entscheiden, ob ein echter Apply mit Rollback gebaut wird.
+
+Status danach: Das Dry Run Readiness Gate ist in `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_DRY_RUN_READINESS_GATE.md` dokumentiert.
