@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import * as Updates from "expo-updates";
 import {
   ActivityIndicator,
   Platform,
@@ -19,6 +20,7 @@ import {
   archiveTask,
   checkHealth,
   completeTask,
+  createContact,
   createTask,
   deleteTask,
   generateTaskSuggestionsForMessage,
@@ -95,6 +97,24 @@ const normalizeApiError = (error) => {
     return "Unbekannter Fehler";
   }
   return String(error.message);
+};
+
+const channelLabel = (channel) => (channel === "whatsapp" ? "WhatsApp" : "E-Mail");
+
+const buildForwardDraft = (task, contact, channel) => {
+  const contactName = contact?.name || "du";
+  const title = task?.title || "diese Aufgabe";
+  const due = task?.due_date ? `\nFällig: ${task.due_date}` : "";
+  const notes = task?.notes ? `\nHinweis: ${task.notes}` : "";
+  return [
+    `Hallo ${contactName},`,
+    "",
+    `kannst du bitte die Aufgabe "${title}" übernehmen?${due}${notes}`,
+    "",
+    "Danke dir!",
+    "",
+    `Entwurf für ${channelLabel(channel)} — noch nicht gesendet.`,
+  ].join("\n");
 };
 
 const greeting = () => {
@@ -177,6 +197,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [updateStatus, setUpdateStatus] = useState("Update: prüfe…");
   const [online, setOnline] = useState(null);
   const [dashboard, setDashboard] = useState(null);
   const [tasks, setTasks] = useState([]);
@@ -185,9 +206,54 @@ export default function App() {
   const [taskSuggestions, setTaskSuggestions] = useState([]);
   const [calendar, setCalendar] = useState(null);
   const [contacts, setContacts] = useState([]);
+  const [newContactName, setNewContactName] = useState("");
+  const [newContactNotes, setNewContactNotes] = useState("");
   const [privacy, setPrivacy] = useState(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskForwardTo, setNewTaskForwardTo] = useState("");
+  const [forwardTask, setForwardTask] = useState(null);
+  const [forwardContact, setForwardContact] = useState(null);
+  const [forwardChannel, setForwardChannel] = useState("email");
+  const [forwardDraft, setForwardDraft] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const applyAvailableUpdate = async () => {
+      if (__DEV__) {
+        setUpdateStatus("Update: Entwicklung");
+        return;
+      }
+
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (!isMounted) {
+          return;
+        }
+
+        if (!update.isAvailable) {
+          setUpdateStatus("Update: aktuell");
+          return;
+        }
+
+        setUpdateStatus("Update: wird installiert…");
+        await Updates.fetchUpdateAsync();
+        if (isMounted) {
+          await Updates.reloadAsync();
+        }
+      } catch (err) {
+        if (isMounted) {
+          setUpdateStatus("Update: später erneut");
+        }
+      }
+    };
+
+    applyAvailableUpdate();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -299,13 +365,74 @@ export default function App() {
     }
     setActionBusy(true);
     try {
-      await createTask({ title: newTaskTitle });
+      const forwardTo = newTaskForwardTo.trim();
+      await createTask({
+        title: newTaskTitle,
+        notes: forwardTo ? `Weiterleiten an: ${forwardTo}` : undefined,
+      });
       setNewTaskTitle("");
+      setNewTaskForwardTo("");
       await refreshActive();
     } catch (err) {
       setError(normalizeApiError(err));
     } finally {
       setActionBusy(false);
+    }
+  };
+
+  const handleCreateContact = async () => {
+    if (!newContactName.trim()) {
+      return;
+    }
+    setActionBusy(true);
+    try {
+      await createContact({
+        name: newContactName.trim(),
+        contact_type: "work",
+        notes: newContactNotes.trim(),
+      });
+      setNewContactName("");
+      setNewContactNotes("");
+      const payload = await getContacts();
+      setContacts(isArray(payload));
+    } catch (err) {
+      setError(normalizeApiError(err));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const openForwardFlow = async (task) => {
+    setForwardTask(task);
+    setForwardContact(null);
+    setForwardChannel("email");
+    setForwardDraft("");
+    if (contacts.length === 0) {
+      try {
+        const payload = await getContacts();
+        setContacts(isArray(payload));
+      } catch (err) {
+        setError(normalizeApiError(err));
+      }
+    }
+  };
+
+  const closeForwardFlow = () => {
+    setForwardTask(null);
+    setForwardContact(null);
+    setForwardChannel("email");
+    setForwardDraft("");
+  };
+
+  const selectForwardContact = (contact) => {
+    setForwardContact(contact);
+    setForwardDraft(buildForwardDraft(forwardTask, contact, forwardChannel));
+  };
+
+  const selectForwardChannel = (channel) => {
+    setForwardChannel(channel);
+    if (forwardTask && forwardContact) {
+      setForwardDraft(buildForwardDraft(forwardTask, forwardContact, channel));
     }
   };
 
@@ -437,6 +564,69 @@ export default function App() {
             />
             <ActionButton label="＋" onPress={handleCreateTask} disabled={actionBusy} />
           </View>
+          <View style={styles.forwardBox}>
+            <Text style={styles.forwardLabel}>Weiterleiten an Kollege</Text>
+            <TextInput
+              value={newTaskForwardTo}
+              onChangeText={setNewTaskForwardTo}
+              style={styles.input}
+              placeholder="Name eingeben — lokal, kein Versand"
+              placeholderTextColor={colors.textSoft}
+              returnKeyType="done"
+            />
+          </View>
+          {forwardTask && (
+            <View style={styles.forwardPanel}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Weiterleiten vorbereiten</Text>
+                <Chip label="Entwurf" color={colors.warn} />
+              </View>
+              <Text style={styles.cardMeta}>Aufgabe: {forwardTask.title}</Text>
+              <Text style={styles.forwardLabel}>Kontakt auswählen</Text>
+              {contacts.map((contact) => (
+                <TouchableOpacity
+                  key={contact.id ?? contact.name}
+                  style={[
+                    styles.contactChoice,
+                    forwardContact?.id === contact.id && styles.contactChoiceActive,
+                  ]}
+                  onPress={() => selectForwardContact(contact)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.contactChoiceText}>{contact.name || "Unbekannt"}</Text>
+                  <Text style={styles.cardMeta}>{contact.contact_type || "work"}</Text>
+                </TouchableOpacity>
+              ))}
+              {contacts.length === 0 && (
+                <Text style={styles.cardMeta}>Noch keine Kontakte gespeichert. Lege unten im Kontakte-Tab einen Kontakt an.</Text>
+              )}
+              <Text style={styles.forwardLabel}>Kanal auswählen</Text>
+              <View style={styles.row}>
+                <ActionButton
+                  small
+                  variant={forwardChannel === "email" ? "success" : "ghost"}
+                  label="E-Mail"
+                  onPress={() => selectForwardChannel("email")}
+                />
+                <ActionButton
+                  small
+                  variant={forwardChannel === "whatsapp" ? "success" : "ghost"}
+                  label="WhatsApp"
+                  onPress={() => selectForwardChannel("whatsapp")}
+                />
+              </View>
+              {!!forwardDraft && (
+                <View style={styles.draftBox}>
+                  <Text style={styles.forwardLabel}>Automatischer Entwurf</Text>
+                  <Text style={styles.draftText}>{forwardDraft}</Text>
+                </View>
+              )}
+              <Text style={styles.forwardSafety}>
+                Es wird nichts gesendet. E-Mail/WhatsApp-Versand braucht ein separates Login- und Approval-Gate.
+              </Text>
+              <ActionButton small variant="ghost" label="Entwurf schließen" onPress={closeForwardFlow} />
+            </View>
+          )}
           {tasks.map((task) => (
             <View key={task.id} style={styles.card}>
               <View style={styles.cardHeader}>
@@ -447,12 +637,20 @@ export default function App() {
                 #{task.id} • {task.category || "allgemein"} • {task.status || "open"}
                 {task.due_date ? ` • fällig ${formatDate(task.due_date)}` : ""}
               </Text>
+              {!!task.notes && <Text style={styles.cardBody}>{task.notes}</Text>}
               <View style={styles.row}>
                 <ActionButton
                   small
                   variant="success"
                   label="✓ Erledigt"
                   onPress={() => handleCompleteTask(task.id)}
+                  disabled={actionBusy}
+                />
+                <ActionButton
+                  small
+                  variant="ghost"
+                  label="Weiterleiten"
+                  onPress={() => openForwardFlow(task)}
                   disabled={actionBusy}
                 />
                 <ActionButton
@@ -611,6 +809,33 @@ export default function App() {
     if (active === "Kontakte") {
       return (
         <View>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Häufigen Kontakt speichern</Text>
+            <TextInput
+              value={newContactName}
+              onChangeText={setNewContactName}
+              style={styles.input}
+              placeholder="Name der Person"
+              placeholderTextColor={colors.textSoft}
+              returnKeyType="done"
+            />
+            <TextInput
+              value={newContactNotes}
+              onChangeText={setNewContactNotes}
+              style={[styles.input, styles.inputStacked]}
+              placeholder="Notiz, z.B. E-Mail oder WhatsApp-Name"
+              placeholderTextColor={colors.textSoft}
+              returnKeyType="done"
+            />
+            <ActionButton
+              label="Kontakt lokal speichern"
+              onPress={handleCreateContact}
+              disabled={actionBusy || !newContactName.trim()}
+            />
+            <Text style={styles.forwardSafety}>
+              Kontakt wird nur lokal gespeichert. Es wird keine Nachricht gesendet.
+            </Text>
+          </View>
           {contacts.map((contact) => (
             <View key={contact.id ?? contact.name} style={styles.card}>
               <View style={styles.cardHeader}>
@@ -756,7 +981,7 @@ export default function App() {
         )}
         {!loading && !error && renderScreenContent()}
         {actionBusy && <Text style={styles.busyHint}>Aktion läuft…</Text>}
-        <Text style={styles.footer}>Friday 1.0 • lokal & privat • {getApiUrl()}</Text>
+        <Text style={styles.footer}>Friday 1.0 • lokal & privat • {updateStatus} • {getApiUrl()}</Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -1024,6 +1249,66 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 14,
     ...softShadow,
+  },
+  inputStacked: {
+    marginTop: 10,
+    marginBottom: 12,
+  },
+  forwardBox: {
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    marginBottom: 14,
+    padding: 12,
+    ...softShadow,
+  },
+  forwardLabel: {
+    color: colors.textSoft,
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  forwardPanel: {
+    backgroundColor: colors.surface,
+    borderRadius: 22,
+    marginBottom: 16,
+    padding: 16,
+    ...softShadow,
+  },
+  contactChoice: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+    borderRadius: 15,
+    borderWidth: 1,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  contactChoiceActive: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
+  },
+  contactChoiceText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  draftBox: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    marginTop: 12,
+    padding: 12,
+  },
+  draftText: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  forwardSafety: {
+    color: colors.textSoft,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 10,
+    marginBottom: 8,
   },
   slotCard: {
     flexDirection: "row",

@@ -185,6 +185,13 @@ export async function getContacts() {
   return callApi("/api/contacts");
 }
 
+export async function createContact(payload) {
+  return callApi("/api/contacts", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getPrivacy() {
   return callApi("/api/privacy");
 }

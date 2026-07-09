@@ -27,6 +27,21 @@ class ContactContextAgent:
                 return json.load(file)
         return self.contact_repository.get_contacts()
 
+    def create_contact(
+        self,
+        name: str,
+        contact_type: str | None = "work",
+        notes: str | None = "",
+    ) -> Dict[str, Any]:
+        """Create a local contact entry."""
+        if self.contact_repository is None:
+            raise ValueError("Contact storage is not available in sample mode.")
+        return self.contact_repository.create_contact(
+            name=name,
+            contact_type=contact_type,
+            notes=notes,
+        )
+
     def get_category_for_sender(self, sender: str) -> str:
         """Find the stored category for a sender name."""
         if self.contact_repository is None:

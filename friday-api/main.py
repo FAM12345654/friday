@@ -71,6 +71,12 @@ class TaskUpdateRequest(BaseModel):
     status: Optional[str] = None
 
 
+class ContactCreateRequest(BaseModel):
+    name: str
+    contact_type: Optional[str] = "work"
+    notes: Optional[str] = None
+
+
 def _today() -> str:
     if USE_REAL_TODAY:
         return date.today().isoformat()
@@ -330,6 +336,19 @@ def list_contacts() -> dict[str, Any]:
     return _envelope(contact_agent.load_contacts())
 
 
+@app.post("/api/contacts")
+def create_contact(payload: ContactCreateRequest) -> dict[str, Any]:
+    try:
+        contact = contact_agent.create_contact(
+            name=payload.name,
+            contact_type=payload.contact_type,
+            notes=payload.notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _envelope(contact)
+
+
 @app.get("/api/privacy")
 def get_privacy() -> dict[str, Any]:
     return _envelope(
@@ -346,8 +365,8 @@ def get_privacy() -> dict[str, Any]:
             "writes": {
                 "exports": False,
                 "messages_send": False,
-                "contacts_write": False,
+                "contacts_write": True,
             },
-            "notes": "Dieser Endpunkt ist leerungssicher und read-only; Schreibaktionen sind lokal vorabgeprüft.",
+            "notes": "Kontakte koennen lokal gespeichert werden; externe Nachrichten bleiben deaktiviert.",
         },
     )

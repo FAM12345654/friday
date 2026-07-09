@@ -524,6 +524,39 @@ class ContactRepository:
             ).fetchall()
             return [row_to_dict(row) for row in rows]
 
+    def create_contact(
+        self,
+        name: str,
+        contact_type: str | None = "work",
+        notes: str | None = "",
+    ) -> dict:
+        """Create a local contact entry."""
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ValueError("Contact name must not be empty.")
+        normalized_type = (contact_type or "work").strip().lower() or "work"
+        if normalized_type not in self.VALID_TYPES:
+            normalized_type = "other"
+        normalized_notes = "" if notes is None else notes
+        with get_connection(self.db_path) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO contacts (name, contact_type, notes)
+                VALUES (?, ?, ?)
+                """,
+                (normalized_name, normalized_type, normalized_notes),
+            )
+            row = connection.execute(
+                """
+                SELECT id, name, contact_type, notes
+                FROM contacts
+                WHERE id = ?
+                """,
+                (cursor.lastrowid,),
+            ).fetchone()
+            connection.commit()
+        return row_to_dict(row)
+
     def get_contact_type_by_name(self, name: str) -> str:
         """Return a known contact type, fallback to other."""
         with get_connection(self.db_path) as connection:

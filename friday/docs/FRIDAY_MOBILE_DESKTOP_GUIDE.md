@@ -90,6 +90,18 @@ Kleine JavaScript- oder Design-Updates koennen ueber den Preview-Kanal verteilt 
 .\publish_friday_mobile_update_preview.bat
 ```
 
+Friday Mobile prueft beim App-Start aktiv auf neue Preview-Updates.
+Wenn ein Update verfuegbar ist, wird es geladen und die App startet automatisch neu.
+Details stehen in `FRIDAY_MOBILE_AUTO_UPDATE_GATE.md`.
+
+Im Aufgabenbereich gibt es zusaetzlich ein lokales Feld `Weiterleiten an Kollege`.
+Es speichert nur eine Notiz an der Aufgabe und sendet keine Nachricht.
+Details stehen in `FRIDAY_MOBILE_TASK_FORWARD_FIELD.md`.
+
+Zusaetzlich kann eine Aufgabe ueber `Weiterleiten` als lokaler Entwurf fuer einen gespeicherten Kontakt vorbereitet werden.
+Dabei kann E-Mail oder WhatsApp als Zielkanal ausgewaehlt werden.
+Auch dieser Flow sendet nichts echt; Details stehen in `FRIDAY_MOBILE_TASK_DELEGATION_DRAFT_FLOW.md`.
+
 Native Aenderungen brauchen einen neuen Android-Build, zum Beispiel:
 
 - neues Icon,
