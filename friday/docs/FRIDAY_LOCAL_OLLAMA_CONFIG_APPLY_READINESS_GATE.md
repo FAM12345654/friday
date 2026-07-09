@@ -92,3 +92,5 @@ Local Ollama Real Project Apply Gate Plan:
 - weiterhin mit `OLLAMA AKTIVIEREN`,
 - weiterhin mit Health Check und Safety Smoke,
 - weiterhin ohne Versand und ohne Cloud-Fallback.
+
+Status danach: Der Plan ist in `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_GATE_PLAN.md` dokumentiert.
