@@ -158,6 +158,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Local Ollama Config Preview | umgesetzt | prueft Modellname und lokale Base-URL ohne Config-Write, Health-Check oder Modellaufruf |
 | Local Ollama Manual Config Apply Gate | umgesetzt | prueft Token `OLLAMA AKTIVIEREN`, Safety Smoke und Health PASS; schreibt config.py nicht automatisch |
 | Local Ollama Config Apply Implementation Plan | geplant | beschreibt spaeteren kontrollierten Apply und Rollback; aktuell kein Config-Write |
+| Local Ollama Config Apply Writer | umgesetzt isoliert | schreibt nur explizite `config.py`-Pfade, Tests nur `tmp_path`; echte Projekt-`config.py` bleibt standardmaessig blockiert |
 | Local Model Settings / Health Preview / Validation Pipeline | umgesetzt | Mock bleibt Default; Ollama Health Check ist localhost-only; Validator+Logic Check blockiert riskante Ausgaben |
 | Lokale Notifications | erlaubt opt-in | Default `False`; nur Konsolen-Zusammenfassung, kein Toast, kein Netzwerk |
 | Demo-Modus | getrennt | echte Arbeits-DB bleibt `friday.db`; Demo-Seeds nur in `friday_demo.db` |
@@ -217,7 +218,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | `BACKUP AUFRAEUMEN` | lokale Backups aufraeumen |
 | `RESTORE AUFRAEUMEN` | lokale Restore-Kopien aufraeumen |
 | `REVIEW AUFRAEUMEN` | lokale Review-History aufraeumen |
-| `OLLAMA AKTIVIEREN` | spaetere manuelle Ollama-Konfiguration freigeben; aktuell nur Guard, kein automatischer Config-Write |
+| `OLLAMA AKTIVIEREN` | lokale Ollama-Konfiguration fuer isolierten Writer freigeben; echte Projekt-Config bleibt ohne separates Apply-Gate blockiert |
 
 ## Delete-Policy
 

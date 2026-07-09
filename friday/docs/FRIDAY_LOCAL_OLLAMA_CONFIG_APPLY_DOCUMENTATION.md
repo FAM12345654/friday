@@ -16,6 +16,13 @@ In diesem Schritt wurde nichts aktiviert:
 - Es wurde kein Cloud-Modell eingebunden.
 - Es wurde keine Nachricht gesendet.
 
+## Aktueller Implementierungsstand
+
+- `FRIDAY_LOCAL_OLLAMA_CONFIG_APPLY_IMPLEMENTATION_PLAN.md` dokumentiert den sicheren Apply-Ablauf.
+- `FRIDAY_LOCAL_OLLAMA_CONFIG_APPLY_IMPLEMENTATION.md` beschreibt den isolierten Writer.
+- Der Writer schreibt in Tests nur auf `tmp_path`.
+- Die echte Projekt-`config.py` bleibt ohne separates Apply-Gate blockiert.
+
 ## Voraussetzungen vor einer spaeteren manuellen Aenderung
 
 Vor jeder echten manuellen Aktivierung muessen alle Punkte erfuellt sein:
