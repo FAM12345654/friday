@@ -93,5 +93,6 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_LOCAL_OLLAMA_USER_SETUP_GUIDE.md` | lokale Ollama-Installations- und Testanleitung ohne Aktivierung | vorhanden |
 | `FRIDAY_LOCAL_OLLAMA_CONFIG_PREVIEW.md` | read-only Vorschau fuer lokale Ollama-Konfiguration | vorhanden |
 | `FRIDAY_LOCAL_OLLAMA_MANUAL_CONFIG_APPLY_GATE.md` | Guard fuer spaetere manuelle Ollama-Konfigurationsfreigabe ohne Write | vorhanden |
+| `FRIDAY_LOCAL_OLLAMA_CONFIG_APPLY_DOCUMENTATION.md` | manuelle Config-Zeilen und Safety-Regeln fuer spaetere Ollama-Aktivierung | vorhanden |
 | `FRIDAY_MOBILE_DESKTOP_GUIDE.md` | Handy-/Desktop-Installation, Verbindung, Updates und Design-System | vorhanden |
 | `FRIDAY_PRODUCT_FINAL_GATE.md` | Finaler Produktstand fuer CLI, Mobile und Desktop | vorhanden |

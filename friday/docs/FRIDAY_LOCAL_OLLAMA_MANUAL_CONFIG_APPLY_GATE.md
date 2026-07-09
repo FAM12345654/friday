@@ -52,3 +52,5 @@ Local Ollama Config Apply Documentation:
 
 - genau dokumentieren, welche Zeilen manuell in `config.py` geaendert wuerden,
 - weiterhin nur nach Guard, Tests und bewusstem Nutzerwunsch.
+
+Status danach: Die manuelle Apply-Dokumentation ist in `FRIDAY_LOCAL_OLLAMA_CONFIG_APPLY_DOCUMENTATION.md` vorhanden.
