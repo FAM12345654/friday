@@ -96,6 +96,7 @@ from friday.app.ms_mail_account_store import (
 )
 from friday.app.ms_mail_provider import (
     build_authorization_url as build_ms_mail_authorization_url,
+    ensure_fresh_access_token as ensure_fresh_ms_mail_access_token,
     exchange_auth_response as exchange_ms_mail_auth_response,
     list_messages as list_ms_mail_messages,
     test_connection as test_ms_mail_connection,
@@ -1975,6 +1976,50 @@ def connect_ms_mail_account(payload: MsMailConnectRequest) -> dict[str, Any]:
     )
 
 
+def _prepare_ms_mail_token_bundle(account: Any) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    token_bundle = decrypt_ms_mail_token_bundle(account)
+    refresh = ensure_fresh_ms_mail_access_token(
+        client_id=str(getattr(account, "client_id", "") or ""),
+        tenant=str(getattr(account, "tenant", "common") or "common"),
+        token_bundle=token_bundle,
+    )
+    if not refresh.ok or refresh.token_bundle is None:
+        return None, {
+            "account_id": account.account_id,
+            "username": account.username,
+            "ok": False,
+            "message": "Microsoft-Mail-Token ist abgelaufen oder ungueltig. Bitte Konto neu verbinden.",
+            "blocked_reasons": refresh.blocked_reasons,
+            "stored_count": 0,
+            "provider_count": 0,
+        }
+    if refresh.external_call_used:
+        refreshed_account = build_ms_mail_account(
+            client_id=str(getattr(account, "client_id", "") or ""),
+            tenant=str(getattr(account, "tenant", "common") or "common"),
+            username=str(getattr(account, "username", "") or ""),
+            token_bundle=refresh.token_bundle,
+            account_id=str(getattr(account, "account_id", "") or ""),
+            last_test_ok=bool(getattr(account, "last_test_ok", False)),
+            connected_at=str(getattr(account, "connected_at", "") or "") or None,
+        )
+        save_result = save_ms_mail_account(
+            refreshed_account,
+            approval_token=MS_MAIL_ACCOUNT_SAVE_TOKEN,
+        )
+        if not save_result.persisted:
+            return None, {
+                "account_id": account.account_id,
+                "username": account.username,
+                "ok": False,
+                "message": save_result.message,
+                "blocked_reasons": getattr(save_result, "blocked_reasons", ()),
+                "stored_count": 0,
+                "provider_count": 0,
+            }
+    return refresh.token_bundle, None
+
+
 @app.post("/api/accounts/ms-mail/activation-gate")
 def get_ms_mail_activation_gate(payload: MsMailActivationGateRequest) -> dict[str, Any]:
     if payload.execute_write:
@@ -2015,7 +2060,10 @@ def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str,
     provider_count = 0
     account_results: list[dict[str, Any]] = []
     for account in accounts:
-        token_bundle = decrypt_ms_mail_token_bundle(account)
+        token_bundle, token_error = _prepare_ms_mail_token_bundle(account)
+        if token_error is not None:
+            account_results.append(token_error)
+            continue
         result = list_ms_mail_messages(token_bundle=token_bundle, top=top)
         if not result.ok:
             account_results.append(

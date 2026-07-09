@@ -68,7 +68,7 @@ def test_ms_mail_repository_stores_full_body_and_recipients(tmp_path) -> None:
     assert detail["body_fetched_at"]
     assert '"Philip"' in detail["recipients"]
     assert detail["recipients"] == detail["recipients_json"]
-    assert stored["relevance_method"] == "deterministic"
+    assert stored["relevance_method"] == "recipient"
 
 
 def test_ms_mail_repository_marks_processed(tmp_path) -> None:
@@ -133,7 +133,7 @@ def test_ms_mail_repository_hides_non_relevant_office_mail_by_default(tmp_path) 
     all_items = repo.list_messages(include_all=True)
     assert len(all_items) == 1
     assert all_items[0]["relevant_for_user"] == 0
-    assert all_items[0]["relevance_reason"] == "office_not_relevant"
+    assert all_items[0]["relevance_reason"] == "not_relevant"
     assert all_items[0]["relevance_method"] == "deterministic"
 
 
@@ -166,7 +166,7 @@ def test_ms_mail_repository_uses_ai_decider_for_full_body_office_relevance(tmp_p
     item = repo.list_messages(include_all=True)[0]
     assert item["relevant_for_user"] == 0
     assert item["relevance_reason"] == "KI: nur Alex"
-    assert item["relevance_method"] == "ai"
+    assert item["relevance_method"] == "ki"
 
 
 def test_ms_mail_repository_fallback_keeps_unclear_office_mail_visible(tmp_path) -> None:
@@ -194,8 +194,34 @@ def test_ms_mail_repository_fallback_keeps_unclear_office_mail_visible(tmp_path)
 
     item = repo.list_messages()[0]
     assert item["relevant_for_user"] == 1
-    assert item["relevance_reason"] == "ai_unavailable_conservative_include"
-    assert item["relevance_method"] == "fallback"
+    assert item["relevance_reason"] == "unsicher"
+    assert item["relevance_method"] == "unsicher"
+
+
+def test_ms_mail_repository_does_not_call_ai_by_default_for_unclear_office_body(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    repo = MsMailMessageRepository(db_path)
+
+    repo.upsert_messages(
+        [
+            {
+                "message_id": "graph-office-no-ai",
+                "sender": "info@example.test",
+                "subject": "Allgemeine Info",
+                "snippet": "Bitte lesen.",
+                "body_full": "Unklarer voller Text.",
+                "recipients": [{"name": "Alex", "address": "alex@familienhelden.at"}],
+            }
+        ],
+        account_id="office_familienhelden_at",
+        account_username="office@familienhelden.at",
+    )
+
+    item = repo.list_messages()[0]
+    assert item["relevant_for_user"] == 1
+    assert item["relevance_reason"] == "unsicher"
+    assert item["relevance_method"] == "unsicher"
 
 
 def test_ms_mail_repository_keeps_philip_relevant_office_mail_visible(tmp_path) -> None:
@@ -220,7 +246,7 @@ def test_ms_mail_repository_keeps_philip_relevant_office_mail_visible(tmp_path) 
     items = repo.list_messages()
     assert len(items) == 1
     assert items[0]["relevant_for_user"] == 1
-    assert items[0]["relevance_reason"] == "philip_trigger"
+    assert items[0]["relevance_reason"] == "recipient"
 
 
 def test_ms_mail_repository_keeps_personal_mailbox_visible(tmp_path) -> None:
@@ -272,7 +298,7 @@ def test_ms_mail_repository_matches_customer_betreuer_philip(tmp_path) -> None:
 
     items = repo.list_messages()
     assert len(items) == 1
-    assert items[0]["relevance_reason"] == "customer_betreuer_philip"
+    assert items[0]["relevance_reason"] == "betreuer"
 
 
 def test_ms_mail_repository_hides_spam_by_default_and_restores_on_unblock(tmp_path) -> None:

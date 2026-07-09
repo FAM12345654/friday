@@ -263,3 +263,12 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 - Aktive Lernregeln wirken in `is_relevant_for_user` und `build_agent_context`.
 - Safety: kein Modell-Nachtraining, keine externen Aktionen, keine neuen Scopes oder Pakete.
 - Doku: `FRIDAY_LEARNING_TAB_GATE.md`.
+
+## Mail-Fix: Token-Refresh, Relevanz, Tempo
+
+- Microsoft-Mail-Sync erneuert gespeicherte OAuth-Token ueber das lokale Refresh-Token und speichert das aktualisierte Bundle wieder verschluesselt.
+- Ungueltige Refresh-Tokens fuehren zu `reconnect_required`, ohne weitere Graph-Abfrage fuer dieses Konto.
+- Office-Relevanz ist deterministischer: Empfaenger-/Name-/Team-/Betreuer-Regeln zuerst, Social-/Newsletter-Rauschen immer lokal irrelevant.
+- Unsichere Office-Mails bleiben sichtbar mit Grund `unsicher`.
+- Der normale Sync blockiert nicht mehr pro Mail auf lokale KI; KI-Relevanz bleibt nur fuer explizit injizierte zweite Meinung aktiv.
+- Safety: `Mail.Read` bleibt read-only, kein `Mail.Send`, keine Cloud-KI, keine neuen Scopes.

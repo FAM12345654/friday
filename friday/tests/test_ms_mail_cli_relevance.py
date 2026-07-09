@@ -39,4 +39,4 @@ def test_cli_all_ms_mail_view_shows_hidden_office_relevance_reason(tmp_path, cap
 
     assert "Microsoft-Mails (alle lokalen Vorschauen)" in output
     assert "Bitte Unterlagen prüfen" in output
-    assert "Im Standardfilter sichtbar: nein (office_not_relevant)" in output
+    assert "Im Standardfilter sichtbar: nein (not_relevant)" in output

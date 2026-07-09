@@ -177,7 +177,7 @@ def test_message_agent_skips_non_relevant_office_ms_mail_for_suggestions(tmp_pat
     assert result["task_suggestions_created"] == 0
     assert agent.get_pending_task_suggestions() == []
     assert agent.get_ms_mail_messages_as_local_messages() == []
-    assert repo.list_messages(include_all=True)[0]["relevance_reason"] == "office_not_relevant"
+    assert repo.list_messages(include_all=True)[0]["relevance_reason"] == "not_relevant"
 
 
 def test_message_agent_uses_full_ms_mail_body_for_task_suggestions(tmp_path) -> None:

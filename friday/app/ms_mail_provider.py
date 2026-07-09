@@ -192,6 +192,68 @@ def exchange_auth_response(
     )
 
 
+def ensure_fresh_access_token(
+    *,
+    client_id: str,
+    tenant: str | None = "common",
+    token_bundle: dict[str, Any] | None,
+    msal_module: Any | None = None,
+) -> MsMailProviderResult:
+    """Refresh a stored Microsoft OAuth token bundle when a refresh token exists."""
+    current_bundle = dict(token_bundle or {})
+    access_token = _clean(current_bundle.get("access_token"))
+    refresh_token = _clean(current_bundle.get("refresh_token"))
+    if not refresh_token:
+        if access_token:
+            return MsMailProviderResult(
+                ok=True,
+                message="Microsoft OAuth-Token wird unveraendert genutzt.",
+                token_bundle=current_bundle,
+                external_call_used=False,
+            )
+        return MsMailProviderResult(
+            ok=False,
+            message="Microsoft-Mail-Token fehlt. Bitte Konto neu verbinden.",
+            blocked_reasons=("refresh_token_missing", "reconnect_required"),
+            external_call_used=False,
+        )
+
+    try:
+        app = _public_client(client_id, tenant, msal_module=msal_module)
+        refreshed = app.acquire_token_by_refresh_token(
+            refresh_token,
+            scopes=list(MS_MAIL_SCOPES),
+        )
+    except (RuntimeError, ValueError):
+        return MsMailProviderResult(
+            ok=False,
+            message="Microsoft-Mail-Token konnte nicht aktualisiert werden. Bitte Konto neu verbinden.",
+            blocked_reasons=("token_refresh_failed", "reconnect_required"),
+            external_call_used=True,
+        )
+
+    if not isinstance(refreshed, dict) or not refreshed.get("access_token"):
+        err = _clean((refreshed or {}).get("error") if isinstance(refreshed, dict) else "")
+        desc = _clean((refreshed or {}).get("error_description") if isinstance(refreshed, dict) else "")
+        detail = f" [{err}] {desc[:300]}" if (err or desc) else ""
+        return MsMailProviderResult(
+            ok=False,
+            message=f"Microsoft-Mail-Token ist abgelaufen oder ungueltig. Bitte Konto neu verbinden.{detail}",
+            blocked_reasons=("token_refresh_failed", "reconnect_required", err or "unknown_error"),
+            external_call_used=True,
+        )
+
+    merged = {**current_bundle, **dict(refreshed)}
+    if "refresh_token" not in merged or not merged.get("refresh_token"):
+        merged["refresh_token"] = refresh_token
+    return MsMailProviderResult(
+        ok=True,
+        message="Microsoft OAuth-Token wurde aktualisiert.",
+        token_bundle=merged,
+        external_call_used=True,
+    )
+
+
 def _access_token(token_bundle: dict[str, Any] | None) -> str:
     token = str((token_bundle or {}).get("access_token") or "").strip()
     if not token:

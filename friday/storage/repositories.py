@@ -783,6 +783,7 @@ class MsMailMessageRepository:
                 sender_contact=contacts.find_contact_for_sender(sender),
                 body_full=body_full,
                 ai_decider=self.ai_relevance_decider,
+                allow_ai=self.ai_relevance_decider is not None,
             )
             normalized.append(
                 {

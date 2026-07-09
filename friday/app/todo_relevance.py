@@ -30,6 +30,20 @@ MAIL_RELEVANCE_AI_SCHEMA: dict[str, Any] = {
 }
 
 MailRelevanceAIDecider = Callable[[str, Mapping[str, Any]], Mapping[str, Any]]
+MAX_AI_RELEVANCE_BODY_CHARS = 1500
+THINK_BLOCK_RE = re.compile(r"(?is)<think>.*?</think>")
+NOISE_SENDER_PATTERNS = (
+    "instagram.com",
+    "linkedin.com",
+    "facebookmail.com",
+    "noreply",
+    "no-reply",
+    "newsletter",
+    "mailer-daemon",
+    "marketing",
+    "notification",
+    "notifications@",
+)
 
 
 def _text_tokens(text: str) -> set[str]:
@@ -147,15 +161,50 @@ def _mentions_all_partners(tokens: set[str]) -> bool:
     return all(bool(words.intersection(tokens)) for words in PARTNER_TRIGGER_WORDS.values())
 
 
-def _fallback_relevance() -> dict[str, Any]:
+def _uncertain_relevance() -> dict[str, Any]:
     return {
         "relevant": True,
-        "reason": "ai_unavailable_conservative_include",
-        "method": "fallback",
+        "reason": "unsicher",
+        "method": "unsicher",
     }
 
 
+def _noise_text(*values: str | None) -> str:
+    return " ".join(str(value or "") for value in values).casefold()
+
+
+def _is_noise_sender(*, sender: str | None, subject: str | None, snippet: str | None) -> bool:
+    text = _noise_text(sender, subject, snippet)
+    return any(pattern in text for pattern in NOISE_SENDER_PATTERNS)
+
+
+def _limited_body(body_full: str | None) -> str:
+    return str(body_full or "").strip()[:MAX_AI_RELEVANCE_BODY_CHARS]
+
+
+def _strip_think_blocks(value: str) -> str:
+    return THINK_BLOCK_RE.sub("", value or "").strip()
+
+
+def _extract_json_object_text(value: str) -> str:
+    text = _strip_think_blocks(value)
+    if not text:
+        return ""
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return text
+    return text[start : end + 1]
+
+
+def _normalize_ai_relevance_result(result: Mapping[str, Any] | str | None) -> Mapping[str, Any] | str | None:
+    if isinstance(result, str):
+        return _extract_json_object_text(result)
+    return result
+
+
 def _build_mail_relevance_prompt(body_full: str, context: Mapping[str, Any]) -> str:
+    limited_body = _limited_body(body_full)
     return (
         "Du bist Friday und analysierst lokal eine Microsoft-Mail. "
         "Antworte ausschliesslich als JSON mit den Feldern "
@@ -165,23 +214,26 @@ def _build_mail_relevance_prompt(body_full: str, context: Mapping[str, Any]) -> 
         f"Absender: {context.get('sender') or '-'}\n"
         f"Empfaenger: {context.get('recipients_text') or '-'}\n"
         f"Betreff: {context.get('subject') or '-'}\n"
-        "Voller Mail-Text:\n"
-        f"{body_full}"
+        f"Mail-Text-Ausschnitt max. {MAX_AI_RELEVANCE_BODY_CHARS} Zeichen:\n"
+        f"{limited_body}"
     )
 
 
 def decide_mail_relevance_with_local_ai(body_full: str, context: Mapping[str, Any]) -> dict[str, Any]:
-    """Use the guarded local model provider for full-body relevance checks."""
+    """Use the guarded local model provider for short second-opinion relevance checks."""
     if not str(body_full or "").strip():
-        return _fallback_relevance()
+        return _uncertain_relevance()
     from friday.app.local_model_provider import select_local_model_provider
 
     provider = select_local_model_provider()
     prompt = _build_mail_relevance_prompt(body_full, context)
     result = provider.generate_json(prompt, MAIL_RELEVANCE_AI_SCHEMA)
-    validation = validate_model_json(MAIL_RELEVANCE_AI_SCHEMA, result.output)
+    validation = validate_model_json(
+        MAIL_RELEVANCE_AI_SCHEMA,
+        _normalize_ai_relevance_result(result.output),
+    )
     if result.error or not validation.is_valid:
-        return _fallback_relevance()
+        return _uncertain_relevance()
     reason = str(validation.data.get("reason") or "KI: relevant").strip()
     return {
         "relevant": bool(validation.data.get("relevant")),
@@ -200,6 +252,7 @@ def determine_mail_relevance(
     sender_contact: Mapping[str, Any] | None = None,
     body_full: str | None = None,
     ai_decider: MailRelevanceAIDecider | None = None,
+    allow_ai: bool = True,
 ) -> dict[str, Any]:
     """Return deterministic local relevance for Microsoft mail previews.
 
@@ -214,43 +267,58 @@ def determine_mail_relevance(
             "method": "deterministic",
         }
 
+    if _is_noise_sender(sender=sender, subject=subject, snippet=snippet):
+        return {
+            "relevant": False,
+            "reason": "noise",
+            "method": "noise",
+        }
+
+    recipients_text = _recipient_text(recipients)
+    body_text = str(body_full or "").strip()
     combined = " ".join(
         [
             str(subject or ""),
             str(snippet or ""),
             str(sender or ""),
-            _recipient_text(recipients),
+            recipients_text,
+            body_text,
         ]
     )
     tokens = _text_tokens(combined)
+    recipient_tokens = _text_tokens(recipients_text)
+    if USER_TRIGGER_WORDS.intersection(recipient_tokens):
+        return {
+            "relevant": True,
+            "reason": "recipient",
+            "method": "recipient",
+        }
     if _mentions_all_partners(tokens):
         return {
             "relevant": True,
-            "reason": "team_all_partners",
-            "method": "deterministic",
+            "reason": "team",
+            "method": "team",
         }
     if USER_TRIGGER_WORDS.intersection(tokens):
         return {
             "relevant": True,
-            "reason": "philip_trigger",
-            "method": "deterministic",
+            "reason": "name",
+            "method": "name",
         }
     if sender_contact:
         betreuer = str(sender_contact.get("betreuer") or "").strip().casefold()
         if betreuer == "philip":
             return {
                 "relevant": True,
-                "reason": "customer_betreuer_philip",
-                "method": "deterministic",
+                "reason": "betreuer",
+                "method": "betreuer",
             }
 
-    body_text = str(body_full or "").strip()
-    if body_text:
-        recipients_text = _recipient_text(recipients)
+    if body_text and allow_ai:
         decider = ai_decider or decide_mail_relevance_with_local_ai
         try:
             result = decider(
-                body_text,
+                _limited_body(body_text),
                 {
                     "account": account_text,
                     "subject": subject or "",
@@ -260,21 +328,25 @@ def determine_mail_relevance(
                 },
             )
         except Exception:
-            return _fallback_relevance()
-        validation = validate_model_json(MAIL_RELEVANCE_AI_SCHEMA, result)
+            return _uncertain_relevance()
+        validation = validate_model_json(
+            MAIL_RELEVANCE_AI_SCHEMA,
+            _normalize_ai_relevance_result(result),
+        )
         if validation.is_valid:
             return {
                 "relevant": bool(validation.data["relevant"]),
                 "reason": str(validation.data["reason"])[:160],
-                "method": "ai",
+                "method": "ki",
             }
-        if result.get("method") == "fallback":
-            return _fallback_relevance()
-        return _fallback_relevance()
+        return _uncertain_relevance()
+
+    if body_text and not allow_ai:
+        return _uncertain_relevance()
 
     return {
         "relevant": False,
-        "reason": "office_not_relevant",
+        "reason": "not_relevant",
         "method": "deterministic",
     }
 

@@ -132,3 +132,16 @@ Es gibt keinen Auto-Reply und keinen Versand.
 - Fuer `office@familienhelden.at` entscheidet Friday zuerst deterministisch. Wenn der Fall unklar ist, prueft die lokale KI den vollen Body. Bei KI-Fehlern wird konservativ sichtbar markiert.
 - Die mobile App laedt den Volltext erst in der Mail-Detailansicht. Listen bleiben Vorschauen.
 - Es gibt weiterhin keinen Mail-Versand und keine Schreibrechte.
+
+## Mail-Fix: Token-Refresh, Relevanz, Tempo
+
+- Beim Microsoft-Mail-Sync versucht Friday ein gespeichertes `refresh_token` zu nutzen und speichert das aktualisierte Token-Bundle wieder lokal verschluesselt.
+- Wenn Refresh fehlschlaegt, wird das betroffene Konto im Sync-Ergebnis als `reconnect_required` markiert. Friday ruft dann Graph fuer dieses Konto nicht auf.
+- Die Scopes bleiben read-only: `Mail.Read` und `User.Read`. Es wird kein `Mail.Send` hinzugefuegt.
+- Das geteilte `office@familienhelden.at`-Postfach wird zuerst deterministisch bewertet:
+  - Philip/Phips/Zeitler in Empfaenger, Betreff, Absender oder Inhalt,
+  - Philip, Alex und Flo gemeinsam,
+  - bekannter Kunde mit Betreuer `philip`.
+- Social-/Newsletter-Rauschen wie Instagram, LinkedIn, `noreply`, Newsletter, Mailer-Daemon und Marketing bleibt lokal ausgeblendet.
+- Unsichere Office-Mails bleiben sichtbar mit Grund `unsicher`.
+- Die lokale KI wird im normalen Sync nicht pro Mail blockierend aufgerufen. Sie kann weiterhin in Tests oder explizit injizierten Pruefpfaden als zweite Meinung genutzt werden.

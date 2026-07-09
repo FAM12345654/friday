@@ -7,6 +7,7 @@ import json
 from friday.app.ms_mail_provider import (
     MS_MAIL_SCOPES,
     build_authorization_url,
+    ensure_fresh_access_token,
     exchange_auth_response,
     list_messages,
     test_connection as graph_test_connection,
@@ -28,6 +29,13 @@ class _FakePublicClient:
         assert scopes == list(MS_MAIL_SCOPES)
         assert redirect_uri == "http://localhost"
         return {"access_token": "runtime-token", "refresh_token": "refresh-token"}
+
+    def acquire_token_by_refresh_token(self, refresh_token, scopes):
+        assert scopes == list(MS_MAIL_SCOPES)
+        assert "Mail.Send" not in scopes
+        if refresh_token == "expired":
+            return {"error": "invalid_grant", "error_description": "expired"}
+        return {"access_token": "fresh-token", "refresh_token": "new-refresh-token"}
 
 
 class _FakeMsal:
@@ -71,6 +79,50 @@ def test_exchange_auth_response_returns_token_bundle_without_logging_secret() ->
     assert result.ok is True
     assert result.token_bundle == {"access_token": "runtime-token", "refresh_token": "refresh-token"}
     assert result.external_call_used is True
+
+
+def test_ensure_fresh_access_token_refreshes_stored_bundle() -> None:
+    result = ensure_fresh_access_token(
+        client_id="client-1",
+        tenant="common",
+        token_bundle={"access_token": "old-token", "refresh_token": "refresh-token"},
+        msal_module=_FakeMsal,
+    )
+
+    assert result.ok is True
+    assert result.token_bundle is not None
+    assert result.token_bundle["access_token"] == "fresh-token"
+    assert result.token_bundle["refresh_token"] == "new-refresh-token"
+    assert result.external_call_used is True
+    assert result.scopes == MS_MAIL_SCOPES
+    assert "Mail.Send" not in result.scopes
+
+
+def test_ensure_fresh_access_token_requests_reconnect_on_invalid_refresh() -> None:
+    result = ensure_fresh_access_token(
+        client_id="client-1",
+        tenant="common",
+        token_bundle={"access_token": "old-token", "refresh_token": "expired"},
+        msal_module=_FakeMsal,
+    )
+
+    assert result.ok is False
+    assert "reconnect_required" in result.blocked_reasons
+    assert "token_refresh_failed" in result.blocked_reasons
+    assert result.external_call_used is True
+
+
+def test_ensure_fresh_access_token_keeps_access_token_without_refresh_token() -> None:
+    result = ensure_fresh_access_token(
+        client_id="client-1",
+        tenant="common",
+        token_bundle={"access_token": "still-usable"},
+        msal_module=_FakeMsal,
+    )
+
+    assert result.ok is True
+    assert result.token_bundle == {"access_token": "still-usable"}
+    assert result.external_call_used is False
 
 
 def test_test_connection_reads_profile_with_mocked_urlopen() -> None:

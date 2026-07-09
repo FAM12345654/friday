@@ -72,7 +72,7 @@ def test_office_mail_relevance_hides_irrelevant_shared_mailbox_message() -> None
 
     assert result == {
         "relevant": False,
-        "reason": "office_not_relevant",
+        "reason": "not_relevant",
         "method": "deterministic",
     }
 
@@ -88,8 +88,8 @@ def test_office_mail_relevance_matches_philip_recipient() -> None:
 
     assert result == {
         "relevant": True,
-        "reason": "philip_trigger",
-        "method": "deterministic",
+        "reason": "recipient",
+        "method": "recipient",
     }
 
 
@@ -103,8 +103,8 @@ def test_office_mail_relevance_matches_all_partners() -> None:
 
     assert result == {
         "relevant": True,
-        "reason": "team_all_partners",
-        "method": "deterministic",
+        "reason": "team",
+        "method": "team",
     }
 
 
@@ -134,8 +134,8 @@ def test_office_mail_relevance_matches_customer_betreuer() -> None:
 
     assert result == {
         "relevant": True,
-        "reason": "customer_betreuer_philip",
-        "method": "deterministic",
+        "reason": "betreuer",
+        "method": "betreuer",
     }
 
 
@@ -149,14 +149,14 @@ def test_office_mail_relevance_does_not_match_trigger_inside_other_words() -> No
 
     assert result == {
         "relevant": False,
-        "reason": "office_not_relevant",
+        "reason": "not_relevant",
         "method": "deterministic",
     }
 
 
 def test_office_mail_relevance_uses_ai_for_full_body_when_unclear() -> None:
     def _ai_decider(body_full, context):
-        assert "wichtige Info fuer Philip tief im Text" in body_full
+        assert "wichtige Vertragsfrage tief im Text" in body_full
         assert context["subject"] == "Allgemeine Info"
         return {"relevant": True, "reason": "Body nennt Philip", "confidence": 0.9}
 
@@ -166,11 +166,11 @@ def test_office_mail_relevance_uses_ai_for_full_body_when_unclear() -> None:
         snippet="Bitte lesen.",
         sender="info@example.test",
         recipients=[{"name": "Alex", "address": "alex@familienhelden.at"}],
-        body_full="Ganz unten steht: wichtige Info fuer Philip tief im Text.",
+        body_full="Ganz unten steht: wichtige Vertragsfrage tief im Text.",
         ai_decider=_ai_decider,
     )
 
-    assert result == {"relevant": True, "reason": "Body nennt Philip", "method": "ai"}
+    assert result == {"relevant": True, "reason": "Body nennt Philip", "method": "ki"}
 
 
 def test_office_mail_relevance_can_use_ai_to_hide_full_body_message() -> None:
@@ -188,7 +188,7 @@ def test_office_mail_relevance_can_use_ai_to_hide_full_body_message() -> None:
         },
     )
 
-    assert result == {"relevant": False, "reason": "Nur Alex", "method": "ai"}
+    assert result == {"relevant": False, "reason": "Nur Alex", "method": "ki"}
 
 
 def test_office_mail_relevance_falls_back_to_visible_when_ai_fails() -> None:
@@ -204,6 +204,69 @@ def test_office_mail_relevance_falls_back_to_visible_when_ai_fails() -> None:
 
     assert result == {
         "relevant": True,
-        "reason": "ai_unavailable_conservative_include",
-        "method": "fallback",
+        "reason": "unsicher",
+        "method": "unsicher",
     }
+
+
+def test_office_mail_relevance_hides_social_noise_even_with_name_trigger() -> None:
+    result = determine_mail_relevance(
+        account="office@familienhelden.at",
+        subject="Philip, du hast neue Follower",
+        snippet="Instagram Benachrichtigung",
+        sender="notifications@instagram.com",
+        recipients=[{"name": "Philip", "address": "philip@familienhelden.at"}],
+        body_full="Philip wurde markiert.",
+        ai_decider=lambda _body, _context: {"relevant": True, "reason": "falsch", "confidence": 1.0},
+    )
+
+    assert result == {"relevant": False, "reason": "noise", "method": "noise"}
+
+
+def test_office_mail_relevance_matches_name_in_full_body_deterministically() -> None:
+    result = determine_mail_relevance(
+        account="office@familienhelden.at",
+        subject="Allgemeine Info",
+        snippet="Bitte lesen.",
+        sender="info@example.test",
+        recipients=[{"name": "Alex", "address": "alex@familienhelden.at"}],
+        body_full="Bitte spaeter an Philip weitergeben.",
+        ai_decider=lambda _body, _context: {"relevant": False, "reason": "sollte nicht laufen", "confidence": 1.0},
+    )
+
+    assert result == {"relevant": True, "reason": "name", "method": "name"}
+
+
+def test_office_mail_relevance_limits_ai_input_to_short_excerpt() -> None:
+    captured = {}
+
+    def _ai_decider(body_full, _context):
+        captured["length"] = len(body_full)
+        return {"relevant": True, "reason": "Kurzer Ausschnitt reicht", "confidence": 0.8}
+
+    result = determine_mail_relevance(
+        account="office@familienhelden.at",
+        subject="Allgemeine Info",
+        snippet="Bitte lesen.",
+        sender="info@example.test",
+        recipients=[{"name": "Alex", "address": "alex@familienhelden.at"}],
+        body_full="x" * 5000,
+        ai_decider=_ai_decider,
+    )
+
+    assert result["method"] == "ki"
+    assert captured["length"] == 1500
+
+
+def test_office_mail_relevance_parses_ai_json_after_think_block() -> None:
+    result = determine_mail_relevance(
+        account="office@familienhelden.at",
+        subject="Allgemeine Info",
+        snippet="Bitte lesen.",
+        sender="info@example.test",
+        recipients=[{"name": "Alex", "address": "alex@familienhelden.at"}],
+        body_full="Unklare Mail.",
+        ai_decider=lambda _body, _context: '<think>intern</think>{"relevant": true, "reason": "Teambezug", "confidence": 0.7}',
+    )
+
+    assert result == {"relevant": True, "reason": "Teambezug", "method": "ki"}

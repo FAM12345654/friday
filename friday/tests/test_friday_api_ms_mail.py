@@ -11,6 +11,9 @@ from fastapi.testclient import TestClient
 
 from friday.agents.message_agent import MessageAgent
 from friday.app.ms_mail_provider import MsMailProviderResult
+from friday.app.ms_mail_account_store import (
+    decrypt_ms_mail_token_bundle as decrypt_stored_ms_mail_token_bundle,
+)
 from friday.storage.database import setup_local_database
 from friday.storage.repositories import MsMailMessageRepository
 
@@ -165,6 +168,16 @@ def test_ms_mail_sync_stores_dedupes_and_processes_when_enabled(tmp_path, monkey
         "decrypt_ms_mail_token_bundle",
         lambda account: {"access_token": account.account_id},
     )
+    monkeypatch.setattr(
+        api,
+        "ensure_fresh_ms_mail_access_token",
+        lambda **kwargs: MsMailProviderResult(
+            ok=True,
+            message="unchanged",
+            token_bundle=kwargs["token_bundle"],
+            external_call_used=False,
+        ),
+    )
 
     def _fake_list_ms_mail_messages(*, token_bundle, top):
         account_id = token_bundle["access_token"]
@@ -240,7 +253,7 @@ def test_ms_mail_endpoint_hides_office_irrelevant_by_default_and_include_all_res
     assert all_view["count"] == 1
     assert all_view["include_all"] is True
     assert all_view["items"][0]["relevant_for_user"] == 0
-    assert all_view["items"][0]["relevance_reason"] == "office_not_relevant"
+    assert all_view["items"][0]["relevance_reason"] == "not_relevant"
 
 
 def test_ms_mail_detail_endpoint_returns_full_local_body_and_recipients(tmp_path) -> None:
@@ -396,3 +409,112 @@ def test_blocked_ms_mail_sender_syncs_as_spam_without_suggestions(tmp_path, monk
     assert payload["process_result"]["task_suggestions_created"] == 0
     assert client.get("/api/messages/ms-mail").json()["data"]["count"] == 0
     assert client.get("/api/messages/ms-mail?include_spam=true").json()["data"]["count"] == 1
+
+
+def test_ms_mail_sync_refreshes_token_and_saves_bundle(tmp_path, monkeypatch) -> None:
+    api = _load_api_module()
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    api.message_agent = MessageAgent(db_path=db_path)
+    monkeypatch.setattr(api.config, "ENABLE_MS_MAIL_READ", True)
+    account = SimpleNamespace(
+        account_id="office_familienhelden_at",
+        username="office@familienhelden.at",
+        client_id="client-1",
+        tenant="common",
+        last_test_ok=True,
+        connected_at="2026-07-09T10:00:00+00:00",
+    )
+    saved_accounts = []
+    monkeypatch.setattr(api, "list_ms_mail_accounts", lambda: (account,))
+    monkeypatch.setattr(api, "decrypt_ms_mail_token_bundle", lambda _account: {"access_token": "old", "refresh_token": "old-refresh"})
+    monkeypatch.setattr(
+        api,
+        "ensure_fresh_ms_mail_access_token",
+        lambda **_kwargs: MsMailProviderResult(
+            ok=True,
+            message="refreshed",
+            token_bundle={"access_token": "fresh", "refresh_token": "new-refresh"},
+            external_call_used=True,
+        ),
+    )
+
+    def _save(account_to_save, **_kwargs):
+        saved_accounts.append(account_to_save)
+        return SimpleNamespace(persisted=True, message="saved", blocked_reasons=())
+
+    monkeypatch.setattr(api, "save_ms_mail_account", _save)
+
+    def _fake_list_ms_mail_messages(*, token_bundle, top):
+        assert token_bundle["access_token"] == "fresh"
+        return MsMailProviderResult(
+            ok=True,
+            message="ok",
+            messages=(
+                {
+                    "message_id": "graph-refresh",
+                    "sender": "kunde@example.test",
+                    "subject": "Bitte Philip Rechnung prüfen",
+                    "received_at": "2026-07-09T10:00:00Z",
+                    "snippet": "Bitte erledigen.",
+                },
+            ),
+            external_call_used=True,
+        )
+
+    monkeypatch.setattr(api, "list_ms_mail_messages", _fake_list_ms_mail_messages)
+
+    client = TestClient(api.app)
+    response = client.post("/api/accounts/ms-mail/sync", json={"top": 25})
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["stored_count"] == 1
+    assert payload["accounts_synced"] == 1
+    assert len(saved_accounts) == 1
+    refreshed_bundle = decrypt_stored_ms_mail_token_bundle(saved_accounts[0])
+    assert refreshed_bundle["access_token"] == "fresh"
+    assert refreshed_bundle["refresh_token"] == "new-refresh"
+
+
+def test_ms_mail_sync_reports_reconnect_when_refresh_fails(tmp_path, monkeypatch) -> None:
+    api = _load_api_module()
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    api.message_agent = MessageAgent(db_path=db_path)
+    monkeypatch.setattr(api.config, "ENABLE_MS_MAIL_READ", True)
+    account = SimpleNamespace(
+        account_id="office_familienhelden_at",
+        username="office@familienhelden.at",
+        client_id="client-1",
+        tenant="common",
+        last_test_ok=True,
+        connected_at="2026-07-09T10:00:00+00:00",
+    )
+    monkeypatch.setattr(api, "list_ms_mail_accounts", lambda: (account,))
+    monkeypatch.setattr(api, "decrypt_ms_mail_token_bundle", lambda _account: {"access_token": "old", "refresh_token": "expired"})
+    monkeypatch.setattr(
+        api,
+        "ensure_fresh_ms_mail_access_token",
+        lambda **_kwargs: MsMailProviderResult(
+            ok=False,
+            message="expired",
+            blocked_reasons=("token_refresh_failed", "reconnect_required"),
+            external_call_used=True,
+        ),
+    )
+    monkeypatch.setattr(
+        api,
+        "list_ms_mail_messages",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("Graph must not be called")),
+    )
+
+    client = TestClient(api.app)
+    response = client.post("/api/accounts/ms-mail/sync", json={"top": 25})
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["stored_count"] == 0
+    assert payload["accounts_synced"] == 0
+    assert payload["accounts"][0]["ok"] is False
+    assert "reconnect_required" in payload["accounts"][0]["blocked_reasons"]

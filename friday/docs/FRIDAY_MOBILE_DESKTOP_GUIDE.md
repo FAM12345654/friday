@@ -482,3 +482,11 @@ Moegliche Aktionen:
 Safety-Hinweis: Der Lernen-Reiter sendet nichts, erstellt keine echten Termine und ruft keine neuen externen Dienste auf.
 
 Details: `FRIDAY_LEARNING_TAB_GATE.md`.
+
+## Mail-Fix: Verbindung und Relevanz
+
+Friday aktualisiert Microsoft-Mail-Token beim Sync automatisch mit dem lokal gespeicherten Refresh-Token. Wenn ein Token abgelaufen ist und nicht mehr erneuert werden kann, zeigt Friday, dass das Konto neu verbunden werden muss.
+
+Das geteilte Office-Postfach bleibt schneller: Friday entscheidet die Standardansicht zuerst mit lokalen Regeln. Instagram, LinkedIn, Newsletter, `noreply`, Mailer-Daemon und Marketing-Mails werden nicht versehentlich als relevant markiert.
+
+Unsichere Mails werden nicht verloren, sondern mit `unsicher` sichtbar gehalten. Der volle Mailtext bleibt lokal in SQLite und wird in der Detailansicht angezeigt.
