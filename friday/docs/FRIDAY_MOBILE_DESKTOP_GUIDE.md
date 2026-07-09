@@ -101,6 +101,7 @@ Details stehen in `FRIDAY_MOBILE_TASK_FORWARD_FIELD.md`.
 Zusaetzlich kann eine Aufgabe ueber `Weiterleiten` als lokaler Entwurf fuer einen gespeicherten Kontakt vorbereitet werden.
 Dabei kann E-Mail oder WhatsApp als Zielkanal ausgewaehlt werden.
 Auch dieser Flow sendet nichts echt; Details stehen in `FRIDAY_MOBILE_TASK_DELEGATION_DRAFT_FLOW.md`.
+Der Weg zu spaeterem echtem Versand ist in `FRIDAY_MESSAGING_PROVIDER_GATE.md` dokumentiert.
 
 Native Aenderungen brauchen einen neuen Android-Build, zum Beispiel:
 

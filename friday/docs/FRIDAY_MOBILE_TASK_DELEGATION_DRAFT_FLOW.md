@@ -64,3 +64,7 @@ Echter Versand braucht ein separates Gate:
 - harter Approval-Token,
 - Versand-Audit,
 - Tests mit Mock-Provider vor Live-Betrieb.
+
+Das Gate ist dokumentiert in:
+
+`FRIDAY_MESSAGING_PROVIDER_GATE.md`
