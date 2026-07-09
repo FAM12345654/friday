@@ -89,5 +89,6 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_1_2A_PRODUCT_PLANNING_GATE.md` | Produktplanung fuer naechsten kleinen Step | vorhanden |
 | `FRIDAY_1_2B_TASK_REVIEW_PREVIEW_MODEL.md` | Read-only Task-Review-Preview-Modell | vorhanden |
 | `FRIDAY_AI_TASK_FORWARDING_DRAFT.md` | lokale KI-Anbindung fuer Aufgaben-Weiterleiten-Drafts ohne Versand | vorhanden |
+| `FRIDAY_LOCAL_OLLAMA_ACTIVATION_GATE.md` | read-only Ollama-Statusgate mit Mock-Fallback | vorhanden |
 | `FRIDAY_MOBILE_DESKTOP_GUIDE.md` | Handy-/Desktop-Installation, Verbindung, Updates und Design-System | vorhanden |
 | `FRIDAY_PRODUCT_FINAL_GATE.md` | Finaler Produktstand fuer CLI, Mobile und Desktop | vorhanden |

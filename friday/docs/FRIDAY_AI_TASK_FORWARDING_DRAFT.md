@@ -50,3 +50,5 @@ Diese Tokens loesen aktuell keinen echten Versand aus.
 ## Naechster sinnvoller Schritt
 
 Messaging Persistent Audit Repository Plan: planen, wie akzeptierte Mock-/Draft-Freigaben spaeter lokal protokolliert werden.
+
+Status danach: Das lokale Ollama Activation Gate ist in `FRIDAY_LOCAL_OLLAMA_ACTIVATION_GATE.md` dokumentiert.

@@ -19,6 +19,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from friday.agents import CalendarAgent, ContactContextAgent, MessageAgent, TaskAgent
 from friday.app.ai_task_forwarding_draft import build_ai_task_forwarding_draft
+from friday.app.local_ollama_activation_gate import build_local_ollama_activation_gate
 from friday.config import DEMO_DATE, USE_REAL_TODAY
 from friday.storage.database import setup_local_database
 
@@ -380,6 +381,12 @@ def create_ai_task_forward_draft(payload: TaskForwardDraftRequest) -> dict[str, 
         channel=payload.channel,
     )
     return _envelope(asdict(draft))
+
+
+@app.get("/api/ai/status")
+def get_ai_status(run_health_check: bool = Query(default=False)) -> dict[str, Any]:
+    gate = build_local_ollama_activation_gate(run_health_check=run_health_check)
+    return _envelope(asdict(gate))
 
 
 @app.get("/api/privacy")
