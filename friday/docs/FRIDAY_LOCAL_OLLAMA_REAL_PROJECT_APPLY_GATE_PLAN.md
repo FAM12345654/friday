@@ -138,3 +138,5 @@ Local Ollama Real Project Apply Guard:
 - weiterhin ohne Write,
 - weiterhin ohne API-/CLI-/Mobile-Anbindung,
 - danach erst einen echten Apply-Schritt vorbereiten.
+
+Status danach: Der read-only Guard ist in `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_GUARD.md` dokumentiert.
