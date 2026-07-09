@@ -27,6 +27,11 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 
 | Aktion | Status | Bedingung |
 |---|---|---|
+| Setup-Screen | erlaubt read-only | zeigt lokale Flags, KI-/Verbindungsstatus und Setup-Schritte ohne Write |
+| Termin-Erkennung aus Nachrichten | erlaubt lokal | erstellt nur Review-Vorschlag; Python loest Datum/Uhrzeit deterministisch |
+| Kalender-Link-Vorschau | erlaubt preview-only | Link wird angezeigt/vorbereitet, aber Friday erstellt keinen Kalendertermin |
+| Echter Kalender-Write | verboten | `ENABLE_REAL_CALENDAR=False`; erst spaeteres separates Gate |
+| Kontakt-Kategorie-Preview | erlaubt lokal | normalisiert `familie`, `arbeit`, `freund` usw.; keine externe Suche, keine Speicherung |
 | Kontakt anzeigen | erlaubt | lokal |
 | Kontakt suchen | erlaubt | lokal |
 | Kontakt speichern | gated | Token `SPEICHERN` |

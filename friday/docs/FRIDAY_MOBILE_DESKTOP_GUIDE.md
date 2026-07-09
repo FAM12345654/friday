@@ -94,6 +94,21 @@ Friday Mobile prueft beim App-Start aktiv auf neue Preview-Updates.
 Wenn ein Update verfuegbar ist, wird es geladen und die App startet automatisch neu.
 Details stehen in `FRIDAY_MOBILE_AUTO_UPDATE_GATE.md`.
 
+## Setup-Screen und Termin-Erkennung
+
+Die Mobile-App enthaelt einen Setup-Tab. Dort sieht man lokal:
+
+- ob Friday lokal laeuft,
+- ob die lokale KI aktiv ist,
+- welche Safety-Flags gesetzt sind,
+- ob E-Mail/WhatsApp nur vorbereitet oder verbunden sind,
+- dass echte Kalenderaktionen weiterhin deaktiviert sind.
+
+In der Nachrichtenansicht gibt es zusaetzlich `Termin erkennen`.
+Friday erstellt daraus nur einen lokalen Review-Vorschlag.
+Datum und Uhrzeit werden deterministisch in Python aufgeloest; das Modell darf relative Angaben nicht allein entscheiden.
+Es wird kein echter Kalendertermin erstellt.
+
 Im Aufgabenbereich gibt es zusaetzlich ein lokales Feld `Weiterleiten an Kollege`.
 Es speichert nur eine Notiz an der Aufgabe und sendet keine Nachricht.
 Details stehen in `FRIDAY_MOBILE_TASK_FORWARD_FIELD.md`.

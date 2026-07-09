@@ -116,3 +116,15 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 | Config | keine Aenderung; `OLLAMA_MODEL = "qwen3:8b"` bleibt aktiv |
 | Tests | `1151 passed, 4 skipped`; Compilecheck erfolgreich; Safety Smoke PASS; Diff-Check sauber |
 | Safety | Keine Cloud-KI, kein Versand, keine Credentials, nur lokales Ollama |
+
+## Friday Setup, Calendar Extraction and Contact Categories
+
+| Bereich | Ergebnis |
+|---|---|
+| Ziel | Setup-Screen, Termin-Erkennung, Kalender-Link-Vorschau und Kontakt-Kategorien |
+| Setup | API-Status und Mobile Setup-Tab lokal umgesetzt |
+| Termine | KI nur Rohsignal; Python loest Datum/Uhrzeit deterministisch |
+| Kalender | nur Review-Vorschlag und Link-Vorschau; kein echter Write |
+| Kontakte | Kategorien `familie`, `arbeit`, `freund`, `kunde`, `dienstleister`, `sonstiges`, `unbekannt` normalisiert |
+| Safety | `ENABLE_REAL_CALENDAR=False`, keine externen Aktionen |
+| Doku | `FRIDAY_SETUP_CALENDAR_CONTACT_GATE.md` |

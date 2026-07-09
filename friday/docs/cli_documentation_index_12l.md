@@ -119,3 +119,4 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_AI_DRAFT_QUALITY_REPORT.md` | Qualitaetsvergleich `qwen3:8b` vs. `qwen3:14b` fuer lokale Weiterleiten-Drafts | vorhanden |
 | `FRIDAY_EMAIL_ACCOUNT_CONNECT_GATE.md` | E-Mail-Konto-Anbindung mit Store, Tests, IMAP-Preview und Send-Guard ohne Live-Aktivierung | vorhanden |
 | `FRIDAY_WHATSAPP_BRIDGE_GATE.md` | lokale WhatsApp-Read-Bridge, Safety-Grenzen, Risiko, Rollback und Tests | vorhanden |
+| `FRIDAY_SETUP_CALENDAR_CONTACT_GATE.md` | Setup-Screen, deterministische Termin-Erkennung und Kontakt-Kategorien ohne echte Kalenderaktion | vorhanden |
