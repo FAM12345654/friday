@@ -112,5 +112,6 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_LOCAL_OLLAMA_SERVICE_START_CHECKLIST.md` | Windows-Checkliste zum lokalen Starten und Pruefen von Ollama ohne Friday-Aktivierung | vorhanden |
 | `FRIDAY_LOCAL_OLLAMA_MODEL_AVAILABILITY_CHECK.md` | read-only Modell-Verfuegbarkeitscheck: aktuell kein Modell sichtbar, weil Ollama lokal nicht erreichbar ist | vorhanden |
 | `FRIDAY_LOCAL_OLLAMA_ACTIVATION_BLOCKER_SUMMARY.md` | kompakte Blocker-Uebersicht vor einer spaeteren lokalen Ollama-Aktivierung | vorhanden |
+| `FRIDAY_LOCAL_OLLAMA_USER_ACTION_WAIT_GATE.md` | Wait-Gate: weiteres `continue` aktiviert Ollama nicht, echte Nutzeraktion ist erforderlich | vorhanden |
 | `FRIDAY_MOBILE_DESKTOP_GUIDE.md` | Handy-/Desktop-Installation, Verbindung, Updates und Design-System | vorhanden |
 | `FRIDAY_PRODUCT_FINAL_GATE.md` | Finaler Produktstand fuer CLI, Mobile und Desktop | vorhanden |
