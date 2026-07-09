@@ -8,7 +8,7 @@ import re
 from typing import Callable
 
 from friday import config
-from friday.app.ms_mail_account_store import load_ms_mail_account
+from friday.app.ms_mail_account_store import list_ms_mail_accounts, load_ms_mail_account
 
 
 MS_MAIL_READ_ACTIVATION_TOKEN = "MAIL LESEN AKTIVIEREN"
@@ -40,15 +40,19 @@ def build_ms_mail_read_activation_gate(
     account_path: Path | str | None = None,
 ) -> MsMailReadActivationGate:
     """Check whether read-only MS mail sync can be activated."""
-    account = load_ms_mail_account(account_path)
+    if account_path is not None:
+        account = load_ms_mail_account(account_path)
+        accounts = (account,) if account is not None else ()
+    else:
+        accounts = list_ms_mail_accounts()
     blocked: list[str] = []
     if approval_token != MS_MAIL_READ_ACTIVATION_TOKEN:
         blocked.append("approval_token_invalid")
     if not scanner_smoke_passed:
         blocked.append("scanner_smoke_not_passed")
-    if account is None:
+    if not accounts:
         blocked.append("ms_mail_account_missing")
-    elif not account.last_test_ok:
+    elif not any(account.last_test_ok for account in accounts):
         blocked.append("ms_mail_account_test_not_ok")
     if config.ENABLE_REAL_EMAIL is not False:
         blocked.append("real_email_must_remain_false")
@@ -58,8 +62,8 @@ def build_ms_mail_read_activation_gate(
         allowed=allowed,
         status="ready_for_ms_mail_read_activation" if allowed else "blocked",
         approval_token_required=MS_MAIL_READ_ACTIVATION_TOKEN,
-        account_connected=account is not None,
-        last_test_ok=bool(account and account.last_test_ok),
+        account_connected=bool(accounts),
+        last_test_ok=any(account.last_test_ok for account in accounts),
         scanner_smoke_passed=scanner_smoke_passed,
         config_write_performed=False,
         blocked_reasons=tuple(dict.fromkeys(blocked)),
