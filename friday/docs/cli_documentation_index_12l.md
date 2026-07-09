@@ -91,5 +91,6 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_AI_TASK_FORWARDING_DRAFT.md` | lokale KI-Anbindung fuer Aufgaben-Weiterleiten-Drafts ohne Versand | vorhanden |
 | `FRIDAY_LOCAL_OLLAMA_ACTIVATION_GATE.md` | read-only Ollama-Statusgate mit Mock-Fallback | vorhanden |
 | `FRIDAY_LOCAL_OLLAMA_USER_SETUP_GUIDE.md` | lokale Ollama-Installations- und Testanleitung ohne Aktivierung | vorhanden |
+| `FRIDAY_LOCAL_OLLAMA_CONFIG_PREVIEW.md` | read-only Vorschau fuer lokale Ollama-Konfiguration | vorhanden |
 | `FRIDAY_MOBILE_DESKTOP_GUIDE.md` | Handy-/Desktop-Installation, Verbindung, Updates und Design-System | vorhanden |
 | `FRIDAY_PRODUCT_FINAL_GATE.md` | Finaler Produktstand fuer CLI, Mobile und Desktop | vorhanden |

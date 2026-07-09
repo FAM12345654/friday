@@ -141,3 +141,5 @@ Local Ollama Config Preview:
 - weiterhin kein dauerhaftes Umschalten,
 - kein Cloud-Fallback,
 - kein echter Versand.
+
+Status danach: Die Config Preview ist in `FRIDAY_LOCAL_OLLAMA_CONFIG_PREVIEW.md` dokumentiert.
