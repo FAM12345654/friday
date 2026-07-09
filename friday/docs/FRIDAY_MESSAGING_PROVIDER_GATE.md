@@ -104,3 +104,5 @@ Ziel:
 - Safety-Status weiterhin klar anzeigen.
 
 Status: umgesetzt in `FRIDAY_MESSAGING_CONTACT_TARGET_FIELDS.md`.
+
+Mock Provider Status: umgesetzt in `FRIDAY_MESSAGING_MOCK_PROVIDER.md`.

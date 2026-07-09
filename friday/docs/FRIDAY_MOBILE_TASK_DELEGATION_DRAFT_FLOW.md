@@ -73,3 +73,7 @@ Das Gate ist dokumentiert in:
 Lokale Ziel-Felder sind dokumentiert in:
 
 `FRIDAY_MESSAGING_CONTACT_TARGET_FIELDS.md`
+
+Die lokale Versandsimulation ist dokumentiert in:
+
+`FRIDAY_MESSAGING_MOCK_PROVIDER.md`

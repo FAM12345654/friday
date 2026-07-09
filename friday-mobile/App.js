@@ -223,6 +223,7 @@ export default function App() {
   const [forwardContact, setForwardContact] = useState(null);
   const [forwardChannel, setForwardChannel] = useState("email");
   const [forwardDraft, setForwardDraft] = useState("");
+  const [forwardMockResult, setForwardMockResult] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
 
   useEffect(() => {
@@ -419,6 +420,7 @@ export default function App() {
     setForwardContact(null);
     setForwardChannel("email");
     setForwardDraft("");
+    setForwardMockResult("");
     if (contacts.length === 0) {
       try {
         const payload = await getContacts();
@@ -434,11 +436,13 @@ export default function App() {
     setForwardContact(null);
     setForwardChannel("email");
     setForwardDraft("");
+    setForwardMockResult("");
   };
 
   const selectForwardContact = (contact) => {
     setForwardContact(contact);
     setForwardDraft(buildForwardDraft(forwardTask, contact, forwardChannel));
+    setForwardMockResult("");
   };
 
   const selectForwardChannel = (channel) => {
@@ -446,6 +450,20 @@ export default function App() {
     if (forwardTask && forwardContact) {
       setForwardDraft(buildForwardDraft(forwardTask, forwardContact, channel));
     }
+    setForwardMockResult("");
+  };
+
+  const simulateForwardSend = () => {
+    if (!forwardTask || !forwardContact || !forwardDraft) {
+      return;
+    }
+    const target =
+      forwardChannel === "whatsapp"
+        ? forwardContact.whatsapp_target || "kein WhatsApp-Ziel gespeichert"
+        : forwardContact.email_address || "keine E-Mail-Adresse gespeichert";
+    setForwardMockResult(
+      `Simulation: Würde per ${channelLabel(forwardChannel)} an ${target} gesendet. Es wurde nichts echt gesendet.`,
+    );
   };
 
   const handleCompleteTask = async (taskId) => {
@@ -635,6 +653,19 @@ export default function App() {
                 <View style={styles.draftBox}>
                   <Text style={styles.forwardLabel}>Automatischer Entwurf</Text>
                   <Text style={styles.draftText}>{forwardDraft}</Text>
+                </View>
+              )}
+              {!!forwardDraft && (
+                <ActionButton
+                  small
+                  variant="success"
+                  label="Senden simulieren"
+                  onPress={simulateForwardSend}
+                />
+              )}
+              {!!forwardMockResult && (
+                <View style={styles.mockResultBox}>
+                  <Text style={styles.mockResultText}>{forwardMockResult}</Text>
                 </View>
               )}
               <Text style={styles.forwardSafety}>
@@ -1339,6 +1370,18 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 13,
     lineHeight: 19,
+  },
+  mockResultBox: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: 14,
+    marginTop: 10,
+    padding: 12,
+  },
+  mockResultText: {
+    color: colors.deep,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
   },
   forwardSafety: {
     color: colors.textSoft,
