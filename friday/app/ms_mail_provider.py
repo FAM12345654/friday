@@ -8,7 +8,9 @@ from typing import Any, Callable
 from urllib import error, parse, request
 
 
-MS_MAIL_SCOPES: tuple[str, ...] = ("Mail.Read", "offline_access", "User.Read")
+# offline_access wird von MSAL automatisch ergaenzt (fuer Refresh-Token) und darf
+# NICHT in der Scope-Liste stehen (MSAL lehnt reservierte Scopes ab).
+MS_MAIL_SCOPES: tuple[str, ...] = ("Mail.Read", "User.Read")
 MS_AUTHORITY_TEMPLATE = "https://login.microsoftonline.com/{tenant}"
 GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me?$select=displayName,userPrincipalName,mail"
 GRAPH_MESSAGES_URL = "https://graph.microsoft.com/v1.0/me/messages"
@@ -136,10 +138,13 @@ def exchange_auth_response(
             external_call_used=True,
         )
     if not isinstance(token_bundle, dict) or not token_bundle.get("access_token"):
+        err = str((token_bundle or {}).get("error") or "").strip()
+        desc = str((token_bundle or {}).get("error_description") or "").strip()
+        detail = f" [{err}] {desc[:300]}" if (err or desc) else ""
         return MsMailProviderResult(
             ok=False,
-            message="Microsoft OAuth-Antwort enthielt kein Zugriffstoken.",
-            blocked_reasons=("access_token_missing",),
+            message=f"Microsoft OAuth-Antwort enthielt kein Zugriffstoken.{detail}",
+            blocked_reasons=("access_token_missing", err or "unknown_error"),
             external_call_used=True,
         )
     return MsMailProviderResult(
