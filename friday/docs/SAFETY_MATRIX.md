@@ -32,6 +32,8 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Kalender-Link-Vorschau | erlaubt preview-only | Link wird angezeigt/vorbereitet, aber Friday erstellt keinen Kalendertermin |
 | Echter Kalender-Write | gated extern | `ENABLE_REAL_CALENDAR=True`; nur mit Google-Haupt-Policy, Verbindung OK und `TERMIN SPEICHERN` |
 | Account-Policy speichern | gated lokal | Token `POLICY SPEICHERN`; speichert Provider-Regeln, Filter und Notizen lokal |
+| Account-Policy PH-Zeitfenster | erlaubt lokal | nur per Policy-Transform fuer `outlook_ics`; PH/team-hampejs wird lokal als `08:00`-`18:00` Tagesblock angezeigt |
+| Agent-Notizen | erlaubt lokal | E-Mail-, WhatsApp-, Kontakt- und Policy-Notizen bleiben lokal und duerfen nur in lokale KI-Entwuerfe einfliessen |
 | Google-Kalender OAuth-URL | gated/preview | nur im dedizierten Google-Provider-Modul; Client-Secrets/Tokens nie ins Git |
 | Kalender aktivieren | gated preview | Token `KALENDER AKTIVIEREN`, verbundenes Konto, Test OK und Safety Smoke erforderlich; Config-Apply separat |
 | Kalendertermin schreiben | gated extern | `ENABLE_REAL_CALENDAR=True`, main Policy, Verbindung OK und Token `TERMIN SPEICHERN` |

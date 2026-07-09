@@ -47,6 +47,28 @@ class ContactContextAgent:
             whatsapp_target=whatsapp_target,
         )
 
+    def update_contact(
+        self,
+        contact_id: int,
+        *,
+        name: str | None = None,
+        contact_type: str | None = None,
+        notes: str | None = None,
+        email_address: str | None = None,
+        whatsapp_target: str | None = None,
+    ) -> Dict[str, Any] | None:
+        """Update a local contact entry."""
+        if self.contact_repository is None:
+            raise ValueError("Contact storage is not available in sample mode.")
+        return self.contact_repository.update_contact(
+            contact_id,
+            name=name,
+            contact_type=contact_type,
+            notes=notes,
+            email_address=email_address,
+            whatsapp_target=whatsapp_target,
+        )
+
     def get_category_for_sender(self, sender: str) -> str:
         """Find the stored category for a sender name."""
         if self.contact_repository is None:

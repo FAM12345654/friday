@@ -607,9 +607,35 @@ class ContactRepository:
         "sonstiges",
         "unbekannt",
     }
+    TYPE_ALIASES = {
+        "family": "familie",
+        "friend": "freund",
+        "work": "arbeit",
+        "customer": "kunde",
+        "other": "sonstiges",
+    }
 
     def __init__(self, db_path: Path | str | None = None) -> None:
         self.db_path = db_path or get_database_path()
+
+    def _normalize_contact_type(self, contact_type: str | None) -> str:
+        normalized_type = (contact_type or "work").strip().lower() or "work"
+        normalized_type = self.TYPE_ALIASES.get(normalized_type, normalized_type)
+        return normalized_type if normalized_type in self.VALID_TYPES else "sonstiges"
+
+    def get_contact_by_id(self, contact_id: int) -> dict | None:
+        """Return one stored contact by id."""
+        with get_connection(self.db_path) as connection:
+            row = connection.execute(
+                """
+                SELECT id, name, contact_type, notes, email_address, whatsapp_target
+                FROM contacts
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (contact_id,),
+            ).fetchone()
+        return row_to_dict(row) if row is not None else None
 
     def get_contacts(self) -> List[dict]:
         """Return stored contacts."""
@@ -635,17 +661,7 @@ class ContactRepository:
         normalized_name = name.strip()
         if not normalized_name:
             raise ValueError("Contact name must not be empty.")
-        normalized_type = (contact_type or "work").strip().lower() or "work"
-        aliases = {
-            "family": "familie",
-            "friend": "freund",
-            "work": "arbeit",
-            "customer": "kunde",
-            "other": "sonstiges",
-        }
-        normalized_type = aliases.get(normalized_type, normalized_type)
-        if normalized_type not in self.VALID_TYPES:
-            normalized_type = "sonstiges"
+        normalized_type = self._normalize_contact_type(contact_type)
         normalized_notes = "" if notes is None else notes
         normalized_email = (email_address or "").strip() or None
         normalized_whatsapp = (whatsapp_target or "").strip() or None
@@ -674,6 +690,53 @@ class ContactRepository:
             connection.commit()
         return row_to_dict(row)
 
+    def update_contact(
+        self,
+        contact_id: int,
+        *,
+        name: str | None = None,
+        contact_type: str | None = None,
+        notes: str | None = None,
+        email_address: str | None = None,
+        whatsapp_target: str | None = None,
+    ) -> dict | None:
+        """Update selected local contact fields and return the updated contact."""
+        current = self.get_contact_by_id(contact_id)
+        if current is None:
+            return None
+
+        updates: list[str] = []
+        params: dict[str, object] = {"id": contact_id}
+        if name is not None:
+            normalized_name = name.strip()
+            if not normalized_name:
+                raise ValueError("Contact name must not be empty.")
+            updates.append("name = :name")
+            params["name"] = normalized_name
+        if contact_type is not None:
+            updates.append("contact_type = :contact_type")
+            params["contact_type"] = self._normalize_contact_type(contact_type)
+        if notes is not None:
+            updates.append("notes = :notes")
+            params["notes"] = notes
+        if email_address is not None:
+            updates.append("email_address = :email_address")
+            params["email_address"] = email_address.strip() or None
+        if whatsapp_target is not None:
+            updates.append("whatsapp_target = :whatsapp_target")
+            params["whatsapp_target"] = whatsapp_target.strip() or None
+
+        if not updates:
+            return current
+
+        with get_connection(self.db_path) as connection:
+            connection.execute(
+                f"UPDATE contacts SET {', '.join(updates)} WHERE id = :id",
+                params,
+            )
+            connection.commit()
+        return self.get_contact_by_id(contact_id)
+
     def get_contact_type_by_name(self, name: str) -> str:
         """Return a known contact type, fallback to other."""
         with get_connection(self.db_path) as connection:
@@ -684,14 +747,7 @@ class ContactRepository:
         if row is None:
             return "sonstiges"
         contact_type = str(row[0] or "other").lower()
-        aliases = {
-            "family": "familie",
-            "friend": "freund",
-            "work": "arbeit",
-            "customer": "kunde",
-            "other": "sonstiges",
-        }
-        contact_type = aliases.get(contact_type, contact_type)
+        contact_type = self.TYPE_ALIASES.get(contact_type, contact_type)
         return contact_type if contact_type in self.VALID_TYPES else "sonstiges"
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from friday.app.account_policy_engine import (
+    apply_transforms,
     build_ai_context,
     filter_events,
     resolve_write_target,
@@ -12,15 +13,17 @@ from friday.app.account_policy_store import AccountPolicy
 
 def _policy(
     *,
+    provider: str = "outlook_graph",
     role: str = "source",
     access: str = "read",
     include_filters: dict | None = None,
+    transform: dict | None = None,
     notes: str = "PH = Dienst = belegt. Alles andere ignorieren.",
     enabled: bool = True,
 ) -> AccountPolicy:
     return AccountPolicy(
         id=1,
-        provider="outlook_graph",
+        provider=provider,
         label="Arbeit Outlook PH",
         role=role,
         access=access,
@@ -29,6 +32,7 @@ def _policy(
         notes=notes,
         enabled=enabled,
         created_at="2026-07-09T00:00:00+00:00",
+        transform=transform or {},
     )
 
 
@@ -75,3 +79,55 @@ def test_resolve_write_target_blocks_missing_main_policy() -> None:
     assert result.ok is False
     assert result.blocked_reasons == ("main_policy_missing",)
 
+
+def test_apply_transforms_sets_fixed_ph_day_window_for_outlook_ics_policy() -> None:
+    policy = _policy(
+        provider="outlook_ics",
+        transform={"fixed_daily_window": {"start": "08:00", "end": "18:00"}},
+    )
+    events = [
+        {
+            "title": "PH Dienst",
+            "start": "2026-07-15T00:00:00",
+            "end": "2026-07-15T23:59:00",
+        },
+        {
+            "title": "PH Dienst",
+            "date": "2026-07-16",
+        },
+    ]
+
+    transformed = apply_transforms(events, policy)
+
+    assert transformed[0]["start"] == "2026-07-15T08:00:00"
+    assert transformed[0]["end"] == "2026-07-15T18:00:00"
+    assert transformed[1]["start"] == "2026-07-16T08:00:00"
+    assert transformed[1]["end"] == "2026-07-16T18:00:00"
+    assert transformed[0]["time_window_source"] == "policy_transform.fixed_daily_window"
+
+
+def test_apply_transforms_is_per_policy_and_does_not_change_google_events() -> None:
+    policy = _policy(
+        provider="google_calendar",
+        transform={"fixed_daily_window": {"start": "08:00", "end": "18:00"}},
+    )
+    event = {
+        "title": "Privater Termin",
+        "start": "2026-07-15T10:00:00",
+        "end": "2026-07-15T11:00:00",
+    }
+
+    transformed = apply_transforms([event], policy)
+
+    assert transformed == [event]
+    assert transformed[0] is not event
+
+
+def test_apply_transforms_ignores_invalid_fixed_window_without_crashing() -> None:
+    policy = _policy(
+        provider="outlook_ics",
+        transform={"fixed_daily_window": {"start": "8 Uhr", "end": "18:00"}},
+    )
+    event = {"title": "PH Dienst", "start": "2026-07-15T00:00:00"}
+
+    assert apply_transforms([event], policy) == [event]

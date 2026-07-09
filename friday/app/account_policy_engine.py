@@ -99,6 +99,68 @@ def filter_events(events: Iterable[dict[str, Any]], policy: AccountPolicy) -> li
     return filtered
 
 
+def _event_date(event: dict[str, Any]) -> str:
+    """Return the local calendar date for one event-like dict."""
+    for key in ("date", "start", "start_time"):
+        value = str(event.get(key) or "").strip()
+        if not value:
+            continue
+        if "T" in value:
+            return value.split("T", 1)[0]
+        if len(value) >= 10:
+            return value[:10]
+    return ""
+
+
+def _normalize_time(value: Any) -> str:
+    """Normalize HH:MM or HH:MM:SS into HH:MM:SS for local display values."""
+    text = str(value or "").strip()
+    if re.fullmatch(r"\d{2}:\d{2}", text):
+        return f"{text}:00"
+    if re.fullmatch(r"\d{2}:\d{2}:\d{2}", text):
+        return text
+    return ""
+
+
+def apply_transforms(events: Iterable[dict[str, Any]], policy: AccountPolicy) -> list[dict[str, Any]]:
+    """Apply deterministic per-policy event transforms after filtering.
+
+    Currently supported:
+    - {"fixed_daily_window": {"start": "08:00", "end": "18:00"}}
+
+    The transform is explicitly per policy. Events from policies without this
+    setting are returned unchanged.
+    """
+    if policy.provider != "outlook_ics":
+        return [dict(event) for event in events]
+
+    transform = policy.transform or {}
+    if not isinstance(transform, dict):
+        return [dict(event) for event in events]
+
+    fixed_window = transform.get("fixed_daily_window")
+    if not isinstance(fixed_window, dict):
+        return [dict(event) for event in events]
+
+    start_time = _normalize_time(fixed_window.get("start"))
+    end_time = _normalize_time(fixed_window.get("end"))
+    if not start_time or not end_time:
+        return [dict(event) for event in events]
+
+    transformed: list[dict[str, Any]] = []
+    for event in events:
+        copied = dict(event)
+        event_date = _event_date(copied)
+        if not event_date:
+            transformed.append(copied)
+            continue
+        copied["start"] = f"{event_date}T{start_time}"
+        copied["end"] = f"{event_date}T{end_time}"
+        copied["time_window_source"] = "policy_transform.fixed_daily_window"
+        transformed.append(copied)
+    return transformed
+
+
 def build_ai_context(policies: Iterable[AccountPolicy]) -> str:
     """Build a compact context block from active policy notes for local AI agents."""
     lines: list[str] = []
@@ -139,4 +201,3 @@ def resolve_write_target(policies: Iterable[AccountPolicy]) -> PolicyResolutionR
         message="Haupt-Kalender gefunden.",
         blocked_reasons=(),
     )
-

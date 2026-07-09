@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -41,6 +41,7 @@ class AccountPolicy:
     enabled: bool
     created_at: str
     updated_at: str | None = None
+    transform: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -109,11 +110,43 @@ def _normalize_filters(value: dict[str, Any] | str | None) -> dict[str, Any]:
     return normalized
 
 
+def _normalize_transform(value: dict[str, Any] | str | None) -> dict[str, Any]:
+    if value is None or value == "":
+        return {}
+    if isinstance(value, str):
+        parsed = json.loads(value)
+    else:
+        parsed = value
+    if not isinstance(parsed, dict):
+        raise ValueError("Transform muss ein Objekt sein.")
+
+    def _normalize_nested(raw_value: Any) -> Any:
+        if isinstance(raw_value, dict):
+            return {
+                _clean(key): _normalize_nested(item)
+                for key, item in raw_value.items()
+                if _clean(key)
+            }
+        if isinstance(raw_value, list):
+            return [_normalize_nested(item) for item in raw_value]
+        if raw_value is None:
+            return ""
+        return _clean(raw_value)
+
+    return {
+        _clean(key): _normalize_nested(raw_value)
+        for key, raw_value in parsed.items()
+        if _clean(key)
+    }
+
+
 def _filters_to_json(value: dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
 def _row_to_policy(row: Any) -> AccountPolicy:
+    keys = set(row.keys()) if hasattr(row, "keys") else set()
+    transform_json = row["transform"] if "transform" in keys else "{}"
     return AccountPolicy(
         id=int(row["id"]),
         provider=str(row["provider"]),
@@ -122,6 +155,7 @@ def _row_to_policy(row: Any) -> AccountPolicy:
         access=str(row["access"]),
         include_filters=json.loads(row["include_filters"] or "{}"),
         exclude_filters=json.loads(row["exclude_filters"] or "{}"),
+        transform=json.loads(transform_json or "{}"),
         notes=str(row["notes"] or ""),
         enabled=bool(row["enabled"]),
         created_at=str(row["created_at"]),
@@ -136,7 +170,7 @@ def list_account_policies(db_path: Path | str | None = None) -> list[AccountPoli
             rows = connection.execute(
                 """
                 SELECT id, provider, label, role, access, include_filters, exclude_filters,
-                       notes, enabled, created_at, updated_at
+                       transform, notes, enabled, created_at, updated_at
                 FROM account_policies
                 ORDER BY id
                 """
@@ -152,7 +186,7 @@ def get_account_policy(policy_id: int, db_path: Path | str | None = None) -> Acc
         row = connection.execute(
             """
             SELECT id, provider, label, role, access, include_filters, exclude_filters,
-                   notes, enabled, created_at, updated_at
+                   transform, notes, enabled, created_at, updated_at
             FROM account_policies
             WHERE id = ?
             """,
@@ -169,6 +203,7 @@ def create_account_policy(
     access: str,
     include_filters: dict[str, Any] | str | None = None,
     exclude_filters: dict[str, Any] | str | None = None,
+    transform: dict[str, Any] | str | None = None,
     notes: str | None = "",
     enabled: bool = True,
     approval_token: str,
@@ -191,13 +226,14 @@ def create_account_policy(
     policy_access = _normalize_access(access)
     include_json = _filters_to_json(_normalize_filters(include_filters))
     exclude_json = _filters_to_json(_normalize_filters(exclude_filters))
+    transform_json = _filters_to_json(_normalize_transform(transform))
 
     with get_connection(db_path) as connection:
         cursor = connection.execute(
             """
             INSERT INTO account_policies
-            (provider, label, role, access, include_filters, exclude_filters, notes, enabled, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (provider, label, role, access, include_filters, exclude_filters, transform, notes, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 policy_provider,
@@ -206,6 +242,7 @@ def create_account_policy(
                 policy_access,
                 include_json,
                 exclude_json,
+                transform_json,
                 str(notes or ""),
                 1 if enabled else 0,
                 created_at,
@@ -254,7 +291,7 @@ def update_account_policy(
             """
             UPDATE account_policies
             SET provider = ?, label = ?, role = ?, access = ?, include_filters = ?,
-                exclude_filters = ?, notes = ?, enabled = ?, updated_at = ?
+                exclude_filters = ?, transform = ?, notes = ?, enabled = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -264,6 +301,7 @@ def update_account_policy(
                 _normalize_access(str(merged["access"])),
                 _filters_to_json(_normalize_filters(merged.get("include_filters"))),
                 _filters_to_json(_normalize_filters(merged.get("exclude_filters"))),
+                _filters_to_json(_normalize_transform(merged.get("transform"))),
                 str(merged.get("notes") or ""),
                 1 if bool(merged.get("enabled")) else 0,
                 updated_at,

@@ -39,6 +39,7 @@ from friday.app.email_account_store import (
     email_account_status,
     load_email_account,
     save_email_account,
+    save_email_account_agent_notes,
 )
 from friday.app.email_activation_gate import EMAIL_ACTIVATION_TOKEN, build_email_activation_gate
 from friday.app.email_imap_reader import check_imap_login, read_recent_inbox_emails
@@ -50,7 +51,9 @@ from friday.app.whatsapp_bridge_activation_gate import (
 )
 from friday.app.whatsapp_inbox_store import (
     get_whatsapp_bridge_status,
+    load_whatsapp_agent_notes,
     read_recent_whatsapp_messages,
+    save_whatsapp_agent_notes,
 )
 from friday.app.review_batch_selection_parser import parse_review_batch_selection
 from friday.app.review_batch_selection_preview import (
@@ -3081,7 +3084,11 @@ class FridayInterface:
                 self._show_whatsapp_bridge_status()
             elif choice == "7":
                 self._show_whatsapp_bridge_activation_gate_from_input()
-            elif choice == "8" or not choice:
+            elif choice == "8":
+                self._edit_email_agent_notes_from_input()
+            elif choice == "9":
+                self._edit_whatsapp_agent_notes_from_input()
+            elif choice == "10" or not choice:
                 return
             else:
                 print(INVALID_SELECTION)
@@ -3095,6 +3102,7 @@ class FridayInterface:
         print(f"Letzter Test OK: {status['last_test_ok']}")
         print(f"Real-Versand aktiv: {status['real_email_enabled']}")
         print(f"Tageslimit: {status['send_limit_per_day']}")
+        print(f"Agent-Notiz vorhanden: {status.get('agent_notes_configured', False)}")
         print("WhatsApp: Deep-Link ueber dein Handy, kein Konto-Login.")
 
     def _connect_email_account_from_input(self) -> None:
@@ -3104,6 +3112,7 @@ class FridayInterface:
         preset = input("Preset (gmail/outlook/gmx/web.de/custom): ").strip().lower() or "gmail"
         email_address = input("E-Mail-Adresse: ").strip()
         username = input("Benutzername (leer = E-Mail-Adresse): ").strip() or email_address
+        agent_notes = input("Agent-Notiz fuer dieses Konto (optional): ").strip()
         app_password = getpass("App-Passwort (wird nicht angezeigt): ")
         try:
             if preset == "custom":
@@ -3120,6 +3129,7 @@ class FridayInterface:
                     imap_port=imap_port,
                     username=username,
                     app_password=app_password,
+                    agent_notes=agent_notes,
                 )
             else:
                 account = build_email_account_from_preset(
@@ -3127,6 +3137,7 @@ class FridayInterface:
                     email_address=email_address,
                     username=username,
                     app_password=app_password,
+                    agent_notes=agent_notes,
                 )
         except ValueError as error:
             print(str(error))
@@ -3149,9 +3160,39 @@ class FridayInterface:
             username=account.username,
             app_password=app_password,
             last_test_ok=True,
+            agent_notes=account.agent_notes,
         )
         result = save_email_account(tested_account, approval_token=token)
         print(result.message)
+
+    def _edit_email_agent_notes_from_input(self) -> None:
+        """Edit local AI-readable notes for the stored email account."""
+        self._section_title("E-Mail-Agent-Notiz")
+        status = email_account_status()
+        if not status["connected"]:
+            print("Kein E-Mail-Konto verbunden.")
+            return
+        print("Diese Notiz bleibt lokal und wird nur fuer lokale KI-Entwuerfe genutzt.")
+        current = status.get("agent_notes") or ""
+        if current:
+            print("Aktuelle Notiz:")
+            print(current)
+        notes = input("Neue Agent-Notiz (leer = loeschen): ")
+        result = save_email_account_agent_notes(notes)
+        print(result.message)
+
+    def _edit_whatsapp_agent_notes_from_input(self) -> None:
+        """Edit local AI-readable WhatsApp notes."""
+        self._section_title("WhatsApp-Agent-Notiz")
+        current = load_whatsapp_agent_notes()
+        print("Diese Notiz bleibt lokal und wird nur fuer lokale KI-Entwuerfe genutzt.")
+        if current.get("agent_notes"):
+            print("Aktuelle Notiz:")
+            print(current["agent_notes"])
+        notes = input("Neue Agent-Notiz (leer = loeschen): ")
+        result = save_whatsapp_agent_notes(notes)
+        print("WhatsApp-Agent-Notiz wurde lokal gespeichert.")
+        print(f"Notiz vorhanden: {result['agent_notes_configured']}")
 
     def _test_email_account_from_input(self) -> None:
         """Test stored SMTP/IMAP credentials without sending."""
@@ -3201,6 +3242,7 @@ class FridayInterface:
         print(f"Lokale Nachrichten: {status['message_count']}")
         print(f"Letzter Empfang: {status['last_received_at'] or '-'}")
         print(f"Bridge Token vorhanden: {status['token_configured']}")
+        print(f"Agent-Notiz vorhanden: {status.get('agent_notes_configured', False)}")
         print("Hinweis: Nur Mitlesen. Senden bleibt ausschliesslich Deep-Link mit Nutzerfinger.")
         print("Risiko: WhatsApp-Web-Bridges koennen gegen WhatsApp-Regeln verstossen.")
 

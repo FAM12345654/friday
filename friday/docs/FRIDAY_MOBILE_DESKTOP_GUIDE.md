@@ -330,8 +330,31 @@ Fuer verpackte Desktop-Builds gilt:
 - Outlook-ICS kann als read-only Kalenderquelle ueber eine Account-Policy gespeichert werden.
 - Die ICS-URL wird lokal verschluesselt abgelegt und nicht in API-Antworten angezeigt.
 - Kalenderquellen werden in der Kalenderansicht zusammengefuehrt; PH-Filter laufen deterministisch in Python.
+- Fuer Outlook-ICS-Policies kann ein lokales PH-Zeitfenster gesetzt werden.
+  Aktuell wird `team-hampejs`/PH als Tagesblock `08:00` bis `18:00` angezeigt,
+  ohne diese Regel auf andere Kalenderquellen anzuwenden.
 - Termin-aus-Nachricht ist ein Review-Flow: bearbeiten, pruefen, dann erst mit `TERMIN SPEICHERN` in Google schreiben.
 - Google-Termine koennen nur mit `TERMIN LOESCHEN` geloescht werden.
 - E-Mail, WhatsApp, SMS, Wetter und Musik bleiben deaktiviert.
 
 Details: `FRIDAY_CALENDAR_SOURCES_AND_FLOW_GATE.md`.
+
+## Agent-Notizen fuer lokale KI-Entwuerfe
+
+Friday kann lokale Agent-Notizen speichern fuer:
+
+- E-Mail-Konto,
+- WhatsApp-Read-Bridge,
+- einzelne Kontakte/Personen,
+- Account-Policies.
+
+Diese Notizen bleiben lokal und werden nur fuer lokale KI-Entwuerfe verwendet.
+Sie werden nicht an E-Mail, WhatsApp, Kalender, Cloud-KI oder externe Provider gesendet.
+
+In der Mobile-App sind die Notizen sichtbar in:
+
+- `Kontakte` fuer Personen-Notizen,
+- `Datenschutz`/Konten fuer E-Mail- und WhatsApp-Agent-Notizen,
+- `Setup` fuer Account-Policy-Notizen und PH-Zeitfenster.
+
+Details: `FRIDAY_PH_TIME_WINDOW_AGENT_NOTES_GATE.md`.

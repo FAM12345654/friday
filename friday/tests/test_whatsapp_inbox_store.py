@@ -7,7 +7,9 @@ from friday.app.whatsapp_inbox_store import (
     WHATSAPP_MESSAGE_ID_OFFSET,
     get_whatsapp_bridge_status,
     insert_whatsapp_message,
+    load_whatsapp_agent_notes,
     read_recent_whatsapp_messages,
+    save_whatsapp_agent_notes,
 )
 from friday.storage.database import setup_local_database
 
@@ -64,3 +66,17 @@ def test_process_whatsapp_message_creates_review_suggestions(tmp_path) -> None:
     assert agent.get_pending_task_suggestions()
     status = get_whatsapp_bridge_status(db_path)
     assert status["message_count"] == 1
+
+
+def test_whatsapp_agent_notes_roundtrip_locally(tmp_path) -> None:
+    notes_path = tmp_path / "whatsapp" / "agent_notes.json"
+
+    missing = load_whatsapp_agent_notes(notes_path)
+    saved = save_whatsapp_agent_notes("Nur Einzelchats auswerten.", notes_path)
+    loaded = load_whatsapp_agent_notes(notes_path)
+
+    assert missing["agent_notes_configured"] is False
+    assert saved["agent_notes"] == "Nur Einzelchats auswerten."
+    assert saved["external_call_used"] is False
+    assert loaded["agent_notes_configured"] is True
+    assert loaded["agent_notes"] == "Nur Einzelchats auswerten."

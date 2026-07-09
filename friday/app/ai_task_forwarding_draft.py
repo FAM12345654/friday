@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from friday import config
+from friday.app.agent_context_builder import build_agent_context
 from friday.app.local_model_provider import LocalModelProvider, select_local_model_provider
 from friday.app.local_model_validation_pipeline import validate_and_logic_check_model_output
 from friday.app.sensitive_contact_context_guard import check_sensitive_contact_context
@@ -64,7 +65,13 @@ def _target_for(contact: Mapping[str, Any], channel: str) -> str:
     return _clean(contact.get("email_address"), "keine E-Mail-Adresse gespeichert")
 
 
-def _build_prompt(task: Mapping[str, Any], contact: Mapping[str, Any], channel: str, target: str) -> str:
+def _build_prompt(
+    task: Mapping[str, Any],
+    contact: Mapping[str, Any],
+    channel: str,
+    target: str,
+    agent_context: str = "",
+) -> str:
     """Prompt template for a short, polite German forwarding draft."""
     title = _clean(task.get("title"), "diese Aufgabe")
     contact_name = _clean(contact.get("name"), "Kontakt")
@@ -80,6 +87,7 @@ def _build_prompt(task: Mapping[str, Any], contact: Mapping[str, Any], channel: 
             f"Ziel: {target}",
             f"Faelligkeit: {due_date}" if due_date else "",
             f"Notiz: {notes}" if notes else "",
+            agent_context,
             "Formuliere kurz, freundlich und klar auf Deutsch.",
             "Antworte ausschliesslich als JSON mit draft_text und confidence.",
             "Keine Links, keine Signatur, keine Versandaktion ausloesen.",
@@ -153,7 +161,11 @@ def build_ai_task_forwarding_draft(
 
     selected_provider = provider or select_local_model_provider()
     target = _target_for(contact, normalized_channel)
-    prompt = _build_prompt(task, contact, normalized_channel, target)
+    agent_context = build_agent_context(
+        contact=dict(contact),
+        channel=normalized_channel,
+    )
+    prompt = _build_prompt(task, contact, normalized_channel, target, agent_context)
     provider_result = selected_provider.generate_json(prompt, AI_FORWARD_DRAFT_SCHEMA)
 
     provider_output_used = False

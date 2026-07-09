@@ -27,7 +27,12 @@ from friday.agents import (
     build_whatsapp_forward_preview,
 )
 from friday.app.ai_task_forwarding_draft import build_ai_task_forwarding_draft
-from friday.app.account_policy_engine import build_ai_context, filter_events, resolve_write_target
+from friday.app.account_policy_engine import (
+    apply_transforms,
+    build_ai_context,
+    filter_events,
+    resolve_write_target,
+)
 from friday.app.account_policy_store import (
     POLICY_SAVE_TOKEN,
     create_account_policy,
@@ -35,6 +40,7 @@ from friday.app.account_policy_store import (
     list_account_policies,
     update_account_policy,
 )
+from friday.app.agent_context_builder import build_agent_context
 from friday.app.calendar_activation_gate import build_calendar_activation_gate
 from friday.app.calendar_event_extraction import extract_calendar_event_candidate
 from friday.app.calendar_event_delete_guard import check_calendar_event_delete_allowed
@@ -68,6 +74,7 @@ from friday.app.email_account_store import (
     email_account_status,
     load_email_account,
     save_email_account,
+    save_email_account_agent_notes,
 )
 from friday.app.email_activation_gate import EMAIL_ACTIVATION_TOKEN, build_email_activation_gate
 from friday.app.email_imap_reader import check_imap_login, read_recent_inbox_emails
@@ -87,7 +94,9 @@ from friday.app.whatsapp_inbox_store import (
     bridge_token_matches,
     get_whatsapp_bridge_status,
     insert_whatsapp_message,
+    load_whatsapp_agent_notes,
     read_recent_whatsapp_messages,
+    save_whatsapp_agent_notes,
 )
 from friday.config import DEMO_DATE, USE_REAL_TODAY
 from friday.storage.database import setup_local_database
@@ -151,6 +160,14 @@ class ContactCreateRequest(BaseModel):
     whatsapp_target: Optional[str] = None
 
 
+class ContactUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    contact_type: Optional[str] = None
+    notes: Optional[str] = None
+    email_address: Optional[str] = None
+    whatsapp_target: Optional[str] = None
+
+
 class ContactCategoryPreviewRequest(BaseModel):
     display_name: str
     context_text: str | None = None
@@ -182,6 +199,11 @@ class EmailAccountConnectRequest(BaseModel):
     smtp_port: int | None = None
     imap_host: str | None = None
     imap_port: int | None = None
+    agent_notes: str | None = ""
+
+
+class AgentNotesRequest(BaseModel):
+    agent_notes: str | None = ""
 
 
 class EmailAccountDeleteRequest(BaseModel):
@@ -227,6 +249,7 @@ class AccountPolicyCreateRequest(BaseModel):
     access: str = "read"
     include_filters: dict[str, Any] | None = None
     exclude_filters: dict[str, Any] | None = None
+    transform: dict[str, Any] | None = None
     notes: str | None = ""
     enabled: bool = True
     approval_token: str
@@ -240,6 +263,7 @@ class AccountPolicyUpdateRequest(BaseModel):
     access: str | None = None
     include_filters: dict[str, Any] | None = None
     exclude_filters: dict[str, Any] | None = None
+    transform: dict[str, Any] | None = None
     notes: str | None = None
     enabled: bool | None = None
     approval_token: str
@@ -294,6 +318,9 @@ class CalendarEventDeleteGuardRequest(BaseModel):
 
 for _request_model in (
     CalendarEventExtractRequest,
+    ContactUpdateRequest,
+    EmailAccountConnectRequest,
+    AgentNotesRequest,
     AccountPolicyCreateRequest,
     AccountPolicyUpdateRequest,
     GoogleOAuthConnectRequest,
@@ -374,10 +401,11 @@ def _collect_source_calendar_events(
                 continue
             provider_events = [event.to_dict() for event in result.events]
             filtered = filter_events(provider_events, policy)
-            for event in filtered:
+            transformed = apply_transforms(filtered, policy)
+            for event in transformed:
                 event["policy_id"] = policy.id
                 event["policy_label"] = policy.label
-            events.extend(filtered)
+            events.extend(transformed)
         except Exception as exc:  # pragma: no cover - provider boundary
             errors.append(
                 {
@@ -543,6 +571,7 @@ def create_policy(payload: AccountPolicyCreateRequest) -> dict[str, Any]:
             access=payload.access,
             include_filters=payload.include_filters,
             exclude_filters=payload.exclude_filters,
+            transform=payload.transform,
             notes=payload.notes,
             enabled=payload.enabled,
             approval_token=payload.approval_token,
@@ -980,6 +1009,7 @@ def get_calendar(date: Optional[str] = Query(default=None)) -> dict[str, Any]:
 
 @app.post("/api/calendar/extract-event")
 def extract_calendar_event(payload: CalendarEventExtractRequest) -> dict[str, Any]:
+    agent_context = build_agent_context()
     extraction = extract_calendar_event_candidate(
         payload.text,
         base_date=payload.base_date,
@@ -990,6 +1020,7 @@ def extract_calendar_event(payload: CalendarEventExtractRequest) -> dict[str, An
             "extraction": extraction.to_dict(),
             "calendar_write_enabled": False,
             "review_required": True,
+            "agent_context_available": bool(agent_context),
         }
     )
 
@@ -1009,6 +1040,7 @@ def preview_calendar_event_write(payload: CalendarEventWriteGuardRequest) -> dic
 
 @app.post("/api/calendar/events/from-message")
 def create_calendar_event_from_message(payload: CalendarEventFromMessageWriteRequest) -> dict[str, Any]:
+    agent_context = build_agent_context()
     extraction = extract_calendar_event_candidate(
         payload.text,
         base_date=payload.base_date,
@@ -1028,6 +1060,7 @@ def create_calendar_event_from_message(payload: CalendarEventFromMessageWriteReq
                 "provider_event_created": False,
                 "provider_result": None,
                 "calendar_entry": None,
+                "agent_context_available": bool(agent_context),
             }
         )
     date_text = payload.date or extraction.proposed_date
@@ -1042,6 +1075,7 @@ def create_calendar_event_from_message(payload: CalendarEventFromMessageWriteReq
         notes="Created via Friday message calendar review flow.",
     )
     result["extraction"] = extraction.to_dict()
+    result["agent_context_available"] = bool(agent_context)
     return _envelope(result)
 
 
@@ -1121,6 +1155,18 @@ def create_contact(payload: ContactCreateRequest) -> dict[str, Any]:
     return _envelope(contact)
 
 
+@app.patch("/api/contacts/{contact_id}")
+def update_contact(contact_id: int, payload: ContactUpdateRequest) -> dict[str, Any]:
+    values = payload.dict(exclude_none=True)
+    try:
+        contact = contact_agent.update_contact(contact_id, **values)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if contact is None:
+        raise HTTPException(status_code=404, detail="Contact not found.")
+    return _envelope(contact)
+
+
 @app.post("/api/contacts/category-preview")
 def preview_contact_category(payload: ContactCategoryPreviewRequest) -> dict[str, Any]:
     preview = classify_contact_category(
@@ -1128,7 +1174,18 @@ def preview_contact_category(payload: ContactCategoryPreviewRequest) -> dict[str
         context_text=payload.context_text,
         model_raw_category=payload.model_raw_category,
     )
-    return _envelope(preview.to_dict())
+    agent_context = build_agent_context(
+        contact={
+            "name": payload.display_name,
+            "notes": payload.context_text,
+        }
+    )
+    return _envelope(
+        {
+            **preview.to_dict(),
+            "agent_context_available": bool(agent_context),
+        }
+    )
 
 
 @app.post("/api/ai/task-forward-draft")
@@ -1186,6 +1243,20 @@ def get_email_account_status() -> dict[str, Any]:
     return _envelope(email_account_status())
 
 
+@app.patch("/api/accounts/email/notes")
+def update_email_account_notes(payload: AgentNotesRequest) -> dict[str, Any]:
+    result = save_email_account_agent_notes(payload.agent_notes)
+    if not result.persisted:
+        raise HTTPException(status_code=404, detail=result.message)
+    return _envelope(
+        {
+            "saved": True,
+            "message": result.message,
+            "status": email_account_status(),
+        }
+    )
+
+
 @app.post("/api/accounts/email/connect")
 def connect_email_account(payload: EmailAccountConnectRequest) -> dict[str, Any]:
     try:
@@ -1200,6 +1271,7 @@ def connect_email_account(payload: EmailAccountConnectRequest) -> dict[str, Any]
                 username=payload.username,
                 app_password=payload.app_password,
                 last_test_ok=False,
+                agent_notes=payload.agent_notes,
             )
         else:
             account = build_email_account_from_preset(
@@ -1208,6 +1280,7 @@ def connect_email_account(payload: EmailAccountConnectRequest) -> dict[str, Any]
                 username=payload.username,
                 app_password=payload.app_password,
                 last_test_ok=False,
+                agent_notes=payload.agent_notes,
             )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1309,6 +1382,16 @@ def get_email_inbox_preview(limit: int = Query(default=10)) -> dict[str, Any]:
 @app.get("/api/whatsapp/status")
 def get_whatsapp_status() -> dict[str, Any]:
     return _envelope(get_whatsapp_bridge_status(message_agent.db_path))
+
+
+@app.get("/api/whatsapp/notes")
+def get_whatsapp_notes() -> dict[str, Any]:
+    return _envelope(load_whatsapp_agent_notes())
+
+
+@app.put("/api/whatsapp/notes")
+def update_whatsapp_notes(payload: AgentNotesRequest) -> dict[str, Any]:
+    return _envelope(save_whatsapp_agent_notes(payload.agent_notes))
 
 
 @app.get("/api/whatsapp/messages")

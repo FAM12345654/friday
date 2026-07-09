@@ -151,6 +151,7 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 access TEXT NOT NULL,
                 include_filters TEXT NOT NULL,
                 exclude_filters TEXT NOT NULL,
+                transform TEXT NOT NULL DEFAULT '{}',
                 notes TEXT,
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
@@ -205,6 +206,7 @@ def initialize_database(db_path: Path | str | None = None) -> None:
         _ensure_task_priority_column(connection)
         _ensure_task_recurrence_column(connection)
         _ensure_contact_target_columns(connection)
+        _ensure_account_policy_transform_column(connection)
 
 
 def _ensure_task_priority_column(connection: sqlite3.Connection) -> None:
@@ -229,6 +231,16 @@ def _ensure_contact_target_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE contacts ADD COLUMN email_address TEXT")
     if "whatsapp_target" not in existing:
         connection.execute("ALTER TABLE contacts ADD COLUMN whatsapp_target TEXT")
+
+
+def _ensure_account_policy_transform_column(connection: sqlite3.Connection) -> None:
+    """Add optional per-policy transform JSON for older local databases."""
+    columns = connection.execute("PRAGMA table_info(account_policies)").fetchall()
+    existing = {column[1] for column in columns}
+    if "transform" not in existing:
+        connection.execute(
+            "ALTER TABLE account_policies ADD COLUMN transform TEXT NOT NULL DEFAULT '{}'"
+        )
 
 
 def _read_json(file_name: str) -> List[Dict[str, Any]]:

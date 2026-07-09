@@ -13,6 +13,7 @@ from friday.app.email_account_store import (
     email_account_status,
     load_email_account,
     save_email_account,
+    save_email_account_agent_notes,
 )
 
 
@@ -106,3 +107,47 @@ def test_email_account_status_never_exposes_password(tmp_path) -> None:
     assert "encrypted_app_password" not in status
     assert "app_password" not in status
     assert status["smtp_host"] == "smtp.office365.com"
+
+
+def test_email_account_agent_notes_can_be_updated_without_plaintext_password(tmp_path) -> None:
+    path = tmp_path / "email_account.json"
+    account = build_email_account_from_preset(
+        preset_name="gmail",
+        email_address="user@example.test",
+        username="user@example.test",
+        app_password="app-password-secret",
+        agent_notes="Nur kurze Antworten.",
+        protector=_protector,
+    )
+    save_email_account(account, approval_token=EMAIL_ACCOUNT_SAVE_TOKEN, account_path=path)
+
+    result = save_email_account_agent_notes(
+        "Chef bevorzugt knappe Zusammenfassungen.",
+        account_path=path,
+    )
+    loaded = load_email_account(path)
+    raw_text = path.read_text(encoding="utf-8")
+
+    assert result.persisted is True
+    assert loaded is not None
+    assert loaded.agent_notes == "Chef bevorzugt knappe Zusammenfassungen."
+    assert "app-password-secret" not in raw_text
+    assert json.loads(raw_text)["agent_notes"] == "Chef bevorzugt knappe Zusammenfassungen."
+
+
+def test_email_account_status_reports_agent_notes_flag(tmp_path) -> None:
+    path = tmp_path / "email_account.json"
+    account = build_email_account_from_preset(
+        preset_name="gmail",
+        email_address="user@example.test",
+        username="user@example.test",
+        app_password="app-password-secret",
+        agent_notes="Lokaler Stilhinweis",
+        protector=_protector,
+    )
+    save_email_account(account, approval_token=EMAIL_ACCOUNT_SAVE_TOKEN, account_path=path)
+
+    status = email_account_status(path)
+
+    assert status["agent_notes_configured"] is True
+    assert status["agent_notes"] == "Lokaler Stilhinweis"

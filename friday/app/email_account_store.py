@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import ctypes
 from ctypes import wintypes
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -67,6 +67,7 @@ class EmailAccount:
     encryption_method: str
     connected_at: str
     last_test_ok: bool
+    agent_notes: str = ""
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,7 @@ def build_email_account_from_plain_password(
     last_test_ok: bool = False,
     protector: Callable[[bytes], tuple[str, str]] | None = None,
     connected_at: str | None = None,
+    agent_notes: str | None = "",
 ) -> EmailAccount:
     """Build an account object, encrypting the app password immediately."""
     if not _clean(email_address) or "@" not in _clean(email_address):
@@ -140,6 +142,7 @@ def build_email_account_from_plain_password(
         encryption_method=method,
         connected_at=connected_at or _now_iso(),
         last_test_ok=bool(last_test_ok),
+        agent_notes=str(agent_notes or "").strip(),
     )
 
 
@@ -151,6 +154,7 @@ def build_email_account_from_preset(
     app_password: str,
     last_test_ok: bool = False,
     protector: Callable[[bytes], tuple[str, str]] | None = None,
+    agent_notes: str | None = "",
 ) -> EmailAccount:
     """Build an account from a known provider preset."""
     preset_key = _clean(preset_name).lower()
@@ -168,6 +172,7 @@ def build_email_account_from_preset(
         app_password=app_password,
         last_test_ok=last_test_ok,
         protector=protector,
+        agent_notes=agent_notes,
     )
 
 
@@ -212,7 +217,43 @@ def load_email_account(account_path: Path | str | None = None) -> EmailAccount |
     if not path.exists() or not path.is_file():
         return None
     data = json.loads(path.read_text(encoding="utf-8"))
+    data.setdefault("agent_notes", "")
     return EmailAccount(**data)
+
+
+def save_email_account_agent_notes(
+    agent_notes: str | None,
+    *,
+    account_path: Path | str | None = None,
+) -> EmailAccountWriteResult:
+    """Update only local AI-readable email account notes without touching providers."""
+    path = Path(account_path) if account_path is not None else get_email_account_path()
+    account = load_email_account(path)
+    if account is None:
+        return EmailAccountWriteResult(
+            allowed=False,
+            persisted=False,
+            account_path=str(path),
+            message="Keine lokale E-Mail-Konto-Datei zum Speichern der Agent-Notiz gefunden.",
+            blocked_reasons=("email_account_missing",),
+        )
+    updated = replace(account, agent_notes=str(agent_notes or "").strip())
+    result = save_email_account(
+        updated,
+        approval_token=EMAIL_ACCOUNT_SAVE_TOKEN,
+        account_path=path,
+    )
+    if not result.persisted:
+        return result
+    return EmailAccountWriteResult(
+        allowed=True,
+        persisted=True,
+        account_path=str(path),
+        message="E-Mail-Agent-Notiz wurde lokal gespeichert.",
+        blocked_reasons=(),
+        account=updated,
+        plaintext_password_persisted=False,
+    )
 
 
 def delete_email_account(
@@ -334,6 +375,8 @@ def email_account_status(account_path: Path | str | None = None) -> dict[str, An
             "connected": False,
             "email_address": None,
             "display_name": None,
+            "agent_notes": "",
+            "agent_notes_configured": False,
             "last_test_ok": False,
             "real_email_enabled": config.ENABLE_REAL_EMAIL,
             "send_limit_per_day": config.EMAIL_DAILY_SEND_LIMIT,
@@ -342,6 +385,8 @@ def email_account_status(account_path: Path | str | None = None) -> dict[str, An
         "connected": True,
         "email_address": account.email_address,
         "display_name": account.display_name,
+        "agent_notes": account.agent_notes,
+        "agent_notes_configured": bool(account.agent_notes.strip()),
         "smtp_host": account.smtp_host,
         "imap_host": account.imap_host,
         "last_test_ok": account.last_test_ok,

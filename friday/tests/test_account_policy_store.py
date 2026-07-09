@@ -52,6 +52,29 @@ def test_create_account_policy_persists_filters_and_notes(tmp_path) -> None:
     assert policies[0].notes == "PH = Dienst = belegt."
 
 
+def test_create_account_policy_persists_transform_locally(tmp_path) -> None:
+    db_file = tmp_path / "friday.db"
+    setup_local_database(db_file)
+
+    result = create_account_policy(
+        provider="outlook_ics",
+        label="team-hampejs PH",
+        role="source",
+        access="read",
+        include_filters={"title_contains": ["PH"]},
+        transform={"fixed_daily_window": {"start": "08:00", "end": "18:00"}},
+        notes="PH aus team-hampejs wird als Tagesblock gezeigt.",
+        enabled=True,
+        approval_token=POLICY_SAVE_TOKEN,
+        db_path=db_file,
+    )
+
+    assert result.persisted is True
+    policy = list_account_policies(db_file)[0]
+    assert policy.provider == "outlook_ics"
+    assert policy.transform == {"fixed_daily_window": {"end": "18:00", "start": "08:00"}}
+
+
 def test_update_account_policy_requires_token_and_keeps_local_only(tmp_path) -> None:
     db_file = tmp_path / "friday.db"
     setup_local_database(db_file)
@@ -82,3 +105,29 @@ def test_update_account_policy_requires_token_and_keeps_local_only(tmp_path) -> 
     assert allowed.persisted is True
     assert list_account_policies(db_file)[0].notes == "Neue Notiz"
 
+
+def test_update_account_policy_can_change_transform_with_hard_token(tmp_path) -> None:
+    db_file = tmp_path / "friday.db"
+    setup_local_database(db_file)
+    created = create_account_policy(
+        provider="outlook_ics",
+        label="team-hampejs PH",
+        role="source",
+        access="read",
+        transform={"fixed_daily_window": {"start": "09:00", "end": "17:00"}},
+        approval_token=POLICY_SAVE_TOKEN,
+        db_path=db_file,
+    )
+    assert created.policy is not None
+
+    result = update_account_policy(
+        created.policy.id,
+        values={"transform": {"fixed_daily_window": {"start": "08:00", "end": "18:00"}}},
+        approval_token=POLICY_SAVE_TOKEN,
+        db_path=db_file,
+    )
+
+    assert result.persisted is True
+    assert list_account_policies(db_file)[0].transform == {
+        "fixed_daily_window": {"end": "18:00", "start": "08:00"}
+    }

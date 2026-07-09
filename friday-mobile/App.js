@@ -35,6 +35,7 @@ import {
   getEmailInbox,
   generateCalendarEventSuggestionForMessage,
   getWhatsAppMessages,
+  getWhatsAppAgentNotes,
   getWhatsAppStatus,
   generateTaskSuggestionsForMessage,
   getApiUrl,
@@ -53,6 +54,9 @@ import {
   testEmailAccountConnection,
   rejectMessageSuggestion,
   rejectTaskSuggestion,
+  updateContact,
+  updateEmailAgentNotes,
+  updateWhatsAppAgentNotes,
 } from "./src/api/client";
 
 const screens = [
@@ -284,6 +288,8 @@ export default function App() {
   const [newContactEmail, setNewContactEmail] = useState("");
   const [newContactWhatsapp, setNewContactWhatsapp] = useState("");
   const [newContactNotes, setNewContactNotes] = useState("");
+  const [contactNotesDrafts, setContactNotesDrafts] = useState({});
+  const [contactNotesResult, setContactNotesResult] = useState("");
   const [privacy, setPrivacy] = useState(null);
   const [setupStatus, setSetupStatus] = useState(null);
   const [accountPolicies, setAccountPolicies] = useState(null);
@@ -294,6 +300,8 @@ export default function App() {
   const [policyAccess, setPolicyAccess] = useState("read_write");
   const [policyTitleContains, setPolicyTitleContains] = useState("");
   const [policyNotes, setPolicyNotes] = useState("");
+  const [policyTransformStart, setPolicyTransformStart] = useState("08:00");
+  const [policyTransformEnd, setPolicyTransformEnd] = useState("18:00");
   const [policyIcsUrl, setPolicyIcsUrl] = useState("");
   const [policyToken, setPolicyToken] = useState("");
   const [policyResult, setPolicyResult] = useState("");
@@ -307,8 +315,12 @@ export default function App() {
   const [emailAddress, setEmailAddress] = useState("");
   const [emailUsername, setEmailUsername] = useState("");
   const [emailAppPassword, setEmailAppPassword] = useState("");
+  const [emailAgentNotes, setEmailAgentNotes] = useState("");
+  const [emailAgentNotesResult, setEmailAgentNotesResult] = useState("");
   const [emailAccountToken, setEmailAccountToken] = useState("");
   const [emailAccountResult, setEmailAccountResult] = useState("");
+  const [whatsappAgentNotes, setWhatsappAgentNotes] = useState("");
+  const [whatsappAgentNotesResult, setWhatsappAgentNotesResult] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskForwardTo, setNewTaskForwardTo] = useState("");
   const [forwardTask, setForwardTask] = useState(null);
@@ -478,6 +490,9 @@ export default function App() {
     if (screenName === "Kontakte") {
       const payload = await getContacts();
       setContacts(isArray(payload));
+      setContactNotesDrafts(
+        Object.fromEntries(isArray(payload).map((contact) => [contact.id, contact.notes || ""]))
+      );
       return;
     }
 
@@ -495,9 +510,14 @@ export default function App() {
       const payload = await getSetupStatus();
       const policies = await getAccountPolicies().catch(() => null);
       const calendarStatus = await getCalendarAccountStatus().catch(() => null);
+      const emailStatus = await getEmailAccountStatus().catch(() => null);
+      const whatsappNotesPayload = await getWhatsAppAgentNotes().catch(() => null);
       setSetupStatus(payload);
       setAccountPolicies(policies);
       setCalendarAccountStatus(calendarStatus);
+      setEmailAccountStatus(emailStatus);
+      setEmailAgentNotes(emailStatus?.agent_notes || "");
+      setWhatsappAgentNotes(whatsappNotesPayload?.agent_notes || "");
     }
   };
 
@@ -560,8 +580,31 @@ export default function App() {
       setNewContactNotes("");
       const payload = await getContacts();
       setContacts(isArray(payload));
+      setContactNotesDrafts(
+        Object.fromEntries(isArray(payload).map((contact) => [contact.id, contact.notes || ""]))
+      );
     } catch (err) {
       setError(normalizeApiError(err));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleSaveContactNotes = async (contact) => {
+    setActionBusy(true);
+    setContactNotesResult("");
+    try {
+      await updateContact(contact.id, {
+        notes: contactNotesDrafts[contact.id] ?? contact.notes ?? "",
+      });
+      const payload = await getContacts();
+      setContacts(isArray(payload));
+      setContactNotesDrafts(
+        Object.fromEntries(isArray(payload).map((item) => [item.id, item.notes || ""]))
+      );
+      setContactNotesResult("Kontakt-Notiz wurde lokal gespeichert.");
+    } catch (err) {
+      setContactNotesResult(`Kontakt-Notiz konnte nicht gespeichert werden: ${normalizeApiError(err)}`);
     } finally {
       setActionBusy(false);
     }
@@ -756,6 +799,7 @@ export default function App() {
         username: emailUsername.trim() || emailAddress.trim(),
         app_password: emailAppPassword,
         approval_token: emailAccountToken.trim(),
+        agent_notes: emailAgentNotes.trim(),
       });
       setEmailAppPassword("");
       setEmailAccountResult(
@@ -765,8 +809,38 @@ export default function App() {
       );
       const status = await getEmailAccountStatus();
       setEmailAccountStatus(status);
+      setEmailAgentNotes(status?.agent_notes || "");
     } catch (err) {
       setEmailAccountResult(`Konto konnte nicht verbunden werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleSaveEmailAgentNotes = async () => {
+    setActionBusy(true);
+    setEmailAgentNotesResult("");
+    try {
+      const result = await updateEmailAgentNotes({ agent_notes: emailAgentNotes });
+      setEmailAccountStatus(result?.status || null);
+      setEmailAgentNotes(result?.status?.agent_notes || emailAgentNotes);
+      setEmailAgentNotesResult(result?.message || "E-Mail-Agent-Notiz wurde lokal gespeichert.");
+    } catch (err) {
+      setEmailAgentNotesResult(`E-Mail-Agent-Notiz konnte nicht gespeichert werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleSaveWhatsAppAgentNotes = async () => {
+    setActionBusy(true);
+    setWhatsappAgentNotesResult("");
+    try {
+      const result = await updateWhatsAppAgentNotes({ agent_notes: whatsappAgentNotes });
+      setWhatsappAgentNotes(result?.agent_notes || whatsappAgentNotes);
+      setWhatsappAgentNotesResult("WhatsApp-Agent-Notiz wurde lokal gespeichert.");
+    } catch (err) {
+      setWhatsappAgentNotesResult(`WhatsApp-Agent-Notiz konnte nicht gespeichert werden: ${normalizeApiError(err)}`);
     } finally {
       setActionBusy(false);
     }
@@ -796,6 +870,17 @@ export default function App() {
         .split(",")
         .map((value) => value.trim())
         .filter(Boolean);
+      const fixedWindow =
+        policyProvider.trim() === "outlook_ics" &&
+        policyTransformStart.trim() &&
+        policyTransformEnd.trim()
+          ? {
+              fixed_daily_window: {
+                start: policyTransformStart.trim(),
+                end: policyTransformEnd.trim(),
+              },
+            }
+          : {};
       const result = await createAccountPolicy({
         provider: policyProvider.trim() || "google_calendar",
         label: policyLabel.trim(),
@@ -803,6 +888,7 @@ export default function App() {
         access: policyAccess.trim() || "read",
         include_filters: titleContains.length ? { title_contains: titleContains } : {},
         exclude_filters: {},
+        transform: fixedWindow,
         notes: policyNotes,
         enabled: true,
         approval_token: policyToken.trim(),
@@ -1632,8 +1718,26 @@ export default function App() {
               {!!contact.notes && <Text style={styles.cardBody}>{contact.notes}</Text>}
               {!!contact.email_address && <Text style={styles.cardMeta}>E-Mail: {contact.email_address}</Text>}
               {!!contact.whatsapp_target && <Text style={styles.cardMeta}>WhatsApp: {contact.whatsapp_target}</Text>}
+              <TextInput
+                value={contactNotesDrafts[contact.id] ?? contact.notes ?? ""}
+                onChangeText={(value) =>
+                  setContactNotesDrafts((current) => ({ ...current, [contact.id]: value }))
+                }
+                style={styles.input}
+                placeholder="Agent-Notiz fuer diese Person"
+                placeholderTextColor={colors.textSoft}
+                multiline
+              />
+              <ActionButton
+                small
+                variant="ghost"
+                label="Kontakt-Notiz speichern"
+                onPress={() => handleSaveContactNotes(contact)}
+                disabled={actionBusy}
+              />
             </View>
           ))}
+          {!!contactNotesResult && <Text style={styles.approvalResultText}>{contactNotesResult}</Text>}
           {contacts.length === 0 && <EmptyState icon="☺" text="Keine Kontakte." />}
         </View>
       );
@@ -1704,6 +1808,9 @@ export default function App() {
             <Text style={styles.cardMeta}>
               Letzter Test OK: {emailAccountStatus?.last_test_ok ? "ja" : "nein"}
             </Text>
+            <Text style={styles.cardMeta}>
+              Agent-Notiz vorhanden: {emailAccountStatus?.agent_notes_configured ? "ja" : "nein"}
+            </Text>
             <Text style={styles.forwardSafety}>
               Am sichersten verbindest du das Konto direkt am PC. Ueber Handy wird das App-Passwort zur lokalen PC-API gesendet:
               Tailscale ist verschluesselt, Heim-LAN-HTTP nicht.
@@ -1743,6 +1850,14 @@ export default function App() {
               autoCapitalize="none"
             />
             <TextInput
+              value={emailAgentNotes}
+              onChangeText={setEmailAgentNotes}
+              style={styles.input}
+              placeholder="Agent-Notiz fuer lokale KI-Entwuerfe"
+              placeholderTextColor={colors.textSoft}
+              multiline
+            />
+            <TextInput
               value={emailAccountToken}
               onChangeText={setEmailAccountToken}
               style={styles.input}
@@ -1767,6 +1882,18 @@ export default function App() {
               />
             </View>
             {!!emailAccountResult && <Text style={styles.approvalResultText}>{emailAccountResult}</Text>}
+            {emailAccountStatus?.connected && (
+              <ActionButton
+                small
+                variant="ghost"
+                label="E-Mail-Agent-Notiz speichern"
+                onPress={handleSaveEmailAgentNotes}
+                disabled={actionBusy}
+              />
+            )}
+            {!!emailAgentNotesResult && (
+              <Text style={styles.approvalResultText}>{emailAgentNotesResult}</Text>
+            )}
           </View>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>WhatsApp</Text>
@@ -1783,10 +1910,31 @@ export default function App() {
             <Text style={styles.cardMeta}>
               Letzter Empfang: {whatsappStatus?.last_received_at || "-"}
             </Text>
+            <Text style={styles.cardMeta}>
+              Agent-Notiz vorhanden: {whatsappStatus?.agent_notes_configured ? "ja" : "nein"}
+            </Text>
             <Text style={styles.cardBody}>
               WhatsApp-Senden bleibt ueber dein Handy: Friday befuellt die Nachricht, du tippst selbst auf Senden.
               Die Read-Bridge liest nur eingehende Einzelchats und nutzt keine Auto-Antwort.
             </Text>
+            <TextInput
+              value={whatsappAgentNotes}
+              onChangeText={setWhatsappAgentNotes}
+              style={styles.input}
+              placeholder="WhatsApp-Agent-Notiz fuer lokale KI-Entwuerfe"
+              placeholderTextColor={colors.textSoft}
+              multiline
+            />
+            <ActionButton
+              small
+              variant="ghost"
+              label="WhatsApp-Agent-Notiz speichern"
+              onPress={handleSaveWhatsAppAgentNotes}
+              disabled={actionBusy}
+            />
+            {!!whatsappAgentNotesResult && (
+              <Text style={styles.approvalResultText}>{whatsappAgentNotesResult}</Text>
+            )}
             <Text style={styles.forwardSafety}>
               Risiko: WhatsApp-Web-Bridges koennen gegen WhatsApp-Regeln verstossen. Nutzung auf eigenes Risiko.
             </Text>
@@ -1895,6 +2043,31 @@ export default function App() {
               placeholderTextColor={colors.textSoft}
               multiline
             />
+            {policyProvider.trim() === "outlook_ics" && (
+              <>
+                <Text style={styles.forwardSafety}>
+                  PH-Zeitfenster fuer diese Outlook-ICS-Quelle: Termine werden lokal als Tagesblock angezeigt.
+                </Text>
+                <View style={styles.row}>
+                  <TextInput
+                    value={policyTransformStart}
+                    onChangeText={setPolicyTransformStart}
+                    style={[styles.input, { flex: 1 }]}
+                    placeholder="Start 08:00"
+                    placeholderTextColor={colors.textSoft}
+                    autoCapitalize="none"
+                  />
+                  <TextInput
+                    value={policyTransformEnd}
+                    onChangeText={setPolicyTransformEnd}
+                    style={[styles.input, { flex: 1 }]}
+                    placeholder="Ende 18:00"
+                    placeholderTextColor={colors.textSoft}
+                    autoCapitalize="none"
+                  />
+                </View>
+              </>
+            )}
             <TextInput
               value={policyIcsUrl}
               onChangeText={setPolicyIcsUrl}
@@ -1922,9 +2095,16 @@ export default function App() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Gespeicherte Policies</Text>
             {isArray(accountPolicies?.items).map((policy) => (
-              <View key={policy.id || policy.label} style={styles.privacyRow}>
-                <Text style={styles.privacyLabel}>{policy.label}</Text>
-                <Chip label={`${policy.provider} / ${policy.role}`} color={policy.enabled ? colors.sage : colors.textSoft} />
+              <View key={policy.id || policy.label} style={styles.cardCompact}>
+                <View style={styles.privacyRow}>
+                  <Text style={styles.privacyLabel}>{policy.label}</Text>
+                  <Chip label={`${policy.provider} / ${policy.role}`} color={policy.enabled ? colors.sage : colors.textSoft} />
+                </View>
+                {!!policy.transform?.fixed_daily_window && (
+                  <Text style={styles.cardMeta}>
+                    Zeitfenster: {policy.transform.fixed_daily_window.start} - {policy.transform.fixed_daily_window.end}
+                  </Text>
+                )}
               </View>
             ))}
             {isArray(accountPolicies?.items).length === 0 && (
@@ -2256,6 +2436,12 @@ const styles = StyleSheet.create({
     color: colors.textSoft,
     fontSize: 12,
     marginBottom: 4,
+  },
+  cardCompact: {
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    paddingTop: 10,
+    marginTop: 10,
   },
   chip: {
     flexDirection: "row",

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import json
 import secrets
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from friday.storage.database import get_connection, initialize_database
 
 WHATSAPP_MESSAGE_ID_OFFSET = 900_000_000
 BRIDGE_TOKEN_FILE_NAME = "bridge_token.txt"
+WHATSAPP_AGENT_NOTES_FILE_NAME = "agent_notes.json"
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,43 @@ def get_whatsapp_local_data_dir() -> Path:
 def get_whatsapp_bridge_token_path() -> Path:
     """Return the local bridge token path."""
     return get_whatsapp_local_data_dir() / BRIDGE_TOKEN_FILE_NAME
+
+
+def get_whatsapp_agent_notes_path() -> Path:
+    """Return the local WhatsApp agent-notes JSON path."""
+    return get_whatsapp_local_data_dir() / WHATSAPP_AGENT_NOTES_FILE_NAME
+
+
+def load_whatsapp_agent_notes(notes_path: Path | str | None = None) -> dict[str, Any]:
+    """Load local AI-readable WhatsApp notes without exposing bridge secrets."""
+    path = Path(notes_path) if notes_path is not None else get_whatsapp_agent_notes_path()
+    if not path.exists() or not path.is_file():
+        return {"agent_notes": "", "agent_notes_configured": False, "updated_at": None}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    notes = str(data.get("agent_notes") or "").strip()
+    return {
+        "agent_notes": notes,
+        "agent_notes_configured": bool(notes),
+        "updated_at": data.get("updated_at"),
+    }
+
+
+def save_whatsapp_agent_notes(
+    agent_notes: str | None,
+    notes_path: Path | str | None = None,
+) -> dict[str, Any]:
+    """Persist local WhatsApp agent notes without any provider action."""
+    path = Path(notes_path) if notes_path is not None else get_whatsapp_agent_notes_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    notes = str(agent_notes or "").strip()
+    payload = {
+        "agent_notes": notes,
+        "agent_notes_configured": bool(notes),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "external_call_used": False,
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return payload
 
 
 def ensure_whatsapp_bridge_token(token_path: Path | None = None) -> str:
@@ -249,4 +288,5 @@ def get_whatsapp_bridge_status(db_path: Path | str | None = None) -> dict[str, A
         "read_only": True,
         "send_via_bridge": False,
         "token_configured": read_whatsapp_bridge_token() is not None,
+        "agent_notes_configured": load_whatsapp_agent_notes()["agent_notes_configured"],
     }

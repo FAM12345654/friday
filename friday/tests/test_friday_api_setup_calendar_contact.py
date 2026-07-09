@@ -110,6 +110,133 @@ def test_account_policies_endpoint_returns_policy_context(monkeypatch) -> None:
     assert "PH = Dienst = belegt" in payload["ai_context"]
 
 
+def test_account_policy_create_endpoint_accepts_per_policy_transform(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    captured: dict = {}
+
+    def _create_account_policy(**kwargs):
+        captured.update(kwargs)
+        policy = AccountPolicy(
+            id=7,
+            provider=kwargs["provider"],
+            label=kwargs["label"],
+            role=kwargs["role"],
+            access=kwargs["access"],
+            include_filters=kwargs["include_filters"],
+            exclude_filters=kwargs["exclude_filters"],
+            transform=kwargs["transform"],
+            notes=kwargs["notes"],
+            enabled=kwargs["enabled"],
+            created_at="2026-07-09T00:00:00+00:00",
+        )
+        return AccountPolicyWriteResult(
+            allowed=True,
+            persisted=True,
+            message="Policy wurde lokal gespeichert.",
+            blocked_reasons=(),
+            policy=policy,
+        )
+
+    monkeypatch.setattr(api, "create_account_policy", _create_account_policy)
+
+    response = client.post(
+        "/api/accounts/policies",
+        json={
+            "provider": "outlook_ics",
+            "label": "team-hampejs PH",
+            "role": "source",
+            "access": "read",
+            "include_filters": {"title_contains": ["PH"]},
+            "exclude_filters": {},
+            "transform": {"fixed_daily_window": {"start": "08:00", "end": "18:00"}},
+            "notes": "PH als Tagesblock",
+            "enabled": True,
+            "approval_token": "POLICY SPEICHERN",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert captured["transform"] == {"fixed_daily_window": {"start": "08:00", "end": "18:00"}}
+    assert payload["policy"]["transform"]["fixed_daily_window"]["start"] == "08:00"
+
+
+def test_contact_patch_endpoint_updates_local_agent_notes(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    captured: dict = {}
+
+    class _ContactAgent:
+        def update_contact(self, contact_id: int, **values):
+            captured["contact_id"] = contact_id
+            captured["values"] = values
+            return {"id": contact_id, "name": "Max", **values}
+
+    monkeypatch.setattr(api, "contact_agent", _ContactAgent())
+
+    response = client.patch(
+        "/api/contacts/5",
+        json={"notes": "Mag kurze Nachrichten.", "contact_type": "arbeit"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert captured["contact_id"] == 5
+    assert captured["values"]["notes"] == "Mag kurze Nachrichten."
+    assert payload["notes"] == "Mag kurze Nachrichten."
+
+
+def test_email_agent_notes_endpoint_uses_local_store(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+
+    class _Result:
+        persisted = True
+        message = "E-Mail-Agent-Notiz wurde lokal gespeichert."
+
+    monkeypatch.setattr(api, "save_email_account_agent_notes", lambda notes: _Result())
+    monkeypatch.setattr(
+        api,
+        "email_account_status",
+        lambda: {"connected": True, "agent_notes": "Kurz.", "agent_notes_configured": True},
+    )
+
+    response = client.patch(
+        "/api/accounts/email/notes",
+        json={"agent_notes": "Kurz."},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["saved"] is True
+    assert payload["status"]["agent_notes_configured"] is True
+
+
+def test_whatsapp_agent_notes_endpoint_roundtrips_local_notes(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+
+    monkeypatch.setattr(
+        api,
+        "load_whatsapp_agent_notes",
+        lambda: {"agent_notes": "Locker.", "agent_notes_configured": True},
+    )
+    monkeypatch.setattr(
+        api,
+        "save_whatsapp_agent_notes",
+        lambda notes: {"agent_notes": notes, "agent_notes_configured": bool(notes)},
+    )
+
+    get_response = client.get("/api/whatsapp/notes")
+    put_response = client.put("/api/whatsapp/notes", json={"agent_notes": "Locker."})
+
+    assert get_response.status_code == 200
+    assert get_response.json()["data"]["agent_notes"] == "Locker."
+    assert put_response.status_code == 200
+    assert put_response.json()["data"]["agent_notes_configured"] is True
+
+
 def test_calendar_activation_gate_endpoint_blocks_without_account(monkeypatch) -> None:
     api = _load_api_module()
     client = TestClient(api.app)
@@ -443,6 +570,7 @@ def test_outlook_ics_policy_create_stores_secret_without_returning_url(monkeypat
         access="read",
         include_filters={"title_contains": ["PH"]},
         exclude_filters={},
+        transform={"fixed_daily_window": {"start": "08:00", "end": "18:00"}},
         notes="PH nur als Quelle.",
         enabled=True,
         created_at="2026-07-09T00:00:00+00:00",
@@ -512,6 +640,7 @@ def test_calendar_endpoint_merges_and_filters_outlook_ics_source(monkeypatch) ->
         access="read",
         include_filters={"title_contains": ["PH"]},
         exclude_filters={},
+        transform={"fixed_daily_window": {"start": "08:00", "end": "18:00"}},
         notes="PH nur als Quelle.",
         enabled=True,
         created_at="2026-07-09T00:00:00+00:00",
@@ -552,6 +681,9 @@ def test_calendar_endpoint_merges_and_filters_outlook_ics_source(monkeypatch) ->
     assert response.status_code == 200
     payload = response.json()["data"]
     assert [item["title"] for item in payload["source_events"]] == ["PH Dienst"]
+    assert payload["source_events"][0]["start"] == "2026-07-15T08:00:00"
+    assert payload["source_events"][0]["end"] == "2026-07-15T18:00:00"
+    assert payload["source_events"][0]["time_window_source"] == "policy_transform.fixed_daily_window"
     assert payload["source_errors"] == []
     assert "PH nur als Quelle." in payload["policy_context"]
 

@@ -122,3 +122,4 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_SETUP_CALENDAR_CONTACT_GATE.md` | Setup-Screen, deterministische Termin-Erkennung und Kontakt-Kategorien ohne echte Kalenderaktion | vorhanden |
 | `FRIDAY_CALENDAR_ACCOUNTS_GATE.md` | Account-Policy-Engine, Google-Kalender-Fundament und Kalender-Gates | vorhanden |
 | `FRIDAY_CALENDAR_SOURCES_AND_FLOW_GATE.md` | Outlook-ICS read-only Quelle, Termin-aus-Nachricht-Flow und guarded Delete | vorhanden |
+| `FRIDAY_PH_TIME_WINDOW_AGENT_NOTES_GATE.md` | PH-Zeitfenster fuer Outlook-ICS/team-hampejs und lokale Agent-Notizen fuer KI-Drafts | vorhanden |

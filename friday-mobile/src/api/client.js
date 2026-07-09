@@ -212,6 +212,13 @@ export async function createContact(payload) {
   });
 }
 
+export async function updateContact(contactId, payload) {
+  return callApi(`/api/contacts/${contactId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function buildTaskForwardDraft(payload) {
   return callApi("/api/ai/task-forward-draft", {
     method: "POST",
@@ -237,6 +244,13 @@ export async function connectEmailAccount(payload) {
   });
 }
 
+export async function updateEmailAgentNotes(payload) {
+  return callApi("/api/accounts/email/notes", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function testEmailAccountConnection() {
   return callApi("/api/accounts/email/test", {
     method: "POST",
@@ -256,6 +270,17 @@ export async function getEmailInbox(limit = 10) {
 
 export async function getWhatsAppStatus() {
   return callApi("/api/whatsapp/status");
+}
+
+export async function getWhatsAppAgentNotes() {
+  return callApi("/api/whatsapp/notes");
+}
+
+export async function updateWhatsAppAgentNotes(payload) {
+  return callApi("/api/whatsapp/notes", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getWhatsAppMessages(limit = 10) {

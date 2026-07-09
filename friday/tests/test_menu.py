@@ -80,11 +80,13 @@ def test_account_menu_options_and_show_menu(monkeypatch) -> None:
         ("5", "E-Mail-Aktivierung prüfen"),
         ("6", "WhatsApp Read-Bridge Status anzeigen"),
         ("7", "WhatsApp Read-Bridge Aktivierung prüfen"),
-        ("8", "Zurück zum Hauptmenü"),
+        ("8", "E-Mail-Agent-Notiz bearbeiten"),
+        ("9", "WhatsApp-Agent-Notiz bearbeiten"),
+        ("10", "Zurück zum Hauptmenü"),
     ]
 
-    monkeypatch.setattr("builtins.input", lambda _: " 7 ")
-    assert menu.show_account_menu() == "7"
+    monkeypatch.setattr("builtins.input", lambda _: " 10 ")
+    assert menu.show_account_menu() == "10"
 
 
 def test_backup_restore_menu_options_and_show_menu(monkeypatch) -> None:

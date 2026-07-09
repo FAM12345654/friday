@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import friday.app.ai_task_forwarding_draft as draft_module
+
 from friday.app.ai_task_forwarding_draft import (
     ai_task_forwarding_safety_summary,
     build_ai_task_forwarding_draft,
@@ -63,6 +65,15 @@ class _ProviderWithRiskyDraft(_ProviderWithValidDraft):
             product_flow_connected=False,
             error=None,
         )
+
+
+class _PromptCapturingProvider(_ProviderWithValidDraft):
+    def __init__(self) -> None:
+        self.prompt = ""
+
+    def generate_json(self, prompt, schema):
+        self.prompt = prompt
+        return super().generate_json(prompt, schema)
 
 
 def test_ai_task_forwarding_draft_uses_mock_provider_safely() -> None:
@@ -128,6 +139,26 @@ def test_ai_task_forwarding_draft_marks_missing_channel_target() -> None:
     assert draft.target == "kein WhatsApp-Ziel gespeichert"
     assert "Kontakt-Ziel fehlt fuer den gewaehlten Kanal." in draft.blocked_reasons
     assert draft.external_send_enabled is False
+
+
+def test_ai_task_forwarding_draft_includes_local_agent_context(monkeypatch) -> None:
+    provider = _PromptCapturingProvider()
+    monkeypatch.setattr(
+        draft_module,
+        "build_agent_context",
+        lambda *, contact, channel: "Lokaler Agent-Kontext: Max mag kurze Nachrichten.",
+    )
+
+    draft = build_ai_task_forwarding_draft(
+        task=_task(),
+        contact=_contact(),
+        channel="email",
+        provider=provider,
+    )
+
+    assert draft.validation_accepted is True
+    assert "Lokaler Agent-Kontext" in provider.prompt
+    assert "Max mag kurze Nachrichten." in provider.prompt
 
 
 def test_ai_task_forwarding_safety_summary_keeps_real_sends_disabled() -> None:

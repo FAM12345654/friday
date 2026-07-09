@@ -167,3 +167,15 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 | Mobile | Kalenderquellen, Termin-Uebernahme, ICS-URL-Feld und Delete-Token-Feld ergaenzt |
 | Safety | E-Mail, WhatsApp, SMS, Wetter und Musik bleiben `False`; Kalender bleibt pro Event hart gegatet |
 | Doku | `FRIDAY_CALENDAR_SOURCES_AND_FLOW_GATE.md` |
+
+## Friday PH-Zeitfenster und Agent-Notizen
+
+| Bereich | Ergebnis |
+|---|---|
+| Ziel | PH-Zeitfenster fuer Outlook-ICS/team-hampejs und lokale Agent-Notizen fuer KI-Entwuerfe |
+| PH-Zeitfenster | Policy-Transform `fixed_daily_window` setzt Outlook-ICS-Quellen lokal auf `08:00` bis `18:00` |
+| Agent-Notizen | E-Mail-, WhatsApp-, Kontakt- und Policy-Notizen koennen lokal gespeichert und in lokale KI-Drafts eingebunden werden |
+| Mobile | Kontakte-, Setup- und Kontenbereiche zeigen Eingabefelder fuer Agent-Notizen und PH-Zeitfenster |
+| Safety | Keine neuen externen Aktionen, kein automatischer Versand, keine Cloud-KI, keine Safety-Flag-Aenderung |
+| Tests | Fokus-Tests fuer Policy-Transform, Agent-Kontext, Stores, API und Forward-Draft |
+| Doku | `FRIDAY_PH_TIME_WINDOW_AGENT_NOTES_GATE.md` |
