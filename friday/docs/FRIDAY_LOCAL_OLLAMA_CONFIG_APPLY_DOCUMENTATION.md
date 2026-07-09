@@ -113,3 +113,5 @@ Local Ollama Config Apply Implementation Plan:
 - nur planen, wie ein spaeterer technischer Apply-Schritt aussehen duerfte,
 - weiterhin keine automatische Aktivierung,
 - klarer Rollback-Pfad zur Mock-Konfiguration.
+
+Status danach: Der Apply-Implementierungsplan ist in `FRIDAY_LOCAL_OLLAMA_CONFIG_APPLY_IMPLEMENTATION_PLAN.md` dokumentiert.
