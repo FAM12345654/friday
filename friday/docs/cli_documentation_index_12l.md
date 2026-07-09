@@ -110,5 +110,6 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_LOCAL_OLLAMA_MANUAL_ACTIVATION_DECISION_GATE.md` | Entscheidungsgate: keine Aktivierung ohne Token und erfolgreichen lokalen Health Check | vorhanden |
 | `FRIDAY_LOCAL_OLLAMA_MANUAL_SETUP_CHECK.md` | manueller Setup-Check: Ollama CLI vorhanden, lokale Instanz aktuell nicht erreichbar, keine Aktivierung | vorhanden |
 | `FRIDAY_LOCAL_OLLAMA_SERVICE_START_CHECKLIST.md` | Windows-Checkliste zum lokalen Starten und Pruefen von Ollama ohne Friday-Aktivierung | vorhanden |
+| `FRIDAY_LOCAL_OLLAMA_MODEL_AVAILABILITY_CHECK.md` | read-only Modell-Verfuegbarkeitscheck: aktuell kein Modell sichtbar, weil Ollama lokal nicht erreichbar ist | vorhanden |
 | `FRIDAY_MOBILE_DESKTOP_GUIDE.md` | Handy-/Desktop-Installation, Verbindung, Updates und Design-System | vorhanden |
 | `FRIDAY_PRODUCT_FINAL_GATE.md` | Finaler Produktstand fuer CLI, Mobile und Desktop | vorhanden |
