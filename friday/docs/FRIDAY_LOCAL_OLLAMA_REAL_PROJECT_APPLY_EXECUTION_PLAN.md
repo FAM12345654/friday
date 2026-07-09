@@ -127,3 +127,5 @@ Local Ollama Real Project Apply Execution Readiness Gate:
 - Execution Plan gegen Preview, Guard, Writer und Dry Run pruefen,
 - bestaetigen, dass noch kein echter Write erfolgt,
 - danach entscheiden, ob der echte Apply gebaut oder weiterhin manuell gehalten wird.
+
+Status danach: Das Execution Readiness Gate ist in `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_EXECUTION_READINESS_GATE.md` dokumentiert.
