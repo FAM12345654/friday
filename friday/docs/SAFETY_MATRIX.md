@@ -180,6 +180,11 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | E-Mail Aktivierungs-Gate | vorbereitet, nicht aktiviert | Token `EMAIL AKTIVIEREN`, Account+Tests+Safety erforderlich; `ENABLE_REAL_EMAIL` bleibt in diesem Stand `False` |
 | Realer E-Mail-Versand | weiterhin blockiert | erst wenn `ENABLE_REAL_EMAIL=True`, Account getestet, Kontakt-Empfaenger vorhanden, Tageslimit frei und Token `EMAIL SENDEN` exakt gesetzt |
 | E-Mail Sendelog | lokal vorbereitet | `email_send_log` in SQLite speichert spaeter Status, Empfaenger, Betreff und Message-ID ohne Passwort |
+| WhatsApp Read-Bridge | gated lokal | neues Flag `ENABLE_WHATSAPP_BRIDGE_READ=False`, Aktivierung nur mit `WHATSAPP BRIDGE AKTIVIEREN` und Safety Smoke PASS |
+| WhatsApp Read-Bridge Ingest | read-only gated | `/api/whatsapp/ingest` schreibt nur bei aktiviertem Read-Flag; keine Auto-Antwort, kein Senden |
+| WhatsApp Read-Bridge Speicher | lokal | `whatsapp_messages`; Chat-ID und Telefonnummer nur gehasht/maskiert, Inhalte nur lokal in SQLite |
+| WhatsApp Read-Bridge Agent-Review | lokal | erzeugt lokale Message-/Task-Suggestions im bestehenden Review-Flow; keine externe Aktion |
+| WhatsApp Read-Bridge Node-Projekt | getrennt | `friday-whatsapp-bridge/`, nur `whatsapp-web.js` und `qrcode-terminal`, Session unter `local_data/whatsapp/` |
 | Lokale Notifications | erlaubt opt-in | Default `False`; nur Konsolen-Zusammenfassung, kein Toast, kein Netzwerk |
 | Demo-Modus | getrennt | echte Arbeits-DB bleibt `friday.db`; Demo-Seeds nur in `friday_demo.db` |
 | Wiederkehrende Aufgaben | erlaubt lokal | nur additive nullable Spalte `recurrence`; Folgeaufgabe nur beim Erledigen |
@@ -244,6 +249,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | `KONTO LOESCHEN` | lokales E-Mail-Konto entfernen |
 | `EMAIL AKTIVIEREN` | spaeteres E-Mail-Aktivierungs-Gate pruefen; aktueller Stand setzt `ENABLE_REAL_EMAIL` nicht live |
 | `EMAIL SENDEN` | E-Mail-Deep-Link oder spaeterer echter Versand nur nach zusaetzlichem Guard; aktueller Stand sendet real nicht |
+| `WHATSAPP BRIDGE AKTIVIEREN` | lokale WhatsApp-Web-Read-Bridge aktivieren; kein Bridge-Senden |
 | `WHATSAPP SENDEN` | Mobile/Backend darf WhatsApp mit vorbereitetem Entwurf oeffnen; Friday sendet nicht selbst |
 
 ## Delete-Policy

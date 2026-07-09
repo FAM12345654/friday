@@ -103,6 +103,67 @@ Dabei kann E-Mail oder WhatsApp als Zielkanal ausgewaehlt werden.
 Auch dieser Flow sendet nichts echt; Details stehen in `FRIDAY_MOBILE_TASK_DELEGATION_DRAFT_FLOW.md`.
 Der Weg zu spaeterem echtem Versand ist in `FRIDAY_MESSAGING_PROVIDER_GATE.md` dokumentiert.
 
+## WhatsApp mitlesen (Read-Bridge)
+
+Friday enthaelt eine lokale WhatsApp-Web-Read-Bridge als getrenntes Node-Projekt unter `friday-whatsapp-bridge/`.
+Diese Bridge liest nur eingehende Einzelchat-Nachrichten und spiegelt sie lokal an die Friday API.
+Friday sendet ueber diese Bridge nie automatisch.
+
+Risiko-Hinweis:
+
+- WhatsApp-Web-Bridges koennen gegen WhatsApp-Regeln verstossen.
+- Es besteht ein moegliches Kontosperrungs-Risiko.
+- Empfohlen ist eine Zweitnummer oder ein bewusst begrenzter Testbetrieb.
+- Gruppen werden standardmaessig ignoriert.
+- Senden bleibt nur der bestehende WhatsApp-Link, bei dem du am Handy selbst auf Senden tippst.
+
+Aktivierung:
+
+1. In Friday das Konten-Menue oeffnen.
+2. `WhatsApp Read-Bridge Aktivierung prüfen` waehlen.
+3. Risiko-Hinweis lesen.
+4. Exakt `WHATSAPP BRIDGE AKTIVIEREN` eingeben.
+5. Safety Smoke muss `PASS` sein.
+6. Danach API starten und die Bridge separat starten:
+
+```powershell
+.\start_friday_api.bat
+.\start_whatsapp_bridge.bat
+```
+
+Erster Start:
+
+- Falls `node_modules` fehlt, einmal im Bridge-Ordner ausfuehren:
+
+```powershell
+cd friday-whatsapp-bridge
+npm install
+```
+
+- Beim ersten Bridge-Start erscheint ein QR-Code im Terminal.
+- QR-Code mit WhatsApp auf dem Handy scannen.
+- Danach spiegelt Friday neue eingehende Einzelchat-Nachrichten lokal.
+
+Lokale Dateien:
+
+- Session, Token und Bridge-Konfiguration liegen unter `local_data/whatsapp/`.
+- Dieser Ordner ist gitignored.
+- Telefonnummern werden in der Friday-DB nur gehasht/maskiert gespeichert.
+
+Stoppen:
+
+```powershell
+.\stop_whatsapp_bridge.bat
+```
+
+Oder im laufenden Bridge-Terminal `STRG+C` druecken.
+
+Rollback:
+
+1. `ENABLE_WHATSAPP_BRIDGE_READ = False` in `friday/config.py` setzen.
+2. Bridge stoppen.
+3. Optional `local_data/whatsapp/` loeschen, wenn QR-Session und lokale Bridge-Daten entfernt werden sollen.
+
 ## E-Mail-Konto verbinden (Gate)
 
 Friday kann ein einzelnes E-Mail-Konto lokal vorbereiten und testen. Das Konto bleibt auf dem Windows-PC in `local_data/accounts/email_account.json`.
