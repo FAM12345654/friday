@@ -45,6 +45,9 @@ OLLAMA_TIMEOUT_SECONDS = 30
 # Lokale Benachrichtigungen bleiben standardmäßig deaktiviert.
 ENABLE_LOCAL_NOTIFICATIONS = False
 
+# E-Mail-Versand bleibt deaktiviert, bis der Nutzer spaeter EMAIL AKTIVIEREN nutzt.
+EMAIL_DAILY_SEND_LIMIT = 20
+
 PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_DIR.parent
 

@@ -31,6 +31,9 @@ NETWORK_CALL_PATTERNS: set[str] = {
     "urllib.request.Request",
     "socket.socket",
     "socket.create_connection",
+    "smtplib.SMTP_SSL",
+    "smtplib.SMTP",
+    "imaplib.IMAP4_SSL",
     "aiohttp.ClientSession",
     "websocket.WebSocket",
     "websockets.connect",
@@ -38,6 +41,8 @@ NETWORK_CALL_PATTERNS: set[str] = {
 
 ALLOWED_LOCAL_NETWORK_FILES: tuple[str, ...] = (
     "local_ollama_runtime.py",
+    "email_smtp_sender.py",
+    "email_imap_reader.py",
 )
 
 DEFAULT_EXCLUDED_PATH_PARTS: tuple[str, ...] = (

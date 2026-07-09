@@ -26,6 +26,11 @@ FORBIDDEN_IMPORT_ROOTS: tuple[str, ...] = (
     "socket",
 )
 
+ALLOWED_FORBIDDEN_IMPORT_FILES: dict[str, tuple[str, ...]] = {
+    "email_smtp_sender.py": ("smtplib",),
+    "email_imap_reader.py": ("imaplib",),
+}
+
 
 @dataclass(frozen=True)
 class ForbiddenImportFinding:
@@ -61,6 +66,10 @@ def _is_forbidden_import(name: str, forbidden_roots: Iterable[str]) -> bool:
     return _import_root(name) in set(forbidden_roots)
 
 
+def _is_allowed_for_file(path: str, module_root: str) -> bool:
+    return module_root in ALLOWED_FORBIDDEN_IMPORT_FILES.get(Path(path).name, ())
+
+
 def scan_python_source_for_forbidden_imports(
     source: str,
     path: str = "<memory>",
@@ -74,7 +83,8 @@ def scan_python_source_for_forbidden_imports(
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if _is_forbidden_import(alias.name, forbidden_roots_tuple):
+                module_root = _import_root(alias.name)
+                if _is_forbidden_import(alias.name, forbidden_roots_tuple) and not _is_allowed_for_file(path, module_root):
                     findings.append(
                         ForbiddenImportFinding(
                             path=path,
@@ -86,7 +96,8 @@ def scan_python_source_for_forbidden_imports(
                     )
         elif isinstance(node, ast.ImportFrom):
             module_name = node.module or ""
-            if _is_forbidden_import(module_name, forbidden_roots_tuple):
+            module_root = _import_root(module_name)
+            if _is_forbidden_import(module_name, forbidden_roots_tuple) and not _is_allowed_for_file(path, module_root):
                 findings.append(
                     ForbiddenImportFinding(
                         path=path,

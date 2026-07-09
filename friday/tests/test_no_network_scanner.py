@@ -55,6 +55,33 @@ def test_no_network_scanner_allows_local_ollama_runtime_allowlist() -> None:
     assert findings == ()
 
 
+def test_no_network_scanner_allows_email_sender_allowlist() -> None:
+    findings = scan_python_source_for_network_usage(
+        "import smtplib\nsmtplib.SMTP_SSL('smtp.example.test', 465)\n",
+        file_path="friday/app/email_smtp_sender.py",
+    )
+
+    assert findings == ()
+
+
+def test_no_network_scanner_blocks_smtp_outside_sender_allowlist() -> None:
+    findings = scan_python_source_for_network_usage(
+        "import smtplib\nsmtplib.SMTP_SSL('smtp.example.test', 465)\n",
+        file_path="friday/app/unsafe.py",
+    )
+
+    assert {finding.matched_pattern for finding in findings} == {"smtplib.SMTP_SSL"}
+
+
+def test_no_network_scanner_allows_imap_reader_allowlist() -> None:
+    findings = scan_python_source_for_network_usage(
+        "import imaplib\nimaplib.IMAP4_SSL('imap.example.test', 993)\n",
+        file_path="friday/app/email_imap_reader.py",
+    )
+
+    assert findings == ()
+
+
 def test_no_network_scanner_detects_socket() -> None:
     assert _matched_patterns("import socket\nsocket.socket()\n") == {"socket.socket"}
 

@@ -35,6 +35,10 @@ def _expected_tokens_source() -> str:
             'RESTORE_CLEANUP_TOKEN = "RESTORE AUFRAEUMEN"',
             'REVIEW_CLEANUP_TOKEN = "REVIEW AUFRAEUMEN"',
             'SELF_BUILDING_COMMIT_APPROVAL_TOKEN = "COMMIT ERSTELLEN"',
+            'EMAIL_ACCOUNT_SAVE_TOKEN = "KONTO SPEICHERN"',
+            'EMAIL_ACCOUNT_DELETE_TOKEN = "KONTO LOESCHEN"',
+            'EMAIL_ACTIVATION_TOKEN = "EMAIL AKTIVIEREN"',
+            'EMAIL_SEND_TOKEN = "EMAIL SENDEN"',
         ]
     )
 
@@ -182,6 +186,10 @@ def test_scan_paths_for_approval_token_regressions_checks_multiple_files(tmp_pat
                 'RESTORE_CLEANUP_TOKEN = "RESTORE AUFRAEUMEN"',
                 'REVIEW_CLEANUP_TOKEN = "REVIEW AUFRAEUMEN"',
                 'SELF_BUILDING_COMMIT_APPROVAL_TOKEN = "COMMIT ERSTELLEN"',
+                'EMAIL_ACCOUNT_SAVE_TOKEN = "KONTO SPEICHERN"',
+                'EMAIL_ACCOUNT_DELETE_TOKEN = "KONTO LOESCHEN"',
+                'EMAIL_ACTIVATION_TOKEN = "EMAIL AKTIVIEREN"',
+                'EMAIL_SEND_TOKEN = "EMAIL SENDEN"',
             ]
         ),
         encoding="utf-8",

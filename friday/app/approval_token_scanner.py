@@ -32,6 +32,10 @@ EXPECTED_APPROVAL_TOKENS: dict[str, str] = {
     "restore_cleanup": "RESTORE AUFRAEUMEN",
     "review_cleanup": "REVIEW AUFRAEUMEN",
     "self_building_commit": "COMMIT ERSTELLEN",
+    "email_account_save": "KONTO SPEICHERN",
+    "email_account_delete": "KONTO LOESCHEN",
+    "email_real_activation": "EMAIL AKTIVIEREN",
+    "email_send": "EMAIL SENDEN",
 }
 
 SOFT_APPROVAL_TOKENS: set[str] = {

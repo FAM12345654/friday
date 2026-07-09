@@ -80,3 +80,33 @@ def test_forbidden_import_roots_include_expected_entries() -> None:
     expected = {"openai", "requests", "httpx", "twilio", "socket"}
 
     assert expected.issubset(set(FORBIDDEN_IMPORT_ROOTS))
+
+
+def test_forbidden_import_scanner_allows_smtp_only_in_sender_module() -> None:
+    allowed = scan_python_source_for_forbidden_imports(
+        "import smtplib\n",
+        path="friday/app/email_smtp_sender.py",
+    )
+    blocked = scan_python_source_for_forbidden_imports(
+        "import smtplib\n",
+        path="friday/app/other_module.py",
+    )
+
+    assert allowed.passed is True
+    assert blocked.passed is False
+    assert blocked.findings[0].module == "smtplib"
+
+
+def test_forbidden_import_scanner_allows_imap_only_in_reader_module() -> None:
+    allowed = scan_python_source_for_forbidden_imports(
+        "import imaplib\n",
+        path="friday/app/email_imap_reader.py",
+    )
+    blocked = scan_python_source_for_forbidden_imports(
+        "import imaplib\n",
+        path="friday/app/other_module.py",
+    )
+
+    assert allowed.passed is True
+    assert blocked.passed is False
+    assert blocked.findings[0].module == "imaplib"

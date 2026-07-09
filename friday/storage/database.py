@@ -142,6 +142,15 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 updated_at TEXT,
                 UNIQUE (message_id, slot_date, start, end)
             );
+
+            CREATE TABLE IF NOT EXISTS email_send_log (
+                id INTEGER PRIMARY KEY,
+                sent_at TEXT NOT NULL,
+                recipient TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                message_id TEXT,
+                status TEXT NOT NULL
+            );
             """
         )
         _ensure_task_priority_column(connection)
