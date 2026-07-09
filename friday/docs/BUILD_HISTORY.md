@@ -100,3 +100,17 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 | Desktop | Electron-Fenster mit Friday-Titel, Icon und Creme/Moos-Design |
 | Android Preview APK | `https://expo.dev/artifacts/eas/EKmkRcLTi_ZmjHcgInjy_L9QkfPUK9Cg1C7b0qZvUrs.apk` |
 | Safety | Keine echten externen Aktionen; Friday bleibt lokal-first |
+
+## Friday AI Draft Quality Check
+
+| Bereich | Ergebnis |
+|---|---|
+| Ziel | Lokaler Qualitaetsvergleich `qwen3:8b` gegen `qwen3:14b` fuer Aufgaben-Weiterleiten-Drafts |
+| Report | `FRIDAY_AI_DRAFT_QUALITY_REPORT.md` |
+| Szenarien | 10 feste deutsche Weiterleiten-Szenarien, jeweils mit beiden Modellen |
+| `qwen3:8b` | Durchschnitt `10.60/12`, Minimum `9/12`, Durchschnittszeit `21.90s` |
+| `qwen3:14b` | Durchschnitt `11.10/12`, Minimum `10/12`, Durchschnittszeit `38.87s` |
+| Entscheidung | `qwen3:8b` bleibt aktiv, weil 8b die feste Regel erfuellt und 14b nicht mindestens 2 Punkte besser ist |
+| Config | keine Aenderung; `OLLAMA_MODEL = "qwen3:8b"` bleibt aktiv |
+| Tests | `1151 passed, 4 skipped`; Compilecheck erfolgreich; Safety Smoke PASS; Diff-Check sauber |
+| Safety | Keine Cloud-KI, kein Versand, keine Credentials, nur lokales Ollama |
