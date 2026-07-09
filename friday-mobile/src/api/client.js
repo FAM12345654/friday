@@ -293,12 +293,16 @@ export async function syncMsMailMessages(payload = { top: 25 }) {
   });
 }
 
-export async function getMsMailMessages(limit = 10) {
-  return callApi(`/api/messages/ms-mail?limit=${encodeURIComponent(String(limit))}`);
+export async function getMsMailMessages(limit = 10, accountId = null) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (accountId) {
+    params.set("account_id", String(accountId));
+  }
+  return callApi(`/api/messages/ms-mail?${params.toString()}`);
 }
 
-export async function deleteMsMailAccount(payload) {
-  return callApi("/api/accounts/ms-mail", {
+export async function deleteMsMailAccount(accountId, payload) {
+  return callApi(`/api/accounts/ms-mail/${encodeURIComponent(String(accountId))}`, {
     method: "DELETE",
     body: JSON.stringify(payload),
   });

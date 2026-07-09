@@ -216,3 +216,13 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 - Neue API-Endpunkte unter `/api/accounts/ms-mail` und `/api/messages/ms-mail`.
 - Mobile App zeigt Familienhelden-Postfach read-only mit Connect/Status/Sync/Preview.
 - Kein Mail-Senden; `ENABLE_REAL_EMAIL` bleibt `False`.
+
+## Familienhelden Microsoft Mail Multi-Account Read-only
+
+- Microsoft Graph Mail.Read unterstuetzt jetzt mehrere lokale Postfaecher parallel.
+- Legacy-Datei `local_data/accounts/ms_mail_account.json` wird idempotent in `local_data/accounts/ms_mail_accounts/<account_id>.json` migriert und bleibt erhalten.
+- API-Status listet alle Konten tokenfrei; Sync kann alle Konten oder ein einzelnes Konto synchronisieren.
+- `ms_mail_messages` speichert `account_id`, `account_username` und `provider_message_id` additiv.
+- Mobile App zeigt verbundene Postfaecher, Sync pro Konto und Trennen per `KONTO LOESCHEN`.
+- `ENABLE_MS_MAIL_READ` ist ein nutzer-aktivierbarer Read-Flag und nicht mehr Teil der harten Safety-Flag-Baseline.
+- Kein Mail-Senden; `ENABLE_REAL_EMAIL` bleibt `False`.

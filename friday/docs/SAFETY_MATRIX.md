@@ -296,3 +296,17 @@ Safety:
 - Kein `Mail.Send`.
 - Mail-Volltexte werden nicht gespeichert.
 - Tests mocken Graph/OAuth.
+
+## Microsoft Mail Multi-Account Read-only
+
+| Modul | Lesen | Schreiben | Extern | Approval |
+|---|---|---|---|---|
+| Familienhelden Microsoft Mail Multi-Account | Ja, nur `Mail.Read` | Nein | Microsoft Graph nur in `ms_mail_provider.py` | `KONTO SPEICHERN`, `KONTO LOESCHEN`, `MAIL LESEN AKTIVIEREN` |
+
+Safety:
+
+- Mehrere Konten speichern jeweils eigene verschluesselte Tokens unter `local_data/accounts/ms_mail_accounts/`.
+- Legacy-Konto wird kopiert, nicht geloescht.
+- `ENABLE_MS_MAIL_READ` ist aktivierbar und wird nicht als Sendeflag behandelt.
+- Die Sende-Flags bleiben gesperrt; `ENABLE_REAL_EMAIL = False` bleibt unveraendert.
+- Kein `Mail.Send`, keine automatischen Antworten, keine echten Versandaktionen.

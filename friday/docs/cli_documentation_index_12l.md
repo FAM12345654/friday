@@ -127,3 +127,4 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_CONTACT_BETREUER_TODO_RULE_GATE.md` | Kontakt-Betreuer fuer Kunden und deterministische To-do-Zustaendigkeit | vorhanden |
 
 | `FRIDAY_MS_MAIL_READ_GATE.md` | Familienhelden Microsoft Graph Mail.Read Gate, OAuth, Sync, Rollback | vorhanden |
+| `FRIDAY_MS_MAIL_READ_GATE.md` | Familienhelden Microsoft Graph Mail.Read Gate mit Multi-Account, Migration, Sync und Rollback | vorhanden |

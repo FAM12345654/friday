@@ -2,7 +2,7 @@
 
 ## Ziel
 
-Dieses Gate aktiviert einen read-only Microsoft-Graph-Mail-Pfad fuer das Familienhelden-Postfach. Friday darf damit Mails lesen und lokal als Vorschau synchronisieren, aber keine E-Mails senden.
+Dieses Gate aktiviert einen read-only Microsoft-Graph-Mail-Pfad fuer mehrere Familienhelden-Postfaecher. Friday darf damit Mails lesen und lokal als Vorschau synchronisieren, aber keine E-Mails senden.
 
 ## Scope
 
@@ -28,21 +28,41 @@ ENABLE_MS_MAIL_READ = False
 ENABLE_REAL_EMAIL = False
 ```
 
+`ENABLE_MS_MAIL_READ` ist ein nutzer-aktivierbarer Read-Flag. Er wird nicht mehr vom Safety-Flag-Baseline-Scanner auf `False` erzwungen, damit eine spaetere bewusste Aktivierung den Safety Smoke nicht bricht. Die Sende-Flags bleiben weiterhin hart erzwungen.
+
 Aktivierung ist nur erlaubt, wenn alle Punkte erfuellt sind:
 
-- Microsoft OAuth-Konto wurde verbunden.
-- Test-Read gegen Graph war erfolgreich.
+- Mindestens ein Microsoft OAuth-Konto wurde verbunden.
+- Mindestens ein Konto hat einen erfolgreichen Test-Read gegen Graph.
 - Scanner Smoke ist erfolgreich.
 - Nutzer gibt exakt `MAIL LESEN AKTIVIEREN` ein.
 - `ENABLE_REAL_EMAIL` bleibt `False`.
 
-## Lokale Speicherung
+## Multi-Account Speicherung
 
-Token werden verschluesselt unter `local_data/accounts/ms_mail_account.json` gespeichert. Die Datei liegt unter `local_data/` und ist gitignoriert.
+Token werden verschluesselt pro Konto unter `local_data/accounts/ms_mail_accounts/<account_id>.json` gespeichert. Die Dateien liegen unter `local_data/` und sind gitignoriert.
+
+Jedes Konto enthaelt tokenfreie Metadaten:
+
+- `account_id`
+- `username`
+- `tenant`
+- `connected_at`
+- `last_test_ok`
+- `encryption_method`
+
+### Legacy-Migration
+
+Das alte Einzelkonto unter `local_data/accounts/ms_mail_account.json` bleibt erhalten. Beim ersten Status-/Ladevorgang kopiert Friday dieses Konto idempotent in den neuen Multi-Account-Store. Dadurch geht das bereits verbundene `office@...`-Postfach nicht verloren.
+
+## Lokale Mail-Vorschauen
 
 Mail-Vorschauen werden lokal in `ms_mail_messages` gespeichert:
 
-- `message_id`
+- `account_id`
+- `account_username`
+- `message_id` (lokal eindeutig, bei Multi-Account mit Konto-Prefix)
+- `provider_message_id` (originale Graph Message-ID)
 - `sender`
 - `subject`
 - `received_at`
@@ -58,18 +78,33 @@ Vollstaendige Mail-Bodies werden nicht gespeichert.
 - `GET /api/accounts/ms-mail/status`
 - `POST /api/accounts/ms-mail/activation-gate`
 - `POST /api/accounts/ms-mail/sync`
-- `DELETE /api/accounts/ms-mail`
+- `POST /api/accounts/ms-mail/sync` mit optionalem `account_id`
+- `DELETE /api/accounts/ms-mail/{account_id}`
 - `GET /api/messages/ms-mail?limit=10`
+- `GET /api/messages/ms-mail?limit=10&account_id=<account_id>`
 
 `/sync` gibt `403` zurueck, solange `ENABLE_MS_MAIL_READ = False` ist.
 
+## Mobile/CLI Anzeige
+
+Die Mobile-App zeigt:
+
+- Liste der verbundenen Microsoft-Postfaecher,
+- Sync fuer alle Konten,
+- Sync fuer ein einzelnes Konto,
+- Trennen eines einzelnen Kontos mit `KONTO LOESCHEN`,
+- Read-only-Hinweis pro Bereich.
+
+Die CLI-Sicherheitsansicht zeigt die Anzahl der Microsoft-Mail-Postfaecher und deren maskierten Status.
+
 ## Agenten-Anbindung
 
-Synchronisierte Mails werden lokal als Nachrichtenquelle `ms_mail` sichtbar. Friday verwendet Betreff plus Vorschau fuer:
+Synchronisierte Mails aller Konten werden lokal als Nachrichtenquelle `ms_mail` sichtbar. Friday verwendet Betreff plus Vorschau fuer:
 
-- Termin-Vorschlaege im Review
-- Aufgaben-Vorschlaege nur nach `is_relevant_for_user(text, sender_contact)`
-- Kontakt-Zuordnung fuer unbekannte Absender
+- Termin-Vorschlaege im Review,
+- Aufgaben-Vorschlaege nur nach `is_relevant_for_user(text, sender_contact)`,
+- Kontakt-Zuordnung fuer unbekannte Absender,
+- konto-spezifische Anzeige ueber `account_id` und `account_username`.
 
 Es gibt keinen Auto-Reply und keinen Versand.
 
@@ -77,7 +112,7 @@ Es gibt keinen Auto-Reply und keinen Versand.
 
 - `ENABLE_MS_MAIL_READ = False` setzen.
 - Friday API neu starten.
-- Konto mit `KONTO LOESCHEN` entfernen.
+- Einzelnes Konto mit `KONTO LOESCHEN` ueber `DELETE /api/accounts/ms-mail/{account_id}` entfernen.
 - Optional lokale `ms_mail_messages`-Eintraege aus der SQLite-DB loeschen.
 
 ## Safety-Bewertung
@@ -85,5 +120,6 @@ Es gibt keinen Auto-Reply und keinen Versand.
 - Kein `Mail.Send`.
 - `ENABLE_REAL_EMAIL = False` bleibt unveraendert.
 - Netzwerkzugriff nur in `friday/app/ms_mail_provider.py`.
-- Scanner-Allowlist ist eng auf das Provider-Modul begrenzt.
+- Scanner-Allowlist bleibt eng auf das Provider-Modul begrenzt.
 - Tests mocken OAuth und Graph komplett.
+- Tokens/Secrets werden nicht in Status, Tests oder Doku ausgegeben.

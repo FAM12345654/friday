@@ -29,6 +29,7 @@ import {
   createContact,
   createTask,
   deleteCalendarEvent,
+  deleteMsMailAccount,
   deleteTask,
   getAccountPolicies,
   getCalendarAccountStatus,
@@ -450,6 +451,7 @@ export default function App() {
   const [msMailTenant, setMsMailTenant] = useState("common");
   const [msMailAuthResponse, setMsMailAuthResponse] = useState("");
   const [msMailAccountToken, setMsMailAccountToken] = useState("");
+  const [msMailDeleteToken, setMsMailDeleteToken] = useState("");
   const [msMailActivationToken, setMsMailActivationToken] = useState("");
   const [msMailResult, setMsMailResult] = useState("");
   const [whatsappAgentNotes, setWhatsappAgentNotes] = useState("");
@@ -1136,17 +1138,45 @@ export default function App() {
     }
   };
 
-  const handleSyncMsMail = async () => {
+  const handleSyncMsMail = async (accountId = null) => {
+    const selectedAccountId = typeof accountId === "string" ? accountId : null;
     setActionBusy(true);
     setMsMailResult("");
     try {
-      const result = await syncMsMailMessages({ top: 25 });
-      setMsMailResult(`Sync fertig: ${result?.stored_count || 0} Mail-Vorschauen lokal aktualisiert.`);
+      const result = await syncMsMailMessages({
+        top: 25,
+        ...(selectedAccountId ? { account_id: selectedAccountId } : {}),
+      });
+      const label = selectedAccountId ? ` fuer ${selectedAccountId}` : "";
+      setMsMailResult(`Sync${label} fertig: ${result?.stored_count || 0} Mail-Vorschauen lokal aktualisiert.`);
       setMsMailInbox(await getMsMailMessages(10));
       setMsMailStatus(await getMsMailStatus());
       await refreshActive();
     } catch (err) {
       setMsMailResult(`Sync blockiert: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleDeleteMsMailAccount = async (accountId) => {
+    if (!accountId) {
+      setMsMailResult("Konto-ID fehlt.");
+      return;
+    }
+    setActionBusy(true);
+    setMsMailResult("");
+    try {
+      await deleteMsMailAccount(accountId, {
+        approval_token: msMailDeleteToken.trim(),
+      });
+      setMsMailResult(`Postfach ${accountId} wurde lokal getrennt.`);
+      setMsMailDeleteToken("");
+      setMsMailInbox(await getMsMailMessages(10));
+      setMsMailStatus(await getMsMailStatus());
+      await refreshActive();
+    } catch (err) {
+      setMsMailResult(`Trennen blockiert: ${normalizeApiError(err)}`);
     } finally {
       setActionBusy(false);
     }
@@ -1779,6 +1809,7 @@ export default function App() {
             <View key={`${item.message_id || "ms-mail"}-${index}`} style={styles.card}>
               <Text style={styles.cardTitle}>{item.subject || "(ohne Betreff)"}</Text>
               <Text style={styles.cardMeta}>Von: {item.sender || "-"}</Text>
+              <Text style={styles.cardMeta}>Postfach: {item.account_username || item.account_id || "-"}</Text>
               <Text style={styles.cardMeta}>{item.received_at || ""}</Text>
               <Text style={styles.cardBody}>{item.snippet || ""}</Text>
             </View>
@@ -2429,8 +2460,35 @@ export default function App() {
               Lesen aktiv: {msMailStatus?.read_enabled ? "ja" : "nein"} / Real-Versand: {msMailStatus?.real_email_enabled ? "aktiv" : "aus"}
             </Text>
             <Text style={styles.cardMeta}>
-              Konto: {msMailStatus?.username_masked || "-"} / Test OK: {msMailStatus?.last_test_ok ? "ja" : "nein"}
+              Postfaecher: {msMailStatus?.account_count || 0} / Mindestens ein Test OK: {msMailStatus?.last_test_ok ? "ja" : "nein"}
             </Text>
+            {isArray(msMailStatus?.accounts).map((account) => (
+              <View key={account.account_id || account.id} style={styles.cardCompact}>
+                <Text style={styles.cardTitle}>{account.username_masked || account.account_id}</Text>
+                <Text style={styles.cardMeta}>
+                  ID: {account.account_id || account.id} / Test OK: {account.last_test_ok ? "ja" : "nein"}
+                </Text>
+                <View style={styles.row}>
+                  <ActionButton
+                    small
+                    variant="ghost"
+                    label="Dieses Postfach synchronisieren"
+                    onPress={() => handleSyncMsMail(account.account_id || account.id)}
+                    disabled={actionBusy}
+                  />
+                  <ActionButton
+                    small
+                    variant="danger"
+                    label="Postfach trennen"
+                    onPress={() => handleDeleteMsMailAccount(account.account_id || account.id)}
+                    disabled={actionBusy}
+                  />
+                </View>
+              </View>
+            ))}
+            {isArray(msMailStatus?.accounts).length === 0 && (
+              <Text style={styles.cardBody}>Noch kein Microsoft-Postfach verbunden.</Text>
+            )}
             <Text style={styles.forwardSafety}>
               Microsoft Graph wird nur mit Mail.Read genutzt. Kein Mail.Send, kein automatischer Versand.
             </Text>
@@ -2489,6 +2547,14 @@ export default function App() {
               label="Microsoft-Mail verbinden"
               onPress={handleCompleteMsMailConnect}
               disabled={actionBusy}
+            />
+            <TextInput
+              value={msMailDeleteToken}
+              onChangeText={setMsMailDeleteToken}
+              style={styles.input}
+              placeholder="KONTO LOESCHEN zum Trennen eines Postfachs"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
             />
             <TextInput
               value={msMailActivationToken}
@@ -2764,7 +2830,7 @@ export default function App() {
               <Chip label={setupStatus?.email?.configured ? "konfiguriert" : "nicht verbunden"} color={setupStatus?.email?.configured ? colors.warn : colors.textSoft} />
             </View>
             <View style={styles.privacyRow}>
-              <Text style={styles.privacyLabel}>Familienhelden-Mail</Text>
+              <Text style={styles.privacyLabel}>Familienhelden-Mail ({setupStatus?.ms_mail?.account_count || 0})</Text>
               <Chip
                 label={setupStatus?.ms_mail?.read_enabled ? "read-only aktiv" : "read-only aus"}
                 color={setupStatus?.ms_mail?.read_enabled ? colors.warn : colors.textSoft}
