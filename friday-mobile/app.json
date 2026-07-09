@@ -34,6 +34,10 @@
       }
     },
     "extra": {
+      "fridayApiUrls": [
+        "http://192.168.178.42:8000",
+        "http://100.122.129.101:8000"
+      ],
       "fridayApiDefaultUrl": "http://192.168.178.42:8000",
       "eas": {
         "projectId": "72728242-5f76-4994-9d19-1033b0db7fe6"

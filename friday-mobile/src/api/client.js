@@ -1,17 +1,39 @@
 import Constants from "expo-constants";
 
-const API_URL =
-  process.env.EXPO_PUBLIC_FRIDAY_API_URL ||
-  Constants.expoConfig?.extra?.fridayApiDefaultUrl ||
-  "http://192.168.178.42:8000";
+// Kandidaten-URLs: zuhause gewinnt das lokale WLAN, unterwegs der Tunnel.
+// Reihenfolge = Präferenz. Die App prüft alle parallel und nimmt den ersten
+// erreichbaren Kandidaten in Listenreihenfolge.
+const buildCandidates = () => {
+  const fromEnvList = (process.env.EXPO_PUBLIC_FRIDAY_API_URLS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const fromEnvSingle = process.env.EXPO_PUBLIC_FRIDAY_API_URL;
+  const extra = Constants.expoConfig?.extra || {};
+  const fromExtraList = Array.isArray(extra.fridayApiUrls) ? extra.fridayApiUrls : [];
+  const fromExtraSingle = extra.fridayApiDefaultUrl;
 
-export function getApiUrl() {
-  return API_URL;
-}
+  const merged = [
+    ...fromEnvList,
+    fromEnvSingle,
+    ...fromExtraList,
+    fromExtraSingle,
+    "http://192.168.178.42:8000",
+  ].filter(Boolean);
 
-export async function checkHealth() {
+  return [...new Set(merged)];
+};
+
+const CANDIDATES = buildCandidates();
+
+let activeUrl = null;
+
+async function probe(url, timeoutMs = 4000) {
   try {
-    const response = await fetch(`${API_URL}/health`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const response = await fetch(`${url}/health`, { signal: controller.signal });
+    clearTimeout(timer);
     const payload = await response.json().catch(() => null);
     return Boolean(response.ok && payload?.ok !== false);
   } catch (err) {
@@ -19,8 +41,31 @@ export async function checkHealth() {
   }
 }
 
-async function callApi(path, options = {}) {
-  const response = await fetch(`${API_URL}${path}`, {
+async function resolveApiUrl(force = false) {
+  if (activeUrl && !force) {
+    return activeUrl;
+  }
+
+  const results = await Promise.all(CANDIDATES.map((url) => probe(url)));
+  const index = results.findIndex(Boolean);
+  activeUrl = index >= 0 ? CANDIDATES[index] : null;
+  return activeUrl || CANDIDATES[0];
+}
+
+export function getApiUrl() {
+  return activeUrl || CANDIDATES[0];
+}
+
+export async function checkHealth() {
+  await resolveApiUrl(true);
+  return activeUrl !== null;
+}
+
+const isNetworkError = (error) =>
+  /network|abort|fehlgeschlagen|failed to fetch/i.test(String(error?.message || ""));
+
+async function request(baseUrl, path, options = {}) {
+  const response = await fetch(`${baseUrl}${path}`, {
     headers: {
       "Content-Type": "application/json",
       ...(options.headers || {}),
@@ -33,6 +78,21 @@ async function callApi(path, options = {}) {
     throw new Error(payload?.detail || payload?.message || `HTTP ${response.status}`);
   }
   return payload.data;
+}
+
+async function callApi(path, options = {}) {
+  const baseUrl = await resolveApiUrl();
+  try {
+    return await request(baseUrl, path, options);
+  } catch (error) {
+    if (isNetworkError(error)) {
+      const nextUrl = await resolveApiUrl(true);
+      if (nextUrl && nextUrl !== baseUrl) {
+        return request(nextUrl, path, options);
+      }
+    }
+    throw error;
+  }
 }
 
 export async function getDashboard() {

@@ -35,15 +35,38 @@ Hinweis: Der Build ist eine interne Preview-APK, keine Play-Store-Version.
 
 ## Verbindung zur lokalen Friday API
 
-Die Handy-App erwartet die lokale API standardmaessig unter:
+Die Handy-App prueft beim Start mehrere API-Adressen parallel und nimmt automatisch
+die erste erreichbare (Failover-Reihenfolge):
 
-`http://192.168.178.42:8000`
+1. `http://192.168.178.42:8000` — Heim-WLAN (LAN, schnellster Weg)
+2. `http://100.122.129.101:8000` — Tailscale-VPN (unterwegs)
 
-Voraussetzungen:
+Die aktive Adresse steht in der App unten im Footer.
+
+Voraussetzungen zuhause:
 
 - PC und Handy sind im selben WLAN.
 - Die Friday API laeuft auf dem PC.
 - Port `8000` ist in der Windows-Firewall erlaubt.
+
+## Unterwegs (Tailscale)
+
+Unterwegs laeuft die Verbindung ueber das private Tailscale-VPN — die API wird dabei
+NICHT oeffentlich ins Internet gestellt.
+
+Voraussetzungen unterwegs:
+
+- Der PC ist eingeschaltet und Tailscale ist verbunden (Tray-Icon aktiv;
+  pruefen mit `tailscale status`).
+- Die Friday API laeuft auf dem PC (`start_friday_api.bat`).
+- Auf dem Handy ist die Tailscale-App installiert, mit demselben Konto angemeldet
+  und das VPN ist eingeschaltet.
+
+Hinweise:
+
+- Die Tailscale-Adresse `100.122.129.101` ist dem PC fest zugeordnet und bleibt stabil.
+- Zuhause funktioniert die App auch ohne Tailscale (LAN-Fallback).
+- Faellt eine Adresse aus, wechselt die App automatisch zur naechsten erreichbaren.
 
 API starten:
 
