@@ -20,6 +20,7 @@ Der Ablauf:
 Der Flow sendet noch nichts.
 
 E-Mail und WhatsApp sind aktuell nur Kanal-Auswahl fuer den Entwurf.
+Wenn beim Kontakt eine E-Mail-Adresse oder ein WhatsApp-Ziel gespeichert ist, wird dieses Ziel im Entwurf angezeigt.
 
 ## Lokale Kontakte
 
@@ -68,3 +69,7 @@ Echter Versand braucht ein separates Gate:
 Das Gate ist dokumentiert in:
 
 `FRIDAY_MESSAGING_PROVIDER_GATE.md`
+
+Lokale Ziel-Felder sind dokumentiert in:
+
+`FRIDAY_MESSAGING_CONTACT_TARGET_FIELDS.md`

@@ -84,7 +84,9 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
                 contact_type TEXT,
-                notes TEXT
+                notes TEXT,
+                email_address TEXT,
+                whatsapp_target TEXT
             );
 
             CREATE TABLE IF NOT EXISTS contact_contexts (
@@ -144,6 +146,7 @@ def initialize_database(db_path: Path | str | None = None) -> None:
         )
         _ensure_task_priority_column(connection)
         _ensure_task_recurrence_column(connection)
+        _ensure_contact_target_columns(connection)
 
 
 def _ensure_task_priority_column(connection: sqlite3.Connection) -> None:
@@ -158,6 +161,16 @@ def _ensure_task_recurrence_column(connection: sqlite3.Connection) -> None:
     columns = connection.execute("PRAGMA table_info(tasks)").fetchall()
     if not any(column[1] == "recurrence" for column in columns):
         connection.execute("ALTER TABLE tasks ADD COLUMN recurrence TEXT")
+
+
+def _ensure_contact_target_columns(connection: sqlite3.Connection) -> None:
+    """Add optional local contact target fields for draft routing."""
+    columns = connection.execute("PRAGMA table_info(contacts)").fetchall()
+    existing = {column[1] for column in columns}
+    if "email_address" not in existing:
+        connection.execute("ALTER TABLE contacts ADD COLUMN email_address TEXT")
+    if "whatsapp_target" not in existing:
+        connection.execute("ALTER TABLE contacts ADD COLUMN whatsapp_target TEXT")
 
 
 def _read_json(file_name: str) -> List[Dict[str, Any]]:
@@ -259,12 +272,14 @@ def seed_database_from_json(db_path: Path | str | None = None) -> None:
                         "name": item.get("name", "Unbekannt"),
                         "contact_type": item.get("contact_type", item.get("category", "other")),
                         "notes": item.get("notes", ""),
+                        "email_address": item.get("email_address"),
+                        "whatsapp_target": item.get("whatsapp_target"),
                     }
                 )
             connection.executemany(
                 """
-                INSERT INTO contacts (id, name, contact_type, notes)
-                VALUES (:id, :name, :contact_type, :notes)
+                INSERT INTO contacts (id, name, contact_type, notes, email_address, whatsapp_target)
+                VALUES (:id, :name, :contact_type, :notes, :email_address, :whatsapp_target)
                 """,
                 prepared_contacts,
             )

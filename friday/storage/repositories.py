@@ -517,7 +517,7 @@ class ContactRepository:
         with get_connection(self.db_path) as connection:
             rows = connection.execute(
                 """
-                SELECT id, name, contact_type, notes
+                SELECT id, name, contact_type, notes, email_address, whatsapp_target
                 FROM contacts
                 ORDER BY name
                 """,
@@ -529,6 +529,8 @@ class ContactRepository:
         name: str,
         contact_type: str | None = "work",
         notes: str | None = "",
+        email_address: str | None = None,
+        whatsapp_target: str | None = None,
     ) -> dict:
         """Create a local contact entry."""
         normalized_name = name.strip()
@@ -538,17 +540,25 @@ class ContactRepository:
         if normalized_type not in self.VALID_TYPES:
             normalized_type = "other"
         normalized_notes = "" if notes is None else notes
+        normalized_email = (email_address or "").strip() or None
+        normalized_whatsapp = (whatsapp_target or "").strip() or None
         with get_connection(self.db_path) as connection:
             cursor = connection.execute(
                 """
-                INSERT INTO contacts (name, contact_type, notes)
-                VALUES (?, ?, ?)
+                INSERT INTO contacts (name, contact_type, notes, email_address, whatsapp_target)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (normalized_name, normalized_type, normalized_notes),
+                (
+                    normalized_name,
+                    normalized_type,
+                    normalized_notes,
+                    normalized_email,
+                    normalized_whatsapp,
+                ),
             )
             row = connection.execute(
                 """
-                SELECT id, name, contact_type, notes
+                SELECT id, name, contact_type, notes, email_address, whatsapp_target
                 FROM contacts
                 WHERE id = ?
                 """,

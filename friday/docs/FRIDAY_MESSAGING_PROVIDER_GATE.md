@@ -102,3 +102,5 @@ Ziel:
 - Mobile-UI fuer E-Mail-Adresse/WhatsApp-Ziel,
 - Tests fuer lokale Speicherung,
 - Safety-Status weiterhin klar anzeigen.
+
+Status: umgesetzt in `FRIDAY_MESSAGING_CONTACT_TARGET_FIELDS.md`.

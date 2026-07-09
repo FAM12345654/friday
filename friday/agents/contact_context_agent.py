@@ -32,6 +32,8 @@ class ContactContextAgent:
         name: str,
         contact_type: str | None = "work",
         notes: str | None = "",
+        email_address: str | None = None,
+        whatsapp_target: str | None = None,
     ) -> Dict[str, Any]:
         """Create a local contact entry."""
         if self.contact_repository is None:
@@ -40,6 +42,8 @@ class ContactContextAgent:
             name=name,
             contact_type=contact_type,
             notes=notes,
+            email_address=email_address,
+            whatsapp_target=whatsapp_target,
         )
 
     def get_category_for_sender(self, sender: str) -> str:

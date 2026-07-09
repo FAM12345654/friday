@@ -103,6 +103,10 @@ const channelLabel = (channel) => (channel === "whatsapp" ? "WhatsApp" : "E-Mail
 
 const buildForwardDraft = (task, contact, channel) => {
   const contactName = contact?.name || "du";
+  const target =
+    channel === "whatsapp"
+      ? contact?.whatsapp_target || "WhatsApp-Ziel noch nicht gespeichert"
+      : contact?.email_address || "E-Mail-Adresse noch nicht gespeichert";
   const title = task?.title || "diese Aufgabe";
   const due = task?.due_date ? `\nFällig: ${task.due_date}` : "";
   const notes = task?.notes ? `\nHinweis: ${task.notes}` : "";
@@ -113,7 +117,9 @@ const buildForwardDraft = (task, contact, channel) => {
     "",
     "Danke dir!",
     "",
-    `Entwurf für ${channelLabel(channel)} — noch nicht gesendet.`,
+    `Kanal: ${channelLabel(channel)}`,
+    `Ziel: ${target}`,
+    "Noch nicht gesendet.",
   ].join("\n");
 };
 
@@ -207,6 +213,8 @@ export default function App() {
   const [calendar, setCalendar] = useState(null);
   const [contacts, setContacts] = useState([]);
   const [newContactName, setNewContactName] = useState("");
+  const [newContactEmail, setNewContactEmail] = useState("");
+  const [newContactWhatsapp, setNewContactWhatsapp] = useState("");
   const [newContactNotes, setNewContactNotes] = useState("");
   const [privacy, setPrivacy] = useState(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
@@ -390,8 +398,12 @@ export default function App() {
         name: newContactName.trim(),
         contact_type: "work",
         notes: newContactNotes.trim(),
+        email_address: newContactEmail.trim(),
+        whatsapp_target: newContactWhatsapp.trim(),
       });
       setNewContactName("");
+      setNewContactEmail("");
+      setNewContactWhatsapp("");
       setNewContactNotes("");
       const payload = await getContacts();
       setContacts(isArray(payload));
@@ -594,7 +606,11 @@ export default function App() {
                   activeOpacity={0.7}
                 >
                   <Text style={styles.contactChoiceText}>{contact.name || "Unbekannt"}</Text>
-                  <Text style={styles.cardMeta}>{contact.contact_type || "work"}</Text>
+                  <Text style={styles.cardMeta}>
+                    {contact.contact_type || "work"}
+                    {contact.email_address ? ` • ${contact.email_address}` : ""}
+                    {contact.whatsapp_target ? ` • WhatsApp: ${contact.whatsapp_target}` : ""}
+                  </Text>
                 </TouchableOpacity>
               ))}
               {contacts.length === 0 && (
@@ -820,6 +836,25 @@ export default function App() {
               returnKeyType="done"
             />
             <TextInput
+              value={newContactEmail}
+              onChangeText={setNewContactEmail}
+              style={[styles.input, styles.inputStacked]}
+              placeholder="E-Mail-Adresse optional"
+              placeholderTextColor={colors.textSoft}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              returnKeyType="done"
+            />
+            <TextInput
+              value={newContactWhatsapp}
+              onChangeText={setNewContactWhatsapp}
+              style={[styles.input, styles.inputStacked]}
+              placeholder="WhatsApp-Ziel optional"
+              placeholderTextColor={colors.textSoft}
+              keyboardType="phone-pad"
+              returnKeyType="done"
+            />
+            <TextInput
               value={newContactNotes}
               onChangeText={setNewContactNotes}
               style={[styles.input, styles.inputStacked]}
@@ -850,6 +885,8 @@ export default function App() {
                 <Chip label={contact.contact_type || "other"} color={colors.sage} />
               </View>
               {!!contact.notes && <Text style={styles.cardBody}>{contact.notes}</Text>}
+              {!!contact.email_address && <Text style={styles.cardMeta}>E-Mail: {contact.email_address}</Text>}
+              {!!contact.whatsapp_target && <Text style={styles.cardMeta}>WhatsApp: {contact.whatsapp_target}</Text>}
             </View>
           ))}
           {contacts.length === 0 && <EmptyState icon="☺" text="Keine Kontakte." />}
