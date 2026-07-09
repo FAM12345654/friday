@@ -226,3 +226,14 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 - Mobile App zeigt verbundene Postfaecher, Sync pro Konto und Trennen per `KONTO LOESCHEN`.
 - `ENABLE_MS_MAIL_READ` ist ein nutzer-aktivierbarer Read-Flag und nicht mehr Teil der harten Safety-Flag-Baseline.
 - Kein Mail-Senden; `ENABLE_REAL_EMAIL` bleibt `False`.
+
+## Lokaler Spam-/Absender-Block fuer Nachrichten
+
+- Nachrichten koennen lokal als Spam markiert werden.
+- Der Absender wird lokal in `blocked_senders` blockiert.
+- `messages`, `whatsapp_messages` und `ms_mail_messages` erhalten additiv `is_spam`.
+- Standardlisten blenden Spam aus; Spam-Ansichten nutzen `include_spam=true`.
+- Neue MS-Mail-/WhatsApp-Nachrichten blockierter Absender werden lokal als Spam gespeichert und erzeugen keine Suggestions.
+- Mobile App enthaelt `Spam / Absender blockieren` und einen eigenen `Spam`-Tab mit Entblocken.
+- CLI enthaelt `Spam / Blockiert`.
+- Kein echtes Postfach wird verschoben, geloescht oder serverseitig markiert; `Mail.Read` bleibt read-only.

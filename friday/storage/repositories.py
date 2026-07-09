@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 import calendar
+import hashlib
 import re
 import sqlite3
 from typing import List
@@ -18,6 +19,7 @@ VALID_RECURRENCES = {"taeglich", "woechentlich", "monatlich"}
 VALID_SUGGESTION_STATUSES = {"pending", "approved", "rejected", "edited"}
 VALID_TASK_SUGGESTION_STATUSES = {"pending", "approved", "rejected", "edited", "converted"}
 VALID_CALENDAR_SUGGESTION_STATUSES = {"pending", "selected", "rejected"}
+VALID_BLOCKED_SENDER_SOURCES = {"message", "ms_mail", "whatsapp"}
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:
@@ -123,6 +125,44 @@ def _validate_task_suggestion_status(status: str | None) -> str:
 def _now_iso_timestamp() -> str:
     """Return a compact timestamp for local audit fields."""
     return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_blocked_sender_source(source: str | None) -> str:
+    """Normalize and validate a local message source name."""
+    normalized_source = str(source or "").strip().lower()
+    if normalized_source not in VALID_BLOCKED_SENDER_SOURCES:
+        raise ValueError("Ungültige Nachrichtenquelle.")
+    return normalized_source
+
+
+def normalize_blocked_sender_key(source: str | None, sender: str | None) -> str:
+    """Return a stable local key for one sender without contacting providers."""
+    normalized_source = _normalize_blocked_sender_source(source)
+    raw_sender = str(sender or "").strip()
+    if normalized_source == "whatsapp":
+        cleaned = raw_sender.lower()
+        if re.fullmatch(r"[0-9a-f]{64}", cleaned):
+            return cleaned
+        if cleaned.startswith("hash:") and len(cleaned) > 5:
+            return cleaned[5:]
+        return hashlib.sha256((cleaned or "unknown").encode("utf-8")).hexdigest()
+
+    if normalized_source == "ms_mail":
+        match = re.search(r"[\w.!#$%&'*+/=?^`{|}~-]+@[\w.-]+", raw_sender)
+        if match:
+            return match.group(0).strip().lower()
+
+    return " ".join(raw_sender.casefold().split())
+
+
+def _blocked_sender_label(source: str, sender: str | None) -> str:
+    """Return a display-safe local label for a blocked sender."""
+    text = str(sender or "").strip()
+    if not text:
+        return "Unbekannter Absender"
+    if source == "whatsapp" and re.fullmatch(r"[0-9a-f]{64}", text.lower()):
+        return f"hash:{text[:12]}"
+    return text[:120]
 
 
 def _task_order_expression() -> str:
@@ -434,17 +474,251 @@ class MessageRepository:
     def __init__(self, db_path: Path | str | None = None) -> None:
         self.db_path = db_path or get_database_path()
 
-    def get_messages(self) -> List[dict]:
+    def get_messages(self, *, include_spam: bool = False) -> List[dict]:
         """Return all stored sample messages."""
         with get_connection(self.db_path) as connection:
+            where = "" if include_spam else "WHERE is_spam = 0"
             rows = connection.execute(
-                """
-                SELECT id, sender, text, received_at, contact_type
+                f"""
+                SELECT id, sender, text, received_at, contact_type, is_spam
                 FROM messages
+                {where}
                 ORDER BY id
                 """,
             ).fetchall()
             return [row_to_dict(row) for row in rows]
+
+
+class BlockedSenderRepository:
+    """Manage Friday's local-only blocked sender list."""
+
+    def __init__(self, db_path: Path | str | None = None) -> None:
+        self.db_path = db_path or get_database_path()
+
+    def block_sender(
+        self,
+        *,
+        source: str,
+        sender: str | None,
+        label: str | None = None,
+    ) -> dict:
+        """Add or refresh one blocked sender and return the local row."""
+        normalized_source = _normalize_blocked_sender_source(source)
+        sender_key = normalize_blocked_sender_key(normalized_source, sender)
+        if not sender_key:
+            raise ValueError("Absender kann nicht blockiert werden.")
+        display_label = _blocked_sender_label(normalized_source, label or sender)
+        now = _now_iso_timestamp()
+
+        with get_connection(self.db_path) as connection:
+            connection.execute(
+                """
+                INSERT INTO blocked_senders (source, sender_key, label, created_at)
+                VALUES (:source, :sender_key, :label, :created_at)
+                ON CONFLICT(source, sender_key) DO UPDATE SET
+                    label = excluded.label
+                """,
+                {
+                    "source": normalized_source,
+                    "sender_key": sender_key,
+                    "label": display_label,
+                    "created_at": now,
+                },
+            )
+            row = connection.execute(
+                """
+                SELECT id, source, sender_key, label, created_at
+                FROM blocked_senders
+                WHERE source = ? AND sender_key = ?
+                LIMIT 1
+                """,
+                (normalized_source, sender_key),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def is_sender_blocked(self, *, source: str, sender: str | None) -> bool:
+        """Return whether a sender is hidden by the local block list."""
+        normalized_source = _normalize_blocked_sender_source(source)
+        sender_key = normalize_blocked_sender_key(normalized_source, sender)
+        if not sender_key:
+            return False
+        with get_connection(self.db_path) as connection:
+            row = connection.execute(
+                """
+                SELECT 1
+                FROM blocked_senders
+                WHERE source = ? AND sender_key = ?
+                LIMIT 1
+                """,
+                (normalized_source, sender_key),
+            ).fetchone()
+        return row is not None
+
+    def list_blocked_senders(self) -> list[dict]:
+        """Return all blocked senders for the local spam view."""
+        with get_connection(self.db_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, source, sender_key, label, created_at
+                FROM blocked_senders
+                ORDER BY created_at DESC, id DESC
+                """
+            ).fetchall()
+        return [row_to_dict(row) for row in rows]
+
+    def unblock_sender(self, blocked_sender_id: int) -> dict | None:
+        """Remove one local sender block and restore matching spam previews."""
+        with get_connection(self.db_path) as connection:
+            row = connection.execute(
+                """
+                SELECT id, source, sender_key, label, created_at
+                FROM blocked_senders
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (int(blocked_sender_id),),
+            ).fetchone()
+            if row is None:
+                return None
+            item = row_to_dict(row)
+            connection.execute("DELETE FROM blocked_senders WHERE id = ?", (int(blocked_sender_id),))
+            self._restore_messages_for_sender(connection, item["source"], item["sender_key"])
+        return item
+
+    def mark_source_message_spam(self, *, source: str, message_id: str | int) -> dict | None:
+        """Mark one local message preview as spam and block its sender."""
+        normalized_source = _normalize_blocked_sender_source(source)
+        with get_connection(self.db_path) as connection:
+            if normalized_source == "ms_mail":
+                row = self._find_ms_mail_row(connection, message_id)
+                if row is None:
+                    return None
+                sender = str(row["sender"] or "")
+                blocked = self.block_sender(source=normalized_source, sender=sender, label=sender)
+                connection.execute(
+                    "UPDATE ms_mail_messages SET is_spam = 1 WHERE id = ?",
+                    (int(row["id"]),),
+                )
+                return {"message": row_to_dict(row), "blocked_sender": blocked}
+
+            if normalized_source == "whatsapp":
+                row = self._find_whatsapp_row(connection, message_id)
+                if row is None:
+                    return None
+                sender_hash = str(row["sender_number_hash"] or "")
+                label = str(row["sender_name"] or "WhatsApp")
+                blocked = self.block_sender(
+                    source=normalized_source,
+                    sender=sender_hash,
+                    label=label,
+                )
+                connection.execute(
+                    "UPDATE whatsapp_messages SET is_spam = 1 WHERE id = ?",
+                    (int(row["id"]),),
+                )
+                return {"message": row_to_dict(row), "blocked_sender": blocked}
+
+            row = self._find_local_message_row(connection, message_id)
+            if row is None:
+                return None
+            sender = str(row["sender"] or "")
+            blocked = self.block_sender(source=normalized_source, sender=sender, label=sender)
+            connection.execute(
+                "UPDATE messages SET is_spam = 1 WHERE id = ?",
+                (int(row["id"]),),
+            )
+            return {"message": row_to_dict(row), "blocked_sender": blocked}
+
+    def _restore_messages_for_sender(
+        self,
+        connection: sqlite3.Connection,
+        source: str,
+        sender_key: str,
+    ) -> None:
+        if source == "whatsapp":
+            connection.execute(
+                "UPDATE whatsapp_messages SET is_spam = 0 WHERE sender_number_hash = ?",
+                (sender_key,),
+            )
+            return
+
+        if source == "ms_mail":
+            rows = connection.execute("SELECT id, sender FROM ms_mail_messages").fetchall()
+            matching_ids = [
+                int(row["id"])
+                for row in rows
+                if normalize_blocked_sender_key("ms_mail", row["sender"]) == sender_key
+            ]
+            for local_id in matching_ids:
+                connection.execute("UPDATE ms_mail_messages SET is_spam = 0 WHERE id = ?", (local_id,))
+            return
+
+        rows = connection.execute("SELECT id, sender FROM messages").fetchall()
+        matching_ids = [
+            int(row["id"])
+            for row in rows
+            if normalize_blocked_sender_key("message", row["sender"]) == sender_key
+        ]
+        for local_id in matching_ids:
+            connection.execute("UPDATE messages SET is_spam = 0 WHERE id = ?", (local_id,))
+
+    @staticmethod
+    def _find_ms_mail_row(connection: sqlite3.Connection, message_id: str | int) -> sqlite3.Row | None:
+        text = str(message_id)
+        if text.isdigit():
+            row = connection.execute(
+                """
+                SELECT id, account_id, account_username, message_id, provider_message_id,
+                       sender, subject, received_at, snippet, processed, suggestion_created, is_spam
+                FROM ms_mail_messages
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (int(text),),
+            ).fetchone()
+            if row is not None:
+                return row
+        return connection.execute(
+            """
+            SELECT id, account_id, account_username, message_id, provider_message_id,
+                   sender, subject, received_at, snippet, processed, suggestion_created, is_spam
+            FROM ms_mail_messages
+            WHERE message_id = ? OR provider_message_id = ?
+            LIMIT 1
+            """,
+            (text, text),
+        ).fetchone()
+
+    @staticmethod
+    def _find_whatsapp_row(connection: sqlite3.Connection, message_id: str | int) -> sqlite3.Row | None:
+        text = str(message_id)
+        if not text.isdigit():
+            return None
+        return connection.execute(
+            """
+            SELECT id, chat_id, sender_name, sender_number_hash, body, received_at,
+                   processed, suggestion_created, is_spam
+            FROM whatsapp_messages
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (int(text),),
+        ).fetchone()
+
+    @staticmethod
+    def _find_local_message_row(connection: sqlite3.Connection, message_id: str | int) -> sqlite3.Row | None:
+        text = str(message_id)
+        if not text.isdigit():
+            return None
+        return connection.execute(
+            """
+            SELECT id, sender, text, received_at, contact_type, is_spam
+            FROM messages
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (int(text),),
+        ).fetchone()
 
 
 class MsMailMessageRepository:
@@ -476,22 +750,25 @@ class MsMailMessageRepository:
         normalized: list[dict[str, object]] = []
         normalized_account_id = self._clean(account_id) or "default"
         normalized_account_username = self._clean(account_username)
+        blocked_senders = BlockedSenderRepository(self.db_path)
         for item in messages:
             provider_message_id = self._clean(item.get("provider_message_id") or item.get("message_id"))
             if not provider_message_id:
                 continue
             item_account_id = self._clean(item.get("account_id")) or normalized_account_id
             item_account_username = self._clean(item.get("account_username")) or normalized_account_username
+            sender = self._clean(item.get("sender"))
             normalized.append(
                 {
                     "account_id": item_account_id,
                     "account_username": item_account_username,
                     "message_id": self._stored_message_id(item_account_id, provider_message_id),
                     "provider_message_id": provider_message_id,
-                    "sender": self._clean(item.get("sender")),
+                    "sender": sender,
                     "subject": self._clean(item.get("subject")),
                     "received_at": self._clean(item.get("received_at")),
                     "snippet": str(item.get("snippet") or "")[: self.SNIPPET_LIMIT],
+                    "is_spam": 1 if blocked_senders.is_sender_blocked(source="ms_mail", sender=sender) else 0,
                 }
             )
 
@@ -503,11 +780,11 @@ class MsMailMessageRepository:
                 """
                 INSERT INTO ms_mail_messages (
                     account_id, account_username, message_id, provider_message_id,
-                    sender, subject, received_at, snippet, processed, suggestion_created
+                    sender, subject, received_at, snippet, processed, suggestion_created, is_spam
                 )
                 VALUES (
                     :account_id, :account_username, :message_id, :provider_message_id,
-                    :sender, :subject, :received_at, :snippet, 0, 0
+                    :sender, :subject, :received_at, :snippet, 0, 0, :is_spam
                 )
                 ON CONFLICT(message_id) DO UPDATE SET
                     account_id = excluded.account_id,
@@ -516,7 +793,11 @@ class MsMailMessageRepository:
                     sender = excluded.sender,
                     subject = excluded.subject,
                     received_at = excluded.received_at,
-                    snippet = excluded.snippet
+                    snippet = excluded.snippet,
+                    is_spam = CASE
+                        WHEN excluded.is_spam = 1 THEN 1
+                        ELSE ms_mail_messages.is_spam
+                    END
                 """,
                 normalized,
             )
@@ -526,7 +807,7 @@ class MsMailMessageRepository:
                 f"""
                 SELECT
                     id, account_id, account_username, message_id, provider_message_id,
-                    sender, subject, received_at, snippet, processed, suggestion_created
+                    sender, subject, received_at, snippet, processed, suggestion_created, is_spam
                 FROM ms_mail_messages
                 WHERE message_id IN ({placeholders})
                 ORDER BY received_at DESC, id DESC
@@ -535,15 +816,25 @@ class MsMailMessageRepository:
             ).fetchall()
         return tuple(row_to_dict(row) for row in rows)
 
-    def list_messages(self, limit: int = 25, *, account_id: str | None = None) -> list[dict]:
+    def list_messages(
+        self,
+        limit: int = 25,
+        *,
+        account_id: str | None = None,
+        include_spam: bool = False,
+    ) -> list[dict]:
         """Return recent read-only Microsoft mail previews."""
         safe_limit = max(1, min(int(limit), 100))
         normalized_account_id = self._clean(account_id)
         with get_connection(self.db_path) as connection:
             params: tuple[object, ...]
-            where = ""
+            where_parts: list[str] = []
             if normalized_account_id:
-                where = "WHERE account_id = ?"
+                where_parts.append("account_id = ?")
+            if not include_spam:
+                where_parts.append("is_spam = 0")
+            where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+            if normalized_account_id:
                 params = (normalized_account_id, safe_limit)
             else:
                 params = (safe_limit,)
@@ -551,7 +842,7 @@ class MsMailMessageRepository:
                 f"""
                 SELECT
                     id, account_id, account_username, message_id, provider_message_id,
-                    sender, subject, received_at, snippet, processed, suggestion_created
+                    sender, subject, received_at, snippet, processed, suggestion_created, is_spam
                 FROM ms_mail_messages
                 {where}
                 ORDER BY received_at DESC, id DESC
@@ -567,7 +858,7 @@ class MsMailMessageRepository:
         normalized_account_id = self._clean(account_id)
         with get_connection(self.db_path) as connection:
             params: tuple[object, ...]
-            where = "WHERE processed = 0"
+            where = "WHERE processed = 0 AND is_spam = 0"
             if normalized_account_id:
                 where += " AND account_id = ?"
                 params = (normalized_account_id, safe_limit)
@@ -577,7 +868,7 @@ class MsMailMessageRepository:
                 f"""
                 SELECT
                     id, account_id, account_username, message_id, provider_message_id,
-                    sender, subject, received_at, snippet, processed, suggestion_created
+                    sender, subject, received_at, snippet, processed, suggestion_created, is_spam
                 FROM ms_mail_messages
                 {where}
                 ORDER BY received_at DESC, id DESC

@@ -46,6 +46,7 @@ import {
   getCalendarViewPrefs,
   getContacts,
   getDashboard,
+  getBlockedSenders,
   getMessageSuggestion,
   getMessageSuggestions,
   getMessages,
@@ -57,8 +58,10 @@ import {
   checkCalendarActivationGate,
   activateMsMailRead,
   syncMsMailMessages,
+  markMessageSpam,
   sendTaskForwardEmail,
   testEmailAccountConnection,
+  unblockSender,
   rejectMessageSuggestion,
   rejectTaskSuggestion,
   updateContact,
@@ -71,6 +74,7 @@ const screens = [
   { key: "Dashboard", icon: "◈" },
   { key: "Tasks", icon: "✓" },
   { key: "Nachrichten", icon: "✉" },
+  { key: "Spam", icon: "!" },
   { key: "Kalender", icon: "▦" },
   { key: "Kontakte", icon: "☺" },
   { key: "Datenschutz", icon: "🛡" },
@@ -248,6 +252,16 @@ const hasForwardTarget = (contact, channel) =>
   channel === "whatsapp"
     ? Boolean(contact?.whatsapp_target)
     : Boolean(contact?.email_address);
+
+const spamMessageRef = (message) => {
+  if (message?.source === "ms_mail") {
+    return message.ms_mail_local_id || Math.max(0, Number(message.id || 0) - 3000000);
+  }
+  if (message?.source === "whatsapp") {
+    return message.whatsapp_message_id || Math.max(0, Number(message.id || 0) - 900000000);
+  }
+  return message?.id;
+};
 
 const contactTypeOptions = [
   { value: "arbeit", label: "Arbeit" },
@@ -439,6 +453,9 @@ export default function App() {
   const [msMailInbox, setMsMailInbox] = useState(null);
   const [whatsappStatus, setWhatsappStatus] = useState(null);
   const [whatsappInbox, setWhatsappInbox] = useState(null);
+  const [blockedSenders, setBlockedSenders] = useState([]);
+  const [spamMessages, setSpamMessages] = useState({ messages: [], msMail: [], whatsapp: [] });
+  const [spamResult, setSpamResult] = useState("");
   const [emailPreset, setEmailPreset] = useState("gmail");
   const [emailAddress, setEmailAddress] = useState("");
   const [emailUsername, setEmailUsername] = useState("");
@@ -605,6 +622,20 @@ export default function App() {
       setMsMailStatus(msInbox?.status || null);
       setWhatsappInbox(whatsapp);
       setContacts(isArray(contactPayload));
+      return;
+    }
+
+    if (screenName === "Spam") {
+      const blocked = await getBlockedSenders().catch(() => ({ items: [] }));
+      const messagePayload = await getMessages(true).catch(() => ({ items: [] }));
+      const msInbox = await getMsMailMessages(50, null, true).catch(() => ({ items: [] }));
+      const whatsapp = await getWhatsAppMessages(50, true).catch(() => ({ items: [] }));
+      setBlockedSenders(isArray(blocked?.items));
+      setSpamMessages({
+        messages: isArray(messagePayload?.items).filter((item) => Number(item?.is_spam || 0) === 1),
+        msMail: isArray(msInbox?.items).filter((item) => Number(item?.is_spam || 0) === 1),
+        whatsapp: isArray(whatsapp?.items).filter((item) => Number(item?.is_spam || 0) === 1),
+      });
       return;
     }
 
@@ -1182,6 +1213,35 @@ export default function App() {
     }
   };
 
+  const handleMarkMessageSpam = async (source, messageId, label = "Absender") => {
+    setActionBusy(true);
+    setSpamResult("");
+    try {
+      const result = await markMessageSpam(source, messageId);
+      const blockedLabel = result?.blocked_sender?.label || label || "Absender";
+      setSpamResult(`${blockedLabel} wurde lokal blockiert. Echte Postfächer bleiben unverändert.`);
+      await refreshActive();
+    } catch (err) {
+      setSpamResult(`Blockieren nicht möglich: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleUnblockSender = async (blockedSenderId) => {
+    setActionBusy(true);
+    setSpamResult("");
+    try {
+      await unblockSender(blockedSenderId);
+      setSpamResult("Absender wurde lokal entblockt.");
+      await refreshActive();
+    } catch (err) {
+      setSpamResult(`Entblocken nicht möglich: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const handleCreateAccountPolicy = async () => {
     setActionBusy(true);
     setPolicyResult("");
@@ -1688,6 +1748,13 @@ export default function App() {
                   onPress={() => handleGenerateCalendarSuggestionForMessage(message.id)}
                   disabled={actionBusy}
                 />
+                <ActionButton
+                  small
+                  variant="danger"
+                  label="Spam / Absender blockieren"
+                  onPress={() => handleMarkMessageSpam(message.source || "message", spamMessageRef(message), message.sender)}
+                  disabled={actionBusy}
+                />
               </View>
               {!senderHasContact(message.sender, contacts) && (
                 <View style={styles.assignmentBox}>
@@ -1812,6 +1879,15 @@ export default function App() {
               <Text style={styles.cardMeta}>Postfach: {item.account_username || item.account_id || "-"}</Text>
               <Text style={styles.cardMeta}>{item.received_at || ""}</Text>
               <Text style={styles.cardBody}>{item.snippet || ""}</Text>
+              <View style={styles.row}>
+                <ActionButton
+                  small
+                  variant="danger"
+                  label="Spam / Absender blockieren"
+                  onPress={() => handleMarkMessageSpam("ms_mail", item.id, item.sender)}
+                  disabled={actionBusy}
+                />
+              </View>
             </View>
           ))}
           {isArray(msMailInbox?.items).length === 0 && (
@@ -1839,6 +1915,15 @@ export default function App() {
               <Text style={styles.cardMeta}>{item.received_at || ""}</Text>
               <Text style={styles.cardMeta}>Nummer: {item.sender_number_masked || "hash:unknown"}</Text>
               <Text style={styles.cardBody}>{item.body || ""}</Text>
+              <View style={styles.row}>
+                <ActionButton
+                  small
+                  variant="danger"
+                  label="Spam / Absender blockieren"
+                  onPress={() => handleMarkMessageSpam("whatsapp", item.id, item.sender_name || "WhatsApp")}
+                  disabled={actionBusy}
+                />
+              </View>
             </View>
           ))}
           {isArray(whatsappInbox?.items).length === 0 && (
@@ -1911,6 +1996,73 @@ export default function App() {
           ))}
           {messageSuggestions.length === 0 && taskSuggestions.length === 0 && (
             <EmptyState icon="💡" text="Noch keine Vorschläge." />
+          )}
+        </View>
+      );
+    }
+
+    if (active === "Spam") {
+      const totalSpam =
+        spamMessages.messages.length + spamMessages.msMail.length + spamMessages.whatsapp.length;
+      return (
+        <View>
+          <SectionTitle>Spam / Blockiert</SectionTitle>
+          <View style={styles.privacyBanner}>
+            <Text style={styles.privacyBannerIcon}>!</Text>
+            <Text style={styles.privacyBannerText}>
+              Alles hier ist lokal. Friday verschiebt oder löscht nichts im echten Postfach.
+            </Text>
+          </View>
+          {!!spamResult && <Text style={styles.approvalResultText}>{spamResult}</Text>}
+
+          <SectionTitle>Blockierte Absender ({blockedSenders.length})</SectionTitle>
+          {blockedSenders.map((sender) => (
+            <View key={sender.id} style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{sender.label || sender.sender_key}</Text>
+                <Chip label={sender.source || "lokal"} color={colors.danger} />
+              </View>
+              <Text style={styles.cardMeta}>Blockiert seit: {sender.created_at || "-"}</Text>
+              <ActionButton
+                small
+                variant="ghost"
+                label="Entblocken / Wiederherstellen"
+                onPress={() => handleUnblockSender(sender.id)}
+                disabled={actionBusy}
+              />
+            </View>
+          ))}
+          {blockedSenders.length === 0 && (
+            <View style={styles.card}>
+              <Text style={styles.cardBody}>Keine lokal blockierten Absender.</Text>
+            </View>
+          )}
+
+          <SectionTitle>Lokale Spam-Nachrichten ({totalSpam})</SectionTitle>
+          {spamMessages.messages.map((message) => (
+            <View key={`message-${message.id}`} style={styles.card}>
+              <Text style={styles.cardTitle}>{message.sender || "Unbekannt"}</Text>
+              <Text style={styles.cardMeta}>Lokale Nachricht #{message.id}</Text>
+              <Text style={styles.cardBody}>{message.text || ""}</Text>
+            </View>
+          ))}
+          {spamMessages.msMail.map((item) => (
+            <View key={`ms-${item.message_id || item.id}`} style={styles.card}>
+              <Text style={styles.cardTitle}>{item.subject || "(ohne Betreff)"}</Text>
+              <Text style={styles.cardMeta}>Von: {item.sender || "-"}</Text>
+              <Text style={styles.cardMeta}>Postfach: {item.account_username || item.account_id || "-"}</Text>
+              <Text style={styles.cardBody}>{item.snippet || ""}</Text>
+            </View>
+          ))}
+          {spamMessages.whatsapp.map((item) => (
+            <View key={`wa-${item.id}`} style={styles.card}>
+              <Text style={styles.cardTitle}>{item.sender_name || "WhatsApp"}</Text>
+              <Text style={styles.cardMeta}>Nummer: {item.sender_number_masked || "hash:unknown"}</Text>
+              <Text style={styles.cardBody}>{item.body || ""}</Text>
+            </View>
+          ))}
+          {totalSpam === 0 && (
+            <EmptyState icon="!" text="Keine lokalen Spam-Nachrichten." />
           )}
         </View>
       );

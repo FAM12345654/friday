@@ -12,6 +12,7 @@ from typing import Any
 
 from friday import config
 from friday.storage.database import get_connection, initialize_database
+from friday.storage.repositories import BlockedSenderRepository
 
 
 WHATSAPP_MESSAGE_ID_OFFSET = 900_000_000
@@ -161,6 +162,10 @@ def insert_whatsapp_message(
     safe_sender_hash = hash_whatsapp_identifier(sender_number)
     normalized_body = body or ""
     normalized_received_at = (received_at or "").strip() or _now_iso()
+    is_spam = BlockedSenderRepository(db_path).is_sender_blocked(
+        source="whatsapp",
+        sender=safe_sender_hash,
+    )
 
     with get_connection(db_path) as connection:
         existing = connection.execute(
@@ -188,9 +193,10 @@ def insert_whatsapp_message(
                 body,
                 received_at,
                 processed,
-                suggestion_created
+                suggestion_created,
+                is_spam
             )
-            VALUES (?, ?, ?, ?, ?, 0, 0)
+            VALUES (?, ?, ?, ?, ?, 0, 0, ?)
             """,
             (
                 safe_chat_id,
@@ -198,6 +204,7 @@ def insert_whatsapp_message(
                 safe_sender_hash,
                 normalized_body,
                 normalized_received_at,
+                1 if is_spam else 0,
             ),
         )
         return WhatsAppIngestResult(
@@ -211,16 +218,19 @@ def insert_whatsapp_message(
 def read_recent_whatsapp_messages(
     *,
     limit: int = 10,
+    include_spam: bool = False,
     db_path: Path | str | None = None,
 ) -> list[dict[str, Any]]:
     """Return recent mirrored WhatsApp messages with masked identifiers."""
     initialize_database(db_path)
     safe_limit = max(1, min(int(limit or 10), 50))
     with get_connection(db_path) as connection:
+        where = "" if include_spam else "WHERE is_spam = 0"
         rows = connection.execute(
-            """
-            SELECT id, chat_id, sender_name, sender_number_hash, body, received_at, processed, suggestion_created
+            f"""
+            SELECT id, chat_id, sender_name, sender_number_hash, body, received_at, processed, suggestion_created, is_spam
             FROM whatsapp_messages
+            {where}
             ORDER BY received_at DESC, id DESC
             LIMIT ?
             """,
@@ -238,9 +248,9 @@ def get_unprocessed_whatsapp_messages(
     with get_connection(db_path) as connection:
         rows = connection.execute(
             """
-            SELECT id, chat_id, sender_name, sender_number_hash, body, received_at, processed, suggestion_created
+            SELECT id, chat_id, sender_name, sender_number_hash, body, received_at, processed, suggestion_created, is_spam
             FROM whatsapp_messages
-            WHERE processed = 0
+            WHERE processed = 0 AND is_spam = 0
             ORDER BY received_at, id
             """
         ).fetchall()

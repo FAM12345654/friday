@@ -246,3 +246,87 @@ def test_ms_mail_activation_endpoint_requires_gate(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["data"]["allowed"] is False
+
+
+def test_ms_mail_spam_endpoint_blocks_sender_and_include_spam_restores_view(tmp_path) -> None:
+    api = _load_api_module()
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    api.message_agent = MessageAgent(db_path=db_path)
+    repo = MsMailMessageRepository(db_path)
+    stored = repo.upsert_messages(
+        [
+            {
+                "message_id": "graph-spam",
+                "sender": "spam@example.test",
+                "subject": "Werbung",
+                "received_at": "2026-07-09T10:00:00Z",
+                "snippet": "Nicht relevant.",
+            }
+        ]
+    )[0]
+
+    client = TestClient(api.app)
+    marked = client.post(f"/api/messages/ms_mail/{stored['id']}/spam")
+
+    assert marked.status_code == 200
+    assert marked.json()["data"]["provider_changed"] is False
+    assert client.get("/api/messages/ms-mail").json()["data"]["count"] == 0
+    spam_view = client.get("/api/messages/ms-mail?include_spam=true").json()["data"]
+    assert spam_view["count"] == 1
+    assert spam_view["items"][0]["is_spam"] == 1
+
+    blocked = client.get("/api/senders/blocked").json()["data"]["items"]
+    assert len(blocked) == 1
+    assert blocked[0]["source"] == "ms_mail"
+
+    unblocked = client.delete(f"/api/senders/blocked/{blocked[0]['id']}")
+    assert unblocked.status_code == 200
+    restored = client.get("/api/messages/ms-mail").json()["data"]
+    assert restored["count"] == 1
+    assert restored["items"][0]["is_spam"] == 0
+
+
+def test_blocked_ms_mail_sender_syncs_as_spam_without_suggestions(tmp_path, monkeypatch) -> None:
+    api = _load_api_module()
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    api.message_agent = MessageAgent(db_path=db_path)
+    monkeypatch.setattr(api.config, "ENABLE_MS_MAIL_READ", True)
+    api.BlockedSenderRepository(db_path).block_sender(
+        source="ms_mail",
+        sender="spam@example.test",
+        label="Spam Sender",
+    )
+    account = SimpleNamespace(account_id="office_familienhelden_at", username="office@familienhelden.at")
+    monkeypatch.setattr(api, "list_ms_mail_accounts", lambda: (account,))
+    monkeypatch.setattr(api, "decrypt_ms_mail_token_bundle", lambda _account: {"access_token": "token"})
+    monkeypatch.setattr(
+        api,
+        "list_ms_mail_messages",
+        lambda **_kwargs: MsMailProviderResult(
+            ok=True,
+            message="ok",
+            messages=(
+                {
+                    "message_id": "graph-spam",
+                    "sender": "spam@example.test",
+                    "subject": "Bitte Unterlagen prüfen",
+                    "received_at": "2026-07-09T10:00:00Z",
+                    "snippet": "Bitte erledigen.",
+                },
+            ),
+            external_call_used=True,
+        ),
+    )
+
+    client = TestClient(api.app)
+    response = client.post("/api/accounts/ms-mail/sync", json={"top": 25})
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["stored_count"] == 1
+    assert payload["process_result"]["processed_count"] == 0
+    assert payload["process_result"]["task_suggestions_created"] == 0
+    assert client.get("/api/messages/ms-mail").json()["data"]["count"] == 0
+    assert client.get("/api/messages/ms-mail?include_spam=true").json()["data"]["count"] == 1

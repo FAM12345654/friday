@@ -434,3 +434,22 @@ Grenzen:
 - Sync ist deaktiviert, solange `ENABLE_MS_MAIL_READ = False` ist.
 
 Details: `FRIDAY_MS_MAIL_READ_GATE.md`.
+
+## Spam / Absender blockieren
+
+In der Mobile-App gibt es in der Nachrichtenansicht den Button `Spam / Absender blockieren`.
+
+Das passiert dabei nur lokal:
+
+- Die Nachricht wird in Friday als Spam markiert.
+- Der Absender kommt in eine lokale Blockliste.
+- Künftige synchronisierte Nachrichten dieses Absenders werden lokal ausgeblendet.
+- Für blockierte Absender werden keine neuen Review-/Task-Vorschläge erzeugt.
+
+Das echte Microsoft-/Exchange-/WhatsApp-Postfach bleibt unverändert.
+Friday verschiebt, löscht oder markiert dort nichts.
+
+Im Tab `Spam` kannst du blockierte Absender anzeigen und mit `Entblocken / Wiederherstellen`
+lokal wieder freigeben.
+
+Details: `FRIDAY_LOCAL_SPAM_BLOCKLIST_GATE.md`.

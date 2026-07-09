@@ -139,8 +139,9 @@ export async function deleteTask(taskId) {
   });
 }
 
-export async function getMessages() {
-  return callApi("/api/messages");
+export async function getMessages(includeSpam = false) {
+  const query = includeSpam ? "?include_spam=true" : "";
+  return callApi(`/api/messages${query}`);
 }
 
 export async function getMessageSuggestions() {
@@ -293,10 +294,13 @@ export async function syncMsMailMessages(payload = { top: 25 }) {
   });
 }
 
-export async function getMsMailMessages(limit = 10, accountId = null) {
+export async function getMsMailMessages(limit = 10, accountId = null, includeSpam = false) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (accountId) {
     params.set("account_id", String(accountId));
+  }
+  if (includeSpam) {
+    params.set("include_spam", "true");
   }
   return callApi(`/api/messages/ms-mail?${params.toString()}`);
 }
@@ -323,8 +327,28 @@ export async function updateWhatsAppAgentNotes(payload) {
   });
 }
 
-export async function getWhatsAppMessages(limit = 10) {
-  return callApi(`/api/whatsapp/messages?limit=${encodeURIComponent(String(limit))}`);
+export async function getWhatsAppMessages(limit = 10, includeSpam = false) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (includeSpam) {
+    params.set("include_spam", "true");
+  }
+  return callApi(`/api/whatsapp/messages?${params.toString()}`);
+}
+
+export async function markMessageSpam(source, messageId) {
+  return callApi(`/api/messages/${encodeURIComponent(String(source))}/${encodeURIComponent(String(messageId))}/spam`, {
+    method: "POST",
+  });
+}
+
+export async function getBlockedSenders() {
+  return callApi("/api/senders/blocked");
+}
+
+export async function unblockSender(blockedSenderId) {
+  return callApi(`/api/senders/blocked/${encodeURIComponent(String(blockedSenderId))}`, {
+    method: "DELETE",
+  });
 }
 
 export async function getSetupStatus() {

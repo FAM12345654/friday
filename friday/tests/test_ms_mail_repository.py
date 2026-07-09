@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from friday.storage.database import setup_local_database
-from friday.storage.repositories import MsMailMessageRepository
+from friday.storage.repositories import BlockedSenderRepository, MsMailMessageRepository
 
 
 def test_ms_mail_repository_upserts_and_deduplicates(tmp_path) -> None:
@@ -78,3 +78,37 @@ def test_ms_mail_repository_keeps_same_graph_id_per_account(tmp_path) -> None:
     }
     assert {item["provider_message_id"] for item in items} == {"graph-1"}
     assert len(repo.list_messages(account_id="office_familienhelden_at")) == 1
+
+
+def test_ms_mail_repository_hides_spam_by_default_and_restores_on_unblock(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    mail_repo = MsMailMessageRepository(db_path)
+    block_repo = BlockedSenderRepository(db_path)
+
+    blocked = block_repo.block_sender(
+        source="ms_mail",
+        sender="spam@example.test",
+        label="Spam Sender",
+    )
+    stored = mail_repo.upsert_messages(
+        [
+            {
+                "message_id": "graph-spam",
+                "sender": "Spam <spam@example.test>",
+                "subject": "Unerwünscht",
+                "received_at": "2026-07-09T10:00:00Z",
+                "snippet": "Werbung",
+            }
+        ]
+    )[0]
+
+    assert stored["is_spam"] == 1
+    assert mail_repo.list_messages() == []
+    assert mail_repo.list_messages(include_spam=True)[0]["subject"] == "Unerwünscht"
+
+    block_repo.unblock_sender(blocked["id"])
+
+    restored = mail_repo.list_messages()
+    assert len(restored) == 1
+    assert restored[0]["is_spam"] == 0

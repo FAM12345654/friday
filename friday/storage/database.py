@@ -68,7 +68,8 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 sender TEXT NOT NULL,
                 text TEXT NOT NULL,
                 received_at TEXT,
-                contact_type TEXT
+                contact_type TEXT,
+                is_spam INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS calendar_items (
@@ -210,6 +211,7 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 received_at TEXT NOT NULL,
                 processed INTEGER NOT NULL DEFAULT 0,
                 suggestion_created INTEGER NOT NULL DEFAULT 0,
+                is_spam INTEGER NOT NULL DEFAULT 0,
                 UNIQUE (chat_id, received_at)
             );
 
@@ -224,7 +226,17 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 received_at TEXT,
                 snippet TEXT,
                 processed INTEGER NOT NULL DEFAULT 0,
-                suggestion_created INTEGER NOT NULL DEFAULT 0
+                suggestion_created INTEGER NOT NULL DEFAULT 0,
+                is_spam INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS blocked_senders (
+                id INTEGER PRIMARY KEY,
+                source TEXT NOT NULL,
+                sender_key TEXT NOT NULL,
+                label TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE (source, sender_key)
             );
             """
         )
@@ -232,6 +244,7 @@ def initialize_database(db_path: Path | str | None = None) -> None:
         _ensure_task_recurrence_column(connection)
         _ensure_contact_target_columns(connection)
         _ensure_account_policy_transform_column(connection)
+        _ensure_message_spam_columns(connection)
         _ensure_ms_mail_message_account_columns(connection)
 
 
@@ -269,6 +282,17 @@ def _ensure_account_policy_transform_column(connection: sqlite3.Connection) -> N
         connection.execute(
             "ALTER TABLE account_policies ADD COLUMN transform TEXT NOT NULL DEFAULT '{}'"
         )
+
+
+def _ensure_message_spam_columns(connection: sqlite3.Connection) -> None:
+    """Add local spam-status columns for older message preview databases."""
+    for table_name in ("messages", "whatsapp_messages", "ms_mail_messages"):
+        columns = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+        existing = {column[1] for column in columns}
+        if "is_spam" not in existing:
+            connection.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN is_spam INTEGER NOT NULL DEFAULT 0"
+            )
 
 
 def _ensure_ms_mail_message_account_columns(connection: sqlite3.Connection) -> None:

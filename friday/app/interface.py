@@ -150,6 +150,7 @@ from friday.app.privacy_cleanup_writer import apply_privacy_cleanup
 from friday import config
 from friday.app.ms_mail_account_store import ms_mail_account_status
 from friday.storage.contact_context_repository import ContactContextRepository
+from friday.storage.repositories import BlockedSenderRepository
 
 
 INVALID_SELECTION = "Ungültige Auswahl. Bitte erneut versuchen."
@@ -307,6 +308,61 @@ class FridayInterface:
             print(f"- Von: {item.get('sender_name') or 'WhatsApp'} | {item.get('received_at')}")
             print(f"  Nummer: {item.get('sender_number_masked')}")
             print(f"  {item.get('body')}")
+
+    def _show_spam_and_blocked_senders(self) -> None:
+        """Show local spam previews and allow local sender unblock."""
+        self._section_title("Spam / Blockiert")
+        repository = BlockedSenderRepository(getattr(self.message_agent, "db_path", None))
+        blocked = repository.list_blocked_senders()
+        print("Hinweis: Diese Liste ist nur lokal. Echte Postfächer bleiben unverändert.")
+        if blocked:
+            print("Blockierte Absender:")
+            for item in blocked:
+                print(
+                    f"- [{item['id']}] {item.get('label') or item.get('sender_key')} "
+                    f"({item.get('source')})"
+                )
+        else:
+            print("Keine lokal blockierten Absender.")
+
+        if getattr(self.message_agent, "ms_mail_repository", None) is not None:
+            spam_mails = self.message_agent.ms_mail_repository.list_messages(
+                limit=20,
+                include_spam=True,
+            )
+            spam_mails = [item for item in spam_mails if int(item.get("is_spam") or 0) == 1]
+            if spam_mails:
+                print("\nLokale Spam-Mails:")
+                for item in spam_mails:
+                    print(f"- [{item['id']}] {item.get('sender')}: {item.get('subject')}")
+
+        spam_whatsapp = [
+            item
+            for item in read_recent_whatsapp_messages(
+                limit=20,
+                include_spam=True,
+                db_path=getattr(self.message_agent, "db_path", None),
+            )
+            if int(item.get("is_spam") or 0) == 1
+        ]
+        if spam_whatsapp:
+            print("\nLokale WhatsApp-Spam-Vorschauen:")
+            for item in spam_whatsapp:
+                print(f"- [{item['id']}] {item.get('sender_name') or 'WhatsApp'}: {item.get('body')}")
+
+        if not blocked:
+            return
+        selected = input("Block-ID zum Entblocken (leer = zurück): ").strip()
+        if not selected:
+            return
+        if not selected.isdigit():
+            print(INVALID_SELECTION)
+            return
+        unblocked = repository.unblock_sender(int(selected))
+        if unblocked is None:
+            print("Blockierter Absender wurde nicht gefunden.")
+            return
+        print("Absender wurde lokal entblockt.")
 
     def _intent_label(self, intent: str) -> str:
         """Map internal intent to German display labels."""
@@ -3049,6 +3105,10 @@ class FridayInterface:
         print(f"Obsidian Write aktiv: {config.OBSIDIAN_WRITE_ENABLED}")
         print(f"Obsidian Vault gesetzt: {bool(config.OBSIDIAN_VAULT_PATH)}")
         print(f"Nutzerfreigabe erforderlich: {config.REQUIRE_USER_APPROVAL}")
+        blocked_count = len(
+            BlockedSenderRepository(getattr(self.message_agent, "db_path", None)).list_blocked_senders()
+        )
+        print(f"Lokal blockierte Absender: {blocked_count}")
         print("Kompakter Systemstatus:")
         print(f"Local Mode: {config.LOCAL_MODE}")
         print(f"Demo Mode: {config.DEMO_MODE}")
@@ -3109,6 +3169,9 @@ class FridayInterface:
             return True
         if choice == "14":
             self.open_account_menu()
+            return True
+        if choice == "15":
+            self._show_spam_and_blocked_senders()
             return True
         if choice == "7":
             print("Friday wird beendet.")

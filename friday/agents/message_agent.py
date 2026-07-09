@@ -92,24 +92,33 @@ class MessageAgent:
         )
         self.contact_agent = contact_agent
 
-    def get_messages(self) -> List[Dict[str, Any]]:
+    def get_messages(self, *, include_spam: bool = False) -> List[Dict[str, Any]]:
         """Load all local messages."""
         if self.message_repository is not None:
-            messages = self.message_repository.get_messages()
+            messages = self.message_repository.get_messages(include_spam=include_spam)
             return (
                 messages
-                + self.get_whatsapp_messages_as_local_messages()
-                + self.get_ms_mail_messages_as_local_messages()
+                + self.get_whatsapp_messages_as_local_messages(include_spam=include_spam)
+                + self.get_ms_mail_messages_as_local_messages(include_spam=include_spam)
             )
         with (DATA_DIR / "sample_messages.json").open("r", encoding="utf-8") as file:
             return json.load(file)
 
-    def get_whatsapp_messages_as_local_messages(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_whatsapp_messages_as_local_messages(
+        self,
+        limit: int = 50,
+        *,
+        include_spam: bool = False,
+    ) -> List[Dict[str, Any]]:
         """Expose mirrored WhatsApp messages as local read-only message records."""
         if not USE_SQLITE_STORAGE:
             return []
         items: list[Dict[str, Any]] = []
-        for item in read_recent_whatsapp_messages(limit=limit, db_path=self.db_path):
+        for item in read_recent_whatsapp_messages(
+            limit=limit,
+            include_spam=include_spam,
+            db_path=self.db_path,
+        ):
             items.append(
                 {
                     "id": WHATSAPP_MESSAGE_ID_OFFSET + int(item["id"]),
@@ -120,16 +129,25 @@ class MessageAgent:
                     "source": "whatsapp",
                     "whatsapp_message_id": item.get("id"),
                     "sender_number_masked": item.get("sender_number_masked"),
+                    "is_spam": item.get("is_spam", 0),
                 }
             )
         return items
 
-    def get_ms_mail_messages_as_local_messages(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_ms_mail_messages_as_local_messages(
+        self,
+        limit: int = 50,
+        *,
+        include_spam: bool = False,
+    ) -> List[Dict[str, Any]]:
         """Expose synced Microsoft mail previews as local read-only messages."""
         if self.ms_mail_repository is None:
             return []
         items: list[Dict[str, Any]] = []
-        for item in self.ms_mail_repository.list_messages(limit=limit):
+        for item in self.ms_mail_repository.list_messages(
+            limit=limit,
+            include_spam=include_spam,
+        ):
             subject = str(item.get("subject") or "").strip()
             snippet = str(item.get("snippet") or "").strip()
             text = "\n".join(part for part in (subject, snippet) if part)
@@ -141,6 +159,7 @@ class MessageAgent:
                     "received_at": item.get("received_at"),
                     "contact_type": "email",
                     "source": "ms_mail",
+                    "ms_mail_local_id": item.get("id"),
                     "ms_mail_message_id": item.get("message_id"),
                     "ms_mail_provider_message_id": item.get("provider_message_id"),
                     "ms_mail_account_id": item.get("account_id"),
@@ -148,6 +167,7 @@ class MessageAgent:
                     "account_username": item.get("account_username"),
                     "subject": subject,
                     "snippet": snippet,
+                    "is_spam": item.get("is_spam", 0),
                 }
             )
         return items
@@ -356,6 +376,7 @@ class MessageAgent:
                 "received_at": item.get("received_at"),
                 "contact_type": "email",
                 "source": "ms_mail",
+                "ms_mail_local_id": item.get("id"),
                 "ms_mail_message_id": item.get("message_id"),
                 "ms_mail_provider_message_id": item.get("provider_message_id"),
                 "ms_mail_account_id": item.get("account_id"),

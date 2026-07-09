@@ -126,7 +126,7 @@ from friday.app.whatsapp_inbox_store import (
 )
 from friday.config import DEMO_DATE, USE_REAL_TODAY
 from friday.storage.database import setup_local_database
-from friday.storage.repositories import MsMailMessageRepository
+from friday.storage.repositories import BlockedSenderRepository, MsMailMessageRepository
 
 
 def _allowed_origins() -> list[str]:
@@ -1152,12 +1152,67 @@ def archive_task(task_id: int) -> dict[str, Any]:
 
 
 @app.get("/api/messages")
-def list_messages() -> dict[str, Any]:
+def list_messages(include_spam: bool = Query(default=False)) -> dict[str, Any]:
+    items = message_agent.get_messages(include_spam=include_spam)
     return _envelope(
         {
-            "items": message_agent.get_messages(),
-            "count": len(message_agent.get_messages()),
+            "items": items,
+            "count": len(items),
+            "include_spam": include_spam,
         },
+    )
+
+
+@app.post("/api/messages/{source}/{message_id}/spam")
+def mark_message_spam(source: str, message_id: str) -> dict[str, Any]:
+    try:
+        result = BlockedSenderRepository(message_agent.db_path).mark_source_message_spam(
+            source=source,
+            message_id=message_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Nachricht wurde nicht gefunden.")
+    return _envelope(
+        {
+            "marked_spam": True,
+            "blocked_sender": result["blocked_sender"],
+            "source": source,
+            "message_id": message_id,
+            "read_only": True,
+            "provider_changed": False,
+            "message": "Absender wurde lokal blockiert. Das echte Postfach bleibt unverändert.",
+        }
+    )
+
+
+@app.get("/api/senders/blocked")
+def get_blocked_senders() -> dict[str, Any]:
+    items = BlockedSenderRepository(message_agent.db_path).list_blocked_senders()
+    return _envelope(
+        {
+            "items": items,
+            "count": len(items),
+            "read_only": True,
+            "provider_changed": False,
+        }
+    )
+
+
+@app.delete("/api/senders/blocked/{blocked_sender_id}")
+def delete_blocked_sender(blocked_sender_id: int) -> dict[str, Any]:
+    unblocked = BlockedSenderRepository(message_agent.db_path).unblock_sender(blocked_sender_id)
+    if unblocked is None:
+        raise HTTPException(status_code=404, detail="Blockierter Absender wurde nicht gefunden.")
+    return _envelope(
+        {
+            "unblocked": True,
+            "blocked_sender": unblocked,
+            "read_only": True,
+            "provider_changed": False,
+            "message": "Absender wurde lokal entblockt. Lokale Spam-Vorschauen sind wieder sichtbar.",
+        }
     )
 
 
@@ -1858,13 +1913,19 @@ def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str,
 def get_ms_mail_messages(
     limit: int = Query(default=10),
     account_id: str | None = Query(default=None),
+    include_spam: bool = Query(default=False),
 ) -> dict[str, Any]:
     repository = MsMailMessageRepository(message_agent.db_path)
-    items = repository.list_messages(limit=limit, account_id=account_id)
+    items = repository.list_messages(
+        limit=limit,
+        account_id=account_id,
+        include_spam=include_spam,
+    )
     return _envelope(
         {
             "items": items,
             "count": len(items),
+            "include_spam": include_spam,
             "status": ms_mail_account_status(),
             "read_only": True,
             "real_email_enabled": config.ENABLE_REAL_EMAIL,
@@ -1925,12 +1986,20 @@ def update_whatsapp_notes(payload: AgentNotesRequest) -> dict[str, Any]:
 
 
 @app.get("/api/whatsapp/messages")
-def get_whatsapp_messages(limit: int = Query(default=10)) -> dict[str, Any]:
-    items = read_recent_whatsapp_messages(limit=limit, db_path=message_agent.db_path)
+def get_whatsapp_messages(
+    limit: int = Query(default=10),
+    include_spam: bool = Query(default=False),
+) -> dict[str, Any]:
+    items = read_recent_whatsapp_messages(
+        limit=limit,
+        include_spam=include_spam,
+        db_path=message_agent.db_path,
+    )
     return _envelope(
         {
             "items": items,
             "count": len(items),
+            "include_spam": include_spam,
             "status": get_whatsapp_bridge_status(message_agent.db_path),
             "read_only": True,
         }
