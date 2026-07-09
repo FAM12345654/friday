@@ -61,3 +61,53 @@ def test_message_agent_creates_task_suggestion_only_when_relevant(tmp_path) -> N
     assert result["processed_count"] == 1
     assert result["task_suggestions_created"] == 1
     assert agent.get_pending_task_suggestions()[0]["title"] == "Aufgabe aus E-Mail von kunde@example.test"
+
+
+def test_message_agent_processes_ms_mail_from_all_accounts_with_existing_relevance_rule(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    ContactRepository(db_path).create_contact(
+        name="kunde@example.test",
+        contact_type="kunde",
+        email_address="kunde@example.test",
+        betreuer="philip",
+    )
+    repo = MsMailMessageRepository(db_path)
+    repo.upsert_messages(
+        [
+            {
+                "message_id": "graph-1",
+                "sender": "kunde@example.test",
+                "subject": "Bitte Unterlagen prüfen",
+                "received_at": "2026-07-09T10:00:00Z",
+                "snippet": "Bitte erledigen.",
+            }
+        ],
+        account_id="office_familienhelden_at",
+        account_username="office@familienhelden.at",
+    )
+    repo.upsert_messages(
+        [
+            {
+                "message_id": "graph-1",
+                "sender": "info@example.test",
+                "subject": "Nur zur Info",
+                "received_at": "2026-07-09T10:05:00Z",
+                "snippet": "Allgemeines Update ohne Aufgabe.",
+            }
+        ],
+        account_id="philip_familienhelden_at",
+        account_username="philip@familienhelden.at",
+    )
+
+    agent = MessageAgent(db_path=db_path)
+    result = agent.process_unprocessed_ms_mail_messages()
+
+    assert result["processed_count"] == 2
+    assert result["task_suggestions_created"] == 1
+    assert repo.get_unprocessed_messages() == []
+    local_messages = agent.get_ms_mail_messages_as_local_messages()
+    assert {message["account_id"] for message in local_messages} == {
+        "office_familienhelden_at",
+        "philip_familienhelden_at",
+    }
