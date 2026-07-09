@@ -688,6 +688,197 @@ def test_calendar_endpoint_merges_and_filters_outlook_ics_source(monkeypatch) ->
     assert "PH nur als Quelle." in payload["policy_context"]
 
 
+def test_calendar_endpoint_merges_google_main_and_outlook_source_over_range(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    google_policy = AccountPolicy(
+        id=1,
+        provider="google_calendar",
+        label="Google Hauptkalender",
+        role="main",
+        access="read_write",
+        include_filters={},
+        exclude_filters={},
+        transform={},
+        notes="Hauptkalender.",
+        enabled=True,
+        created_at="2026-07-09T00:00:00+00:00",
+    )
+    outlook_policy = AccountPolicy(
+        id=2,
+        provider="outlook_ics",
+        label="team-hampejs PH",
+        role="source",
+        access="read",
+        include_filters={"title_contains": ["PH"]},
+        exclude_filters={},
+        transform={"fixed_daily_window": {"start": "08:00", "end": "18:00"}},
+        notes="PH nur als Quelle.",
+        enabled=True,
+        created_at="2026-07-09T00:00:00+00:00",
+    )
+    monkeypatch.setattr(api, "list_account_policies", lambda: [google_policy, outlook_policy])
+
+    class _CalendarAgent:
+        def get_items_for_date(self, date_iso: str):
+            return []
+
+        def get_free_slots_for_date(self, date_iso: str):
+            return [{"start": "09:00", "end": "10:00"}]
+
+    class _GoogleProvider:
+        def list_events(self, *, range_start: str, range_end: str):
+            return CalendarProviderResult(
+                ok=True,
+                events=(
+                    CalendarProviderEvent(
+                        id="google-1",
+                        provider="google_calendar",
+                        calendar_id="primary",
+                        title="Google Termin",
+                        start="2026-07-15T10:00:00+02:00",
+                        end="2026-07-15T11:00:00+02:00",
+                    ),
+                ),
+            )
+
+    class _OutlookProvider:
+        def __init__(self, policy_id):
+            self.policy_id = policy_id
+
+        def list_events(self, *, range_start: str, range_end: str):
+            return CalendarProviderResult(
+                ok=True,
+                events=(
+                    CalendarProviderEvent(
+                        id="ph-1",
+                        provider="outlook_ics",
+                        calendar_id="team-hampejs",
+                        title="PH+D Dienst",
+                        start="2026-07-16T00:00:00",
+                        end="2026-07-16T23:59:00",
+                    ),
+                    CalendarProviderEvent(
+                        id="philip-1",
+                        provider="outlook_ics",
+                        calendar_id="team-hampejs",
+                        title="Philip Frei",
+                        start="2026-07-16T09:00:00",
+                        end="2026-07-16T10:00:00",
+                    ),
+                ),
+            )
+
+    monkeypatch.setattr(api, "calendar_agent", _CalendarAgent())
+    monkeypatch.setattr(api, "GoogleCalendarProvider", lambda: _GoogleProvider())
+    monkeypatch.setattr(api, "OutlookIcsCalendarProvider", _OutlookProvider)
+
+    response = client.get(
+        "/api/calendar",
+        params={
+            "range_start": "2026-07-15",
+            "range_end": "2026-07-16",
+            "day_start": "08:00",
+            "day_end": "18:00",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    titles = [item["title"] for item in payload["merged_items"]]
+    assert titles == ["Google Termin", "PH+D Dienst"]
+    assert "Philip Frei" not in titles
+    ph_event = next(item for item in payload["source_events"] if item["title"] == "PH+D Dienst")
+    assert ph_event["policy_label"] == "team-hampejs PH"
+    assert ph_event["start"] == "2026-07-16T08:00:00"
+    assert payload["range_start"] == "2026-07-15"
+    assert payload["range_end"] == "2026-07-16"
+    assert payload["day_start"] == "08:00"
+    assert payload["day_end"] == "18:00"
+
+
+def test_calendar_endpoint_filters_merged_items_by_day_time_window(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    policy = AccountPolicy(
+        id=1,
+        provider="google_calendar",
+        label="Google Hauptkalender",
+        role="main",
+        access="read_write",
+        include_filters={},
+        exclude_filters={},
+        transform={},
+        notes="",
+        enabled=True,
+        created_at="2026-07-09T00:00:00+00:00",
+    )
+    monkeypatch.setattr(api, "list_account_policies", lambda: [policy])
+
+    class _CalendarAgent:
+        def get_items_for_date(self, date_iso: str):
+            return [
+                {
+                    "id": 1,
+                    "title": "Lokaler Termin",
+                    "start": "09:00",
+                    "end": "10:00",
+                    "item_type": "busy",
+                    "date": date_iso,
+                }
+            ]
+
+        def get_free_slots_for_date(self, date_iso: str):
+            return [
+                {"start": "06:00", "end": "07:00"},
+                {"start": "11:00", "end": "12:00"},
+            ]
+
+    class _GoogleProvider:
+        def list_events(self, *, range_start: str, range_end: str):
+            return CalendarProviderResult(
+                ok=True,
+                events=(
+                    CalendarProviderEvent(
+                        id="early",
+                        provider="google_calendar",
+                        calendar_id="primary",
+                        title="Zu frueh",
+                        start="2026-07-15T05:00:00+02:00",
+                        end="2026-07-15T06:00:00+02:00",
+                    ),
+                    CalendarProviderEvent(
+                        id="inside",
+                        provider="google_calendar",
+                        calendar_id="primary",
+                        title="Im Fenster",
+                        start="2026-07-15T10:00:00+02:00",
+                        end="2026-07-15T11:00:00+02:00",
+                    ),
+                ),
+            )
+
+    monkeypatch.setattr(api, "calendar_agent", _CalendarAgent())
+    monkeypatch.setattr(api, "GoogleCalendarProvider", lambda: _GoogleProvider())
+
+    response = client.get(
+        "/api/calendar",
+        params={
+            "date": "2026-07-15",
+            "day_start": "08:00",
+            "day_end": "12:00",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert [item["title"] for item in payload["merged_items"]] == [
+        "Lokaler Termin",
+        "Im Fenster",
+    ]
+    assert payload["free_slots"] == [{"start": "11:00", "end": "12:00", "date": "2026-07-15"}]
+
+
 def test_calendar_from_message_endpoint_writes_edited_suggestion_with_guard(
     tmp_path,
     monkeypatch,

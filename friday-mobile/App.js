@@ -41,6 +41,7 @@ import {
   getApiUrl,
   getCalendar,
   getGoogleCalendarReadPreview,
+  getCalendarViewPrefs,
   getContacts,
   getDashboard,
   getMessageSuggestion,
@@ -55,6 +56,7 @@ import {
   rejectMessageSuggestion,
   rejectTaskSuggestion,
   updateContact,
+  updateCalendarViewPrefs,
   updateEmailAgentNotes,
   updateWhatsAppAgentNotes,
 } from "./src/api/client";
@@ -130,6 +132,76 @@ const buildGoogleCalendarRange = (days = 14) => {
     rangeStart: formatLocalDateTime(start),
     rangeEnd: formatLocalDateTime(end),
   };
+};
+
+const formatDateOnly = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const addDays = (date, days) => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+const defaultCalendarViewPrefs = {
+  range_preset: "heute",
+  custom_from: "",
+  custom_to: "",
+  day_start: "00:00",
+  day_end: "23:59",
+};
+
+const resolveCalendarViewQuery = (prefs = defaultCalendarViewPrefs) => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  const preset = prefs?.range_preset || "heute";
+  const dayStart = prefs?.day_start || "00:00";
+  const dayEnd = prefs?.day_end || "23:59";
+
+  if (preset === "7tage") {
+    return {
+      range_start: formatDateOnly(today),
+      range_end: formatDateOnly(addDays(today, 6)),
+      day_start: dayStart,
+      day_end: dayEnd,
+    };
+  }
+  if (preset === "30tage") {
+    return {
+      range_start: formatDateOnly(today),
+      range_end: formatDateOnly(addDays(today, 29)),
+      day_start: dayStart,
+      day_end: dayEnd,
+    };
+  }
+  if (preset === "custom") {
+    return {
+      range_start: prefs?.custom_from || formatDateOnly(today),
+      range_end: prefs?.custom_to || prefs?.custom_from || formatDateOnly(today),
+      day_start: dayStart,
+      day_end: dayEnd,
+    };
+  }
+  return {
+    range_start: formatDateOnly(today),
+    range_end: formatDateOnly(today),
+    day_start: dayStart,
+    day_end: dayEnd,
+  };
+};
+
+const calendarRangeLabel = (calendar) => {
+  if (!calendar?.range_start && !calendar?.date) {
+    return "-";
+  }
+  if (calendar?.range_start && calendar?.range_end && calendar.range_start !== calendar.range_end) {
+    return `${calendar.range_start} bis ${calendar.range_end}`;
+  }
+  return calendar?.date || calendar?.range_start || "-";
 };
 
 const formatCalendarMoment = (value) => {
@@ -282,6 +354,8 @@ export default function App() {
   const [messageSuggestions, setMessageSuggestions] = useState([]);
   const [taskSuggestions, setTaskSuggestions] = useState([]);
   const [calendar, setCalendar] = useState(null);
+  const [calendarViewPrefs, setCalendarViewPrefs] = useState(defaultCalendarViewPrefs);
+  const [calendarPrefsResult, setCalendarPrefsResult] = useState("");
   const [googleCalendarPreview, setGoogleCalendarPreview] = useState(null);
   const [contacts, setContacts] = useState([]);
   const [newContactName, setNewContactName] = useState("");
@@ -465,7 +539,9 @@ export default function App() {
     }
 
     if (screenName === "Kalender") {
-      const payload = await getCalendar();
+      const prefs = await getCalendarViewPrefs().catch(() => defaultCalendarViewPrefs);
+      const normalizedPrefs = { ...defaultCalendarViewPrefs, ...(prefs || {}) };
+      const payload = await getCalendar(resolveCalendarViewQuery(normalizedPrefs));
       const calendarStatus = await getCalendarAccountStatus().catch(() => null);
       let googlePreview = null;
       if (calendarStatus?.google?.connected) {
@@ -481,6 +557,7 @@ export default function App() {
           external_call_used: true,
         }));
       }
+      setCalendarViewPrefs(normalizedPrefs);
       setCalendar(payload);
       setCalendarAccountStatus(calendarStatus);
       setGoogleCalendarPreview(googlePreview);
@@ -922,6 +999,29 @@ export default function App() {
       );
     } catch (err) {
       setCalendarActivationResult(`Gate konnte nicht geprueft werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleSaveCalendarViewPrefs = async () => {
+    setActionBusy(true);
+    setCalendarPrefsResult("");
+    try {
+      const saved = await updateCalendarViewPrefs({
+        range_preset: calendarViewPrefs.range_preset || "heute",
+        custom_from: calendarViewPrefs.custom_from || null,
+        custom_to: calendarViewPrefs.custom_to || null,
+        day_start: calendarViewPrefs.day_start || "00:00",
+        day_end: calendarViewPrefs.day_end || "23:59",
+      });
+      const normalizedPrefs = { ...defaultCalendarViewPrefs, ...(saved || {}) };
+      const payload = await getCalendar(resolveCalendarViewQuery(normalizedPrefs));
+      setCalendarViewPrefs(normalizedPrefs);
+      setCalendar(payload);
+      setCalendarPrefsResult("Kalenderansicht wurde gespeichert und neu geladen.");
+    } catch (err) {
+      setCalendarPrefsResult(`Kalenderansicht konnte nicht gespeichert werden: ${normalizeApiError(err)}`);
     } finally {
       setActionBusy(false);
     }
@@ -1475,7 +1575,7 @@ export default function App() {
     }
 
     if (active === "Kalender") {
-      const items = isArray(calendar?.items || calendar?.calendar_items || []);
+      const items = isArray(calendar?.merged_items || calendar?.items || calendar?.calendar_items || []);
       const slots = isArray(calendar?.free_slots || []);
       const googleEvents = isArray(googleCalendarPreview?.events);
       const sourceEvents = isArray(calendar?.source_events);
@@ -1483,6 +1583,83 @@ export default function App() {
       const googleConnected = Boolean(calendarAccountStatus?.google?.connected);
       return (
         <View>
+          <SectionTitle>Kalenderansicht</SectionTitle>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Zeitraum und Tagesfenster</Text>
+            <Text style={styles.cardMeta}>
+              Aktuell: {calendarRangeLabel(calendar)} · {calendar?.day_start || "00:00"} bis {calendar?.day_end || "23:59"}
+            </Text>
+            <View style={styles.row}>
+              {[
+                ["heute", "Heute"],
+                ["7tage", "7 Tage"],
+                ["30tage", "30 Tage"],
+                ["custom", "Eigen"],
+              ].map(([value, label]) => (
+                <ActionButton
+                  key={value}
+                  small
+                  variant={calendarViewPrefs.range_preset === value ? "success" : "ghost"}
+                  label={label}
+                  onPress={() =>
+                    setCalendarViewPrefs((current) => ({ ...current, range_preset: value }))
+                  }
+                />
+              ))}
+            </View>
+            {calendarViewPrefs.range_preset === "custom" && (
+              <View style={styles.row}>
+                <TextInput
+                  value={calendarViewPrefs.custom_from || ""}
+                  onChangeText={(value) =>
+                    setCalendarViewPrefs((current) => ({ ...current, custom_from: value }))
+                  }
+                  style={[styles.input, styles.inputHalf]}
+                  placeholder="Von: 2026-07-09"
+                  placeholderTextColor={colors.textSoft}
+                  autoCapitalize="none"
+                />
+                <TextInput
+                  value={calendarViewPrefs.custom_to || ""}
+                  onChangeText={(value) =>
+                    setCalendarViewPrefs((current) => ({ ...current, custom_to: value }))
+                  }
+                  style={[styles.input, styles.inputHalf]}
+                  placeholder="Bis: 2026-07-16"
+                  placeholderTextColor={colors.textSoft}
+                  autoCapitalize="none"
+                />
+              </View>
+            )}
+            <View style={styles.row}>
+              <TextInput
+                value={calendarViewPrefs.day_start || "00:00"}
+                onChangeText={(value) =>
+                  setCalendarViewPrefs((current) => ({ ...current, day_start: value }))
+                }
+                style={[styles.input, styles.inputHalf]}
+                placeholder="Tag Start: 08:00"
+                placeholderTextColor={colors.textSoft}
+                autoCapitalize="none"
+              />
+              <TextInput
+                value={calendarViewPrefs.day_end || "23:59"}
+                onChangeText={(value) =>
+                  setCalendarViewPrefs((current) => ({ ...current, day_end: value }))
+                }
+                style={[styles.input, styles.inputHalf]}
+                placeholder="Tag Ende: 18:00"
+                placeholderTextColor={colors.textSoft}
+                autoCapitalize="none"
+              />
+            </View>
+            <ActionButton
+              label="Ansicht speichern und laden"
+              onPress={handleSaveCalendarViewPrefs}
+              disabled={actionBusy}
+            />
+            {!!calendarPrefsResult && <Text style={styles.approvalResultText}>{calendarPrefsResult}</Text>}
+          </View>
           <SectionTitle>Termin übernehmen</SectionTitle>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Nachricht in Kalendertermin umwandeln</Text>
@@ -1626,19 +1803,19 @@ export default function App() {
               Quelle nicht geladen: {error.provider} · {(error.blocked_reasons || []).join(", ")}
             </Text>
           ))}
-          <SectionTitle>Termine am {calendar?.date || "-"}</SectionTitle>
+          <SectionTitle>Termine: {calendarRangeLabel(calendar)}</SectionTitle>
           {items.map((entry) => (
-            <View key={entry.id ?? `${entry.date}-${entry.start}-${entry.end}`} style={styles.card}>
+            <View key={`${entry.provider || entry.item_type || "local"}-${entry.id ?? `${entry.date}-${entry.start}-${entry.end}`}`} style={styles.card}>
               <View style={styles.cardHeader}>
                 <Text style={styles.cardTitle}>{entry.title || "Termin"}</Text>
-                <Chip label={entry.item_type || "busy"} color={colors.accent} />
+                <Chip label={entry.policy_label || entry.provider || entry.item_type || "busy"} color={colors.accent} />
               </View>
               <Text style={styles.cardMeta}>
-                {formatCalendarMoment(entry.start)} – {formatCalendarMoment(entry.end)} • {entry.date || calendar?.date}
+                {formatCalendarMoment(entry.start)} – {formatCalendarMoment(entry.end)} • {entry.date || calendar?.date || entry.start?.slice?.(0, 10)}
               </Text>
             </View>
           ))}
-          {items.length === 0 && <EmptyState icon="▦" text="Keine Termine heute." />}
+          {items.length === 0 && <EmptyState icon="▦" text="Keine Termine im gewählten Zeitraum." />}
           <SectionTitle>Freie Slots</SectionTitle>
           {slots.map((slot, index) => (
             <View key={`${slot.start}-${slot.end}-${index}`} style={styles.slotCard}>
@@ -2523,6 +2700,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 14,
     ...softShadow,
+  },
+  inputHalf: {
+    minWidth: 135,
   },
   inputStacked: {
     marginTop: 10,

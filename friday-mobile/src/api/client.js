@@ -318,8 +318,29 @@ export async function getPrivacy() {
 }
 
 export async function getCalendar(date) {
-  const query = date ? `?date=${encodeURIComponent(date)}` : "";
-  return callApi(`/api/calendar${query}`);
+  if (!date || typeof date === "string") {
+    const query = date ? `?date=${encodeURIComponent(date)}` : "";
+    return callApi(`/api/calendar${query}`);
+  }
+  const params = new URLSearchParams();
+  Object.entries(date).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim()) {
+      params.set(key, String(value));
+    }
+  });
+  const query = params.toString();
+  return callApi(`/api/calendar${query ? `?${query}` : ""}`);
+}
+
+export async function getCalendarViewPrefs() {
+  return callApi("/api/calendar/view-prefs");
+}
+
+export async function updateCalendarViewPrefs(payload) {
+  return callApi("/api/calendar/view-prefs", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getGoogleCalendarReadPreview(rangeStart, rangeEnd) {

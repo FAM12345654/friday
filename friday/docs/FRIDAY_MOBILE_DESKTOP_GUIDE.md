@@ -321,7 +321,7 @@ Fuer verpackte Desktop-Builds gilt:
 - Friday Mobile und Desktop zeigen lokale Daten aus der Friday API.
 - Die API bleibt lokal auf dem Windows-PC.
 - Es werden keine echten Nachrichten gesendet.
-- Es werden keine echten Kalendertermine erstellt.
+- Es werden keine echten Kalendertermine ohne harten Token pro Termin erstellt.
 - Externe Integrationen bleiben deaktiviert.
 - Safety-Flags bleiben unveraendert.
 
@@ -338,6 +338,26 @@ Fuer verpackte Desktop-Builds gilt:
 - E-Mail, WhatsApp, SMS, Wetter und Musik bleiben deaktiviert.
 
 Details: `FRIDAY_CALENDAR_SOURCES_AND_FLOW_GATE.md`.
+
+## Kalenderansicht und Filter
+
+Die Kalenderansicht der Mobile-App nutzt die zusammengefuehrte Liste `merged_items`.
+Damit erscheinen lokale Termine, Google-Hauptkalender und read-only Quellen wie Outlook-ICS in einer gemeinsamen Ansicht.
+
+In der App koennen fuer die Ansicht gesetzt werden:
+
+- Heute,
+- 7 Tage,
+- 30 Tage,
+- eigener Zeitraum,
+- Tageszeitfenster, z. B. `08:00` bis `18:00`.
+
+Der PH-Filter fuer Outlook-ICS arbeitet tokenbasiert:
+
+- `PH`, `PH+D` und `PH-Dienst` werden erkannt,
+- `Philip`, `GRAPH` und `graphisch` werden nicht faelschlich getroffen.
+
+Details: `FRIDAY_CALENDAR_VIEW_FILTER_FIXES_GATE.md`.
 
 ## Agent-Notizen fuer lokale KI-Entwuerfe
 

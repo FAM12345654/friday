@@ -179,3 +179,16 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 | Safety | Keine neuen externen Aktionen, kein automatischer Versand, keine Cloud-KI, keine Safety-Flag-Aenderung |
 | Tests | Fokus-Tests fuer Policy-Transform, Agent-Kontext, Stores, API und Forward-Draft |
 | Doku | `FRIDAY_PH_TIME_WINDOW_AGENT_NOTES_GATE.md` |
+
+## Friday Kalenderansicht und Filter-Fixes
+
+| Bereich | Ergebnis |
+|---|---|
+| Ziel | Kalenderanzeige, Merge-Logik, PH-Filter und Datums-/Zeitfenster stabilisieren |
+| Mobile | Kalenderansicht nutzt `merged_items` statt nur lokaler `items` |
+| API | `/api/calendar` unterstuetzt `range_start`, `range_end`, `day_start`, `day_end` |
+| Merge | aktivierte `main`- und `source`-Kalender-Policies werden zusammengefuehrt |
+| Filter | `title_contains: PH` ist tokenbasiert und matcht nicht mehr `Philip`/`GRAPH` |
+| View-Prefs | lokale Tabelle `calendar_view_prefs` speichert nur Anzeigeeinstellungen |
+| Safety | keine neuen externen Aktionen; Write/Delete bleiben hart gegatet |
+| Doku | `FRIDAY_CALENDAR_VIEW_FILTER_FIXES_GATE.md` |

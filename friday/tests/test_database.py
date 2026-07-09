@@ -74,6 +74,7 @@ def test_initialize_database_creates_required_tables(tmp_path) -> None:
         assert "tasks" in tables
         assert "messages" in tables
         assert "calendar_items" in tables
+        assert "calendar_view_prefs" in tables
         assert "contacts" in tables
         assert "priority" in _columns(connection, "tasks")
         assert "recurrence" in _columns(connection, "tasks")

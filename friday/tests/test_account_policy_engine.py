@@ -40,14 +40,19 @@ def test_filter_events_keeps_only_title_allowlist_matches() -> None:
     policy = _policy(include_filters={"title_contains": ["PH"]})
     events = [
         {"title": "PH Dienst", "calendar_id": "work"},
+        {"title": "PH+D Dienst", "calendar_id": "work"},
         {"title": "Team Jour Fixe", "calendar_id": "work"},
         {"summary": "ph spaetdienst", "calendar_id": "work"},
+        {"title": "Philip Frei", "calendar_id": "work"},
+        {"title": "GRAPH", "calendar_id": "work"},
+        {"title": "graphisch planen", "calendar_id": "work"},
     ]
 
     filtered = filter_events(events, policy)
 
     assert [item["title"] if "title" in item else item["summary"] for item in filtered] == [
         "PH Dienst",
+        "PH+D Dienst",
         "ph spaetdienst",
     ]
 

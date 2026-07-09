@@ -181,6 +181,16 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 cached_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS calendar_view_prefs (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                range_preset TEXT NOT NULL DEFAULT 'heute',
+                custom_from TEXT,
+                custom_to TEXT,
+                day_start TEXT NOT NULL DEFAULT '00:00',
+                day_end TEXT NOT NULL DEFAULT '23:59',
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS email_send_log (
                 id INTEGER PRIMARY KEY,
                 sent_at TEXT NOT NULL,

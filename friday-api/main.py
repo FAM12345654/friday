@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import asdict
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -55,6 +55,10 @@ from friday.app.calendar_ics_account_store import (
     build_outlook_ics_account,
     outlook_ics_account_status,
     save_outlook_ics_account,
+)
+from friday.app.calendar_view_prefs_store import (
+    load_calendar_view_prefs,
+    save_calendar_view_prefs,
 )
 from friday.app.calendar_provider_base import CalendarProviderEvent
 from friday.app.calendar_provider_google import (
@@ -316,6 +320,14 @@ class CalendarEventDeleteGuardRequest(BaseModel):
     calendar_id: str | None = None
 
 
+class CalendarViewPrefsRequest(BaseModel):
+    range_preset: str = "heute"
+    custom_from: str | None = None
+    custom_to: str | None = None
+    day_start: str | None = "00:00"
+    day_end: str | None = "23:59"
+
+
 for _request_model in (
     CalendarEventExtractRequest,
     ContactUpdateRequest,
@@ -328,6 +340,7 @@ for _request_model in (
     CalendarEventWriteGuardRequest,
     CalendarEventFromMessageWriteRequest,
     CalendarEventDeleteGuardRequest,
+    CalendarViewPrefsRequest,
 ):
     _request_model.model_rebuild()
 
@@ -365,6 +378,200 @@ def _build_datetime_value(date_text: str | None, time_or_datetime: str | None) -
     return f"{clean_date}T{value}:00+02:00" if len(value) == 5 else f"{clean_date}T{value}+02:00"
 
 
+def _parse_calendar_date(value: str | None, *, field_name: str) -> date:
+    text = str(value or "").strip()
+    if "T" in text:
+        text = text.split("T", 1)[0]
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} muss im Format YYYY-MM-DD sein.",
+        ) from exc
+
+
+def _normalize_calendar_range(
+    *,
+    date_value: str | None,
+    range_start: str | None,
+    range_end: str | None,
+) -> tuple[str, str]:
+    if range_start or range_end:
+        start = _parse_calendar_date(range_start or range_end, field_name="range_start")
+        end = _parse_calendar_date(range_end or range_start, field_name="range_end")
+    else:
+        selected = _parse_calendar_date(date_value or _today(), field_name="date")
+        start = selected
+        end = selected
+    if end < start:
+        raise HTTPException(status_code=400, detail="range_end darf nicht vor range_start liegen.")
+    if (end - start).days > 90:
+        raise HTTPException(status_code=400, detail="Kalender-Zeitraum darf maximal 90 Tage umfassen.")
+    return start.isoformat(), end.isoformat()
+
+
+def _normalize_day_time(value: str | None, default: str, *, field_name: str) -> str:
+    text = str(value or default).strip()
+    parts = text.split(":")
+    if len(parts) < 2:
+        raise HTTPException(status_code=400, detail=f"{field_name} muss im Format HH:MM sein.")
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"{field_name} muss im Format HH:MM sein.") from exc
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        raise HTTPException(status_code=400, detail=f"{field_name} liegt ausserhalb des Tages.")
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _iter_calendar_dates(range_start: str, range_end: str) -> list[str]:
+    start = date.fromisoformat(range_start)
+    end = date.fromisoformat(range_end)
+    days = (end - start).days
+    return [(start + timedelta(days=offset)).isoformat() for offset in range(days + 1)]
+
+
+def _event_date_value(event: dict[str, Any]) -> str:
+    for key in ("date", "start", "start_time"):
+        value = str(event.get(key) or "").strip()
+        if not value:
+            continue
+        if "T" in value:
+            return value.split("T", 1)[0]
+        if len(value) >= 10 and value[4:5] == "-":
+            return value[:10]
+    return ""
+
+
+def _minutes_from_time_like(value: Any) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if "T" in text:
+        text = text.split("T", 1)[1]
+    text = text[:5]
+    parts = text.split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError:
+        return None
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        return None
+    return hour * 60 + minute
+
+
+def _event_overlaps_day_window(event: dict[str, Any], day_start: str, day_end: str) -> bool:
+    window_start = _minutes_from_time_like(day_start)
+    window_end = _minutes_from_time_like(day_end)
+    if window_start is None or window_end is None or window_end <= window_start:
+        return True
+    event_start = _minutes_from_time_like(event.get("start") or event.get("start_time"))
+    event_end = _minutes_from_time_like(event.get("end") or event.get("end_time"))
+    if event_start is None:
+        return True
+    if event_end is None or event_end <= event_start:
+        event_end = event_start + 1
+    return event_end > window_start and event_start < window_end
+
+
+def _filter_events_by_date_and_time(
+    events: list[dict[str, Any]],
+    *,
+    range_start: str,
+    range_end: str,
+    day_start: str,
+    day_end: str,
+) -> list[dict[str, Any]]:
+    filtered: list[dict[str, Any]] = []
+    for event in events:
+        event_date = _event_date_value(event)
+        if event_date and (event_date < range_start or event_date > range_end):
+            continue
+        if not _event_overlaps_day_window(event, day_start, day_end):
+            continue
+        filtered.append(event)
+    return filtered
+
+
+def _calendar_sort_key(event: dict[str, Any]) -> tuple[str, str, str]:
+    event_date = _event_date_value(event)
+    start_text = str(event.get("start") or event.get("start_time") or "")
+    title = str(event.get("title") or event.get("summary") or "")
+    return (event_date, start_text, title.casefold())
+
+
+def _calendar_dedupe_key(event: dict[str, Any]) -> tuple[Any, ...]:
+    provider = str(event.get("provider") or event.get("source") or "local")
+    calendar_id = str(event.get("calendar_id") or event.get("calendarId") or "")
+    event_id = event.get("provider_event_id") or event.get("id")
+    if event_id:
+        return ("id", provider, calendar_id, str(event_id), str(event.get("start") or ""), str(event.get("end") or ""))
+    title = str(event.get("title") or event.get("summary") or "")
+    return ("fields", provider, calendar_id, title, str(event.get("start") or ""), str(event.get("end") or ""))
+
+
+def _merge_calendar_items(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for group in groups:
+        for item in group:
+            key = _calendar_dedupe_key(item)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(dict(item))
+    return sorted(merged, key=_calendar_sort_key)
+
+
+def _collect_local_calendar_items(
+    *,
+    range_start: str,
+    range_end: str,
+    day_start: str,
+    day_end: str,
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for date_text in _iter_calendar_dates(range_start, range_end):
+        for item in calendar_agent.get_items_for_date(date_text):
+            copied = dict(item)
+            copied.setdefault("date", date_text)
+            items.append(copied)
+    return _filter_events_by_date_and_time(
+        items,
+        range_start=range_start,
+        range_end=range_end,
+        day_start=day_start,
+        day_end=day_end,
+    )
+
+
+def _collect_free_slots(
+    *,
+    range_start: str,
+    range_end: str,
+    day_start: str,
+    day_end: str,
+) -> list[dict[str, Any]]:
+    slots: list[dict[str, Any]] = []
+    for date_text in _iter_calendar_dates(range_start, range_end):
+        for slot in calendar_agent.get_free_slots_for_date(date_text):
+            copied = dict(slot)
+            copied["date"] = date_text
+            slots.append(copied)
+    return _filter_events_by_date_and_time(
+        slots,
+        range_start=range_start,
+        range_end=range_end,
+        day_start=day_start,
+        day_end=day_end,
+    )
+
+
 def _collect_source_calendar_events(
     policies: list[Any],
     *,
@@ -374,7 +581,11 @@ def _collect_source_calendar_events(
     events: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     for policy in policies:
-        if not policy.enabled or policy.role != "source" or policy.access not in {"read", "read_write"}:
+        if (
+            not policy.enabled
+            or policy.role not in {"main", "source"}
+            or policy.access not in {"read", "read_write"}
+        ):
             continue
         if policy.provider not in {"google_calendar", "outlook_ics"}:
             continue
@@ -516,13 +727,33 @@ def health() -> dict[str, Any]:
 
 @app.get("/api/dashboard")
 def get_dashboard() -> dict[str, Any]:
+    today = _today()
     open_tasks = task_agent.get_open_tasks()
-    calendar_items = calendar_agent.get_items_for_date(_today())
+    policies = list_account_policies()
+    source_events, _source_errors = _collect_source_calendar_events(
+        policies,
+        range_start=today,
+        range_end=today,
+    )
+    source_events = _filter_events_by_date_and_time(
+        source_events,
+        range_start=today,
+        range_end=today,
+        day_start="00:00",
+        day_end="23:59",
+    )
+    local_items = _collect_local_calendar_items(
+        range_start=today,
+        range_end=today,
+        day_start="00:00",
+        day_end="23:59",
+    )
+    calendar_items = _merge_calendar_items(local_items, source_events)
     messages = message_agent.get_messages()
     contacts = contact_agent.load_contacts()
     return _envelope(
         {
-            "date": _today(),
+            "date": today,
             "summary": {
                 "open_tasks": len(open_tasks),
                 "messages": len(messages),
@@ -531,7 +762,12 @@ def get_dashboard() -> dict[str, Any]:
             },
             "tasks": open_tasks,
             "calendar_items_today": calendar_items,
-            "free_slots_today": calendar_agent.get_free_slots_today(),
+            "free_slots_today": _collect_free_slots(
+                range_start=today,
+                range_end=today,
+                day_start="00:00",
+                day_end="23:59",
+            ),
         },
     )
 
@@ -982,24 +1218,79 @@ def reject_task_suggestion(suggestion_id: int) -> dict[str, Any]:
     return _envelope(suggestion)
 
 
+@app.get("/api/calendar/view-prefs")
+def get_calendar_view_prefs() -> dict[str, Any]:
+    return _envelope(load_calendar_view_prefs().to_dict())
+
+
+@app.put("/api/calendar/view-prefs")
+def update_calendar_view_prefs(payload: CalendarViewPrefsRequest) -> dict[str, Any]:
+    try:
+        prefs = save_calendar_view_prefs(
+            range_preset=payload.range_preset,
+            custom_from=payload.custom_from,
+            custom_to=payload.custom_to,
+            day_start=payload.day_start,
+            day_end=payload.day_end,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _envelope(prefs.to_dict())
+
+
 @app.get("/api/calendar")
-def get_calendar(date: Optional[str] = Query(default=None)) -> dict[str, Any]:
-    date_value = date or _today()
+def get_calendar(
+    date: Optional[str] = Query(default=None),
+    range_start: Optional[str] = Query(default=None),
+    range_end: Optional[str] = Query(default=None),
+    day_start: Optional[str] = Query(default=None),
+    day_end: Optional[str] = Query(default=None),
+) -> dict[str, Any]:
+    range_start_value, range_end_value = _normalize_calendar_range(
+        date_value=date,
+        range_start=range_start,
+        range_end=range_end,
+    )
+    day_start_value = _normalize_day_time(day_start, "00:00", field_name="day_start")
+    day_end_value = _normalize_day_time(day_end, "23:59", field_name="day_end")
     policies = list_account_policies()
     source_events, source_errors = _collect_source_calendar_events(
         policies,
-        range_start=date_value,
-        range_end=date_value,
+        range_start=range_start_value,
+        range_end=range_end_value,
     )
-    local_items = calendar_agent.get_items_for_date(date_value)
+    source_events = _filter_events_by_date_and_time(
+        source_events,
+        range_start=range_start_value,
+        range_end=range_end_value,
+        day_start=day_start_value,
+        day_end=day_end_value,
+    )
+    local_items = _collect_local_calendar_items(
+        range_start=range_start_value,
+        range_end=range_end_value,
+        day_start=day_start_value,
+        day_end=day_end_value,
+    )
+    merged_items = _merge_calendar_items(local_items, source_events)
     return _envelope(
         {
-            "date": date_value,
+            "date": range_start_value if range_start_value == range_end_value else None,
+            "range_start": range_start_value,
+            "range_end": range_end_value,
+            "day_start": day_start_value,
+            "day_end": day_end_value,
             "items": local_items,
             "source_events": source_events,
             "source_errors": source_errors,
-            "merged_items": [*local_items, *source_events],
-            "free_slots": calendar_agent.get_free_slots_for_date(date_value),
+            "merged_items": merged_items,
+            "free_slots": _collect_free_slots(
+                range_start=range_start_value,
+                range_end=range_end_value,
+                day_start=day_start_value,
+                day_end=day_end_value,
+            ),
+            "view_prefs": load_calendar_view_prefs().to_dict(),
             "account_policies": [policy.to_dict() for policy in policies],
             "policy_context": build_ai_context(policies),
             "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,

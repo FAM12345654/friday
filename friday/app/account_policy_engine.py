@@ -39,14 +39,39 @@ def _event_calendar_id(event: dict[str, Any]) -> str:
     return str(event.get("calendar_id") or event.get("calendarId") or "")
 
 
-def _contains_with_word_tolerance(text: str, needle: str) -> bool:
-    haystack = _normalize_text(text)
-    query = _normalize_text(needle)
-    if not query:
-        return False
-    if query in haystack:
+_TITLE_TOKEN_PATTERN = re.compile(
+    r"[0-9a-zäöüß]+(?:[+/\-][0-9a-zäöüß]+)*",
+    re.IGNORECASE,
+)
+
+
+def _title_tokens(value: str) -> list[str]:
+    """Return normalized title tokens for deterministic policy matching."""
+    return _TITLE_TOKEN_PATTERN.findall(_normalize_text(value))
+
+
+def _token_matches_filter(token: str, query: str) -> bool:
+    """Match one title token against one policy token without substring leakage."""
+    if token == query:
         return True
-    return re.search(rf"(^|\W){re.escape(query)}(\W|$)", haystack) is not None
+    if any(token.startswith(f"{query}{separator}") for separator in ("+", "-", "/")):
+        return True
+    return False
+
+
+def _contains_title_token(text: str, needle: str) -> bool:
+    tokens = _title_tokens(text)
+    query_tokens = _title_tokens(needle)
+    if not tokens or not query_tokens:
+        return False
+    if len(query_tokens) == 1:
+        query = query_tokens[0]
+        return any(_token_matches_filter(token, query) for token in tokens)
+    window_size = len(query_tokens)
+    return any(
+        tokens[index:index + window_size] == query_tokens
+        for index in range(0, len(tokens) - window_size + 1)
+    )
 
 
 def _matches_filters(event: dict[str, Any], filters: dict[str, Any]) -> bool:
@@ -55,7 +80,7 @@ def _matches_filters(event: dict[str, Any], filters: dict[str, Any]) -> bool:
 
     title_contains = _as_list(filters.get("title_contains"))
     if title_contains and not any(
-        _contains_with_word_tolerance(_event_title(event), item)
+        _contains_title_token(_event_title(event), item)
         for item in title_contains
     ):
         return False
@@ -73,7 +98,7 @@ def _matches_any_exclude(event: dict[str, Any], filters: dict[str, Any]) -> bool
 
     title_contains = _as_list(filters.get("title_contains"))
     if title_contains and any(
-        _contains_with_word_tolerance(_event_title(event), item)
+        _contains_title_token(_event_title(event), item)
         for item in title_contains
     ):
         return True
