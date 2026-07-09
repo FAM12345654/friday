@@ -73,3 +73,5 @@ Local Ollama Config Apply Readiness Gate:
 - Writer gegen Guard, Preview und Safety Smoke dokumentiert pruefen.
 - Sicherstellen, dass echte Projekt-Config weiterhin nicht automatisch geschrieben wird.
 - Erst danach entscheiden, ob ein separates Nutzer-Apply-Gate fuer die echte Projekt-Config gebaut wird.
+
+Status danach: Das Readiness Gate ist in `FRIDAY_LOCAL_OLLAMA_CONFIG_APPLY_READINESS_GATE.md` dokumentiert.

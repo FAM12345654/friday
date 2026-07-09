@@ -159,6 +159,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Local Ollama Manual Config Apply Gate | umgesetzt | prueft Token `OLLAMA AKTIVIEREN`, Safety Smoke und Health PASS; schreibt config.py nicht automatisch |
 | Local Ollama Config Apply Implementation Plan | geplant | beschreibt spaeteren kontrollierten Apply und Rollback; aktuell kein Config-Write |
 | Local Ollama Config Apply Writer | umgesetzt isoliert | schreibt nur explizite `config.py`-Pfade, Tests nur `tmp_path`; echte Projekt-`config.py` bleibt standardmaessig blockiert |
+| Local Ollama Config Apply Readiness Gate | abgeschlossen | bestaetigt isolierten Writer; echter Projekt-Apply und `ENABLE_LOCAL_OLLAMA=True` bleiben ohne separates Gate blockiert |
 | Local Model Settings / Health Preview / Validation Pipeline | umgesetzt | Mock bleibt Default; Ollama Health Check ist localhost-only; Validator+Logic Check blockiert riskante Ausgaben |
 | Lokale Notifications | erlaubt opt-in | Default `False`; nur Konsolen-Zusammenfassung, kein Toast, kein Netzwerk |
 | Demo-Modus | getrennt | echte Arbeits-DB bleibt `friday.db`; Demo-Seeds nur in `friday_demo.db` |
