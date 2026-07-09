@@ -102,12 +102,12 @@ Die Mobile-App enthaelt einen Setup-Tab. Dort sieht man lokal:
 - ob die lokale KI aktiv ist,
 - welche Safety-Flags gesetzt sind,
 - ob E-Mail/WhatsApp nur vorbereitet oder verbunden sind,
-- dass echte Kalenderaktionen weiterhin deaktiviert sind.
+- dass echte Kalender-Schreibaktionen bewusst aktiviert sind (Google, pro Termin mit `TERMIN SPEICHERN`).
 
 In der Nachrichtenansicht gibt es zusaetzlich `Termin erkennen`.
 Friday erstellt daraus nur einen lokalen Review-Vorschlag.
 Datum und Uhrzeit werden deterministisch in Python aufgeloest; das Modell darf relative Angaben nicht allein entscheiden.
-Es wird kein echter Kalendertermin erstellt.
+Ein echter Google-Termin entsteht erst nach deiner Bestaetigung mit `TERMIN SPEICHERN`.
 
 ## Kalender-Konten und Account-Policies
 
@@ -121,9 +121,9 @@ Eine Policy beschreibt pro Konto:
 - Notizen fuer lokalen KI-Kontext.
 
 Policies werden nur mit dem Token `POLICY SPEICHERN` gespeichert.
-Das Aktivierungs-Gate `KALENDER AKTIVIEREN` prueft nur, ob ein echter Kalender spaeter aktiviert werden duerfte.
-Solange `ENABLE_REAL_CALENDAR=False` bleibt, schreibt Friday keinen echten Kalendertermin.
-Ein echter Termin-Write braucht spaeter zusaetzlich exakt `TERMIN SPEICHERN`.
+`ENABLE_REAL_CALENDAR` ist als bewusste Ausnahme aktiviert (nur Kalender; E-Mail/WhatsApp/SMS/Wetter/Musik bleiben erzwungen aus).
+Ein echter Google-Termin-Write braucht pro Termin exakt `TERMIN SPEICHERN` plus Haupt-Policy und Verbindung.
+Loeschen braucht exakt `TERMIN LOESCHEN`. Outlook-ICS-Quellen bleiben rein lesbar.
 
 Google OAuth laeuft am PC. Client-Secrets und OAuth-Tokens gehoeren nicht in Git, nicht in Screenshots und nicht in Chat-Nachrichten.
 Details stehen in `FRIDAY_CALENDAR_ACCOUNTS_GATE.md`.
