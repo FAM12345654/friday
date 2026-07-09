@@ -27,6 +27,21 @@ from friday.agents import (
     build_whatsapp_forward_preview,
 )
 from friday.app.ai_task_forwarding_draft import build_ai_task_forwarding_draft
+from friday.app.email_account_store import (
+    EMAIL_ACCOUNT_DELETE_TOKEN,
+    EMAIL_ACCOUNT_SAVE_TOKEN,
+    build_email_account_from_plain_password,
+    build_email_account_from_preset,
+    decrypt_email_account_password,
+    delete_email_account,
+    email_account_status,
+    load_email_account,
+    save_email_account,
+)
+from friday.app.email_activation_gate import EMAIL_ACTIVATION_TOKEN, build_email_activation_gate
+from friday.app.email_imap_reader import check_imap_login, read_recent_inbox_emails
+from friday.app.email_send_guard import EMAIL_SEND_TOKEN, check_email_send_allowed, log_email_send
+from friday.app.email_smtp_sender import check_smtp_login, send_single_email
 from friday.app.local_ollama_activation_gate import build_local_ollama_activation_gate
 from friday.app.local_ollama_config_apply_guard import build_local_ollama_config_apply_gate
 from friday.app.local_ollama_config_preview import build_local_ollama_config_preview
@@ -106,6 +121,36 @@ class OllamaConfigApplyGateRequest(BaseModel):
     approval_token: str
     scanner_smoke_passed: bool = False
     health_check_passed: bool = False
+
+
+class EmailAccountConnectRequest(BaseModel):
+    preset_name: str = "gmail"
+    display_name: str | None = None
+    email_address: str
+    username: str
+    app_password: str
+    approval_token: str
+    smtp_host: str | None = None
+    smtp_port: int | None = None
+    imap_host: str | None = None
+    imap_port: int | None = None
+
+
+class EmailAccountDeleteRequest(BaseModel):
+    approval_token: str
+
+
+class EmailActivationGateRequest(BaseModel):
+    approval_token: str
+    scanner_smoke_passed: bool = False
+
+
+class EmailSendRequest(BaseModel):
+    task_id: int
+    contact_id: int
+    subject: str | None = None
+    body: str
+    approval_token: str
 
 
 def _today() -> str:
@@ -437,6 +482,194 @@ def create_ai_task_forward_draft(payload: TaskForwardDraftRequest) -> dict[str, 
         }
     )
     return _envelope(response)
+
+
+@app.get("/api/accounts/email/status")
+def get_email_account_status() -> dict[str, Any]:
+    return _envelope(email_account_status())
+
+
+@app.post("/api/accounts/email/connect")
+def connect_email_account(payload: EmailAccountConnectRequest) -> dict[str, Any]:
+    try:
+        if payload.smtp_host and payload.smtp_port and payload.imap_host and payload.imap_port:
+            account = build_email_account_from_plain_password(
+                display_name=payload.display_name or payload.email_address,
+                email_address=payload.email_address,
+                smtp_host=payload.smtp_host,
+                smtp_port=payload.smtp_port,
+                imap_host=payload.imap_host,
+                imap_port=payload.imap_port,
+                username=payload.username,
+                app_password=payload.app_password,
+                last_test_ok=False,
+            )
+        else:
+            account = build_email_account_from_preset(
+                preset_name=payload.preset_name,
+                email_address=payload.email_address,
+                username=payload.username,
+                app_password=payload.app_password,
+                last_test_ok=False,
+            )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    smtp_test = check_smtp_login(account=account, app_password=payload.app_password)
+    imap_test = check_imap_login(account=account, app_password=payload.app_password)
+    if not smtp_test.ok or not imap_test.ok:
+        return _envelope(
+            {
+                "connected": False,
+                "saved": False,
+                "smtp_ok": smtp_test.ok,
+                "imap_ok": imap_test.ok,
+                "message": "Verbindungstest fehlgeschlagen. Konto wurde nicht gespeichert.",
+            }
+        )
+
+    tested_account = build_email_account_from_plain_password(
+        display_name=account.display_name,
+        email_address=account.email_address,
+        smtp_host=account.smtp_host,
+        smtp_port=account.smtp_port,
+        imap_host=account.imap_host,
+        imap_port=account.imap_port,
+        username=account.username,
+        app_password=payload.app_password,
+        last_test_ok=True,
+    )
+    result = save_email_account(
+        tested_account,
+        approval_token=payload.approval_token,
+    )
+    if not result.persisted:
+        raise HTTPException(status_code=403, detail=result.message)
+    return _envelope(
+        {
+            "connected": True,
+            "saved": True,
+            "smtp_ok": True,
+            "imap_ok": True,
+            "status": email_account_status(),
+        }
+    )
+
+
+@app.post("/api/accounts/email/test")
+def test_email_account_connection() -> dict[str, Any]:
+    account = load_email_account()
+    if account is None:
+        return _envelope({"connected": False, "smtp_ok": False, "imap_ok": False})
+    app_password = decrypt_email_account_password(account)
+    smtp_test = check_smtp_login(account=account, app_password=app_password)
+    imap_test = check_imap_login(account=account, app_password=app_password)
+    return _envelope(
+        {
+            "connected": True,
+            "smtp_ok": smtp_test.ok,
+            "imap_ok": imap_test.ok,
+            "last_test_ok": smtp_test.ok and imap_test.ok,
+        }
+    )
+
+
+@app.delete("/api/accounts/email")
+def delete_email_account_endpoint(payload: EmailAccountDeleteRequest) -> dict[str, Any]:
+    result = delete_email_account(approval_token=payload.approval_token)
+    if not result.allowed:
+        raise HTTPException(status_code=403, detail=result.message)
+    return _envelope({"deleted": True, "status": email_account_status()})
+
+
+@app.post("/api/accounts/email/activation-gate")
+def get_email_activation_gate(payload: EmailActivationGateRequest) -> dict[str, Any]:
+    gate = build_email_activation_gate(
+        approval_token=payload.approval_token,
+        scanner_smoke_passed=payload.scanner_smoke_passed,
+    )
+    return _envelope(asdict(gate))
+
+
+@app.get("/api/messages/email-inbox")
+def get_email_inbox_preview(limit: int = Query(default=10)) -> dict[str, Any]:
+    account = load_email_account()
+    if account is None:
+        return _envelope({"connected": False, "items": [], "message": "Kein E-Mail-Konto verbunden."})
+    app_password = decrypt_email_account_password(account)
+    result = read_recent_inbox_emails(account=account, app_password=app_password, limit=limit)
+    return _envelope(
+        {
+            "connected": True,
+            "ok": result.ok,
+            "items": [asdict(item) for item in result.items],
+            "error": result.error,
+            "read_only": result.read_only,
+        }
+    )
+
+
+@app.post("/api/accounts/email/send-task-forward")
+def send_task_forward_email(payload: EmailSendRequest) -> dict[str, Any]:
+    task = task_agent.get_task_by_id(payload.task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    contact = _find_contact(payload.contact_id)
+    recipient = str(contact.get("email_address") or "")
+    subject = payload.subject or f"Aufgabe: {task.get('title', '')}"
+    account = load_email_account()
+    guard = check_email_send_allowed(
+        recipient=recipient,
+        subject=subject,
+        approval_token=payload.approval_token,
+        account=account,
+    )
+    if not guard.allowed:
+        return _envelope(
+            {
+                "sent": False,
+                "guard": asdict(guard),
+                "message": "E-Mail wurde nicht gesendet.",
+            }
+        )
+    assert account is not None
+    app_password = decrypt_email_account_password(account)
+    send_result = send_single_email(
+        account=account,
+        app_password=app_password,
+        recipient=recipient,
+        subject=subject,
+        body=payload.body,
+    )
+    log_email_send(
+        recipient=recipient,
+        subject=subject,
+        message_id=send_result.message_id,
+        status="sent" if send_result.sent else "failed",
+    )
+    audit = build_messaging_audit_preview(
+        task_id=payload.task_id,
+        task_title=str(task.get("title") or ""),
+        contact_id=payload.contact_id,
+        contact_name=str(contact.get("name") or ""),
+        channel="email",
+        target=recipient,
+        draft_text=payload.body,
+        approval_token=EMAIL_SEND_TOKEN,
+        mode="live",
+        status="sent" if send_result.sent else "failed",
+        provider="smtp",
+        external_message_id=send_result.message_id,
+    )
+    return _envelope(
+        {
+            "sent": send_result.sent,
+            "message_id": send_result.message_id,
+            "error": send_result.error,
+            "audit": asdict(audit),
+            "guard": asdict(guard),
+        }
+    )
 
 
 @app.get("/api/ai/status")

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from getpass import getpass
 import sqlite3
 from typing import Any, Dict, List
 
 from friday.app.menu import (
+    show_account_menu,
     show_backup_restore_menu,
     show_menu,
     show_privacy_dashboard_menu,
@@ -27,6 +29,20 @@ from friday.app.notification_preview import build_due_task_notification_preview
 from friday.app.local_ollama_runtime import is_local_ollama_url
 from friday.app.email_draft_model import EmailDraft, build_email_draft
 from friday.app.email_draft_renderer import render_email_draft_preview
+from friday.app.email_account_store import (
+    EMAIL_ACCOUNT_DELETE_TOKEN,
+    EMAIL_ACCOUNT_SAVE_TOKEN,
+    build_email_account_from_plain_password,
+    build_email_account_from_preset,
+    decrypt_email_account_password,
+    delete_email_account,
+    email_account_status,
+    load_email_account,
+    save_email_account,
+)
+from friday.app.email_activation_gate import EMAIL_ACTIVATION_TOKEN, build_email_activation_gate
+from friday.app.email_imap_reader import check_imap_login, read_recent_inbox_emails
+from friday.app.email_smtp_sender import check_smtp_login
 from friday.app.review_batch_selection_parser import parse_review_batch_selection
 from friday.app.review_batch_selection_preview import (
     render_review_batch_selection_preview,
@@ -234,7 +250,31 @@ class FridayInterface:
             print(f"Aktionshinweis: {label}")
             print(f"Antwortvorschlag: {suggestion}")
             shown.append({"message": message, "is_scheduling": is_scheduling, "suggestion": suggestion})
+        self._show_email_inbox_preview()
         return shown
+
+    def _show_email_inbox_preview(self) -> None:
+        """Show a read-only local email inbox preview when an account is connected."""
+        account = load_email_account()
+        if account is None:
+            print("\nE-Mail-Posteingang: Kein E-Mail-Konto verbunden.")
+            return
+        try:
+            password = decrypt_email_account_password(account)
+            result = read_recent_inbox_emails(account=account, app_password=password, limit=10)
+        except Exception:
+            print("\nE-Mail-Posteingang: Vorschau konnte nicht geladen werden.")
+            return
+        print("\nE-Mail-Posteingang (letzte 10, nur lesen)")
+        if not result.ok:
+            print(f"E-Mail-Posteingang nicht erreichbar: {result.error or 'unbekannter Fehler'}")
+            return
+        if not result.items:
+            print("Keine E-Mails gefunden.")
+            return
+        for item in result.items:
+            print(f"- Von: {item.sender} | Betreff: {item.subject} | Datum: {item.date}")
+            print(f"  {item.text_preview}")
 
     def _intent_label(self, intent: str) -> str:
         """Map internal intent to German display labels."""
@@ -2985,12 +3025,139 @@ class FridayInterface:
         if choice == "13":
             self.show_email_draft_preview()
             return True
+        if choice == "14":
+            self.open_account_menu()
+            return True
         if choice == "7":
             print("Friday wird beendet.")
             return False
 
         print("Ungültige Auswahl. Bitte erneut versuchen.")
         return True
+
+    def open_account_menu(self) -> None:
+        """Show local account connection options."""
+        while True:
+            choice = show_account_menu()
+            if choice == "1":
+                self._show_email_account_status()
+            elif choice == "2":
+                self._connect_email_account_from_input()
+            elif choice == "3":
+                self._test_email_account_from_input()
+            elif choice == "4":
+                self._delete_email_account_from_input()
+            elif choice == "5":
+                self._show_email_activation_gate_from_input()
+            elif choice == "6" or not choice:
+                return
+            else:
+                print(INVALID_SELECTION)
+
+    def _show_email_account_status(self) -> None:
+        """Print password-free email account status."""
+        self._section_title("E-Mail-Konto Status")
+        status = email_account_status()
+        print(f"Verbunden: {status['connected']}")
+        print(f"E-Mail: {status.get('email_address') or '-'}")
+        print(f"Letzter Test OK: {status['last_test_ok']}")
+        print(f"Real-Versand aktiv: {status['real_email_enabled']}")
+        print(f"Tageslimit: {status['send_limit_per_day']}")
+        print("WhatsApp: Deep-Link ueber dein Handy, kein Konto-Login.")
+
+    def _connect_email_account_from_input(self) -> None:
+        """Connect and store one email account after live login tests."""
+        self._section_title("E-Mail-Konto verbinden")
+        print("Am sichersten ist die Verbindung direkt am PC.")
+        preset = input("Preset (gmail/outlook/gmx/web.de/custom): ").strip().lower() or "gmail"
+        email_address = input("E-Mail-Adresse: ").strip()
+        username = input("Benutzername (leer = E-Mail-Adresse): ").strip() or email_address
+        app_password = getpass("App-Passwort (wird nicht angezeigt): ")
+        try:
+            if preset == "custom":
+                smtp_host = input("SMTP Host: ").strip()
+                smtp_port = int(input("SMTP Port (465 oder 587): ").strip())
+                imap_host = input("IMAP Host: ").strip()
+                imap_port = int(input("IMAP Port (993): ").strip())
+                account = build_email_account_from_plain_password(
+                    display_name=email_address,
+                    email_address=email_address,
+                    smtp_host=smtp_host,
+                    smtp_port=smtp_port,
+                    imap_host=imap_host,
+                    imap_port=imap_port,
+                    username=username,
+                    app_password=app_password,
+                )
+            else:
+                account = build_email_account_from_preset(
+                    preset_name=preset,
+                    email_address=email_address,
+                    username=username,
+                    app_password=app_password,
+                )
+        except ValueError as error:
+            print(str(error))
+            return
+        smtp_result = check_smtp_login(account=account, app_password=app_password)
+        imap_result = check_imap_login(account=account, app_password=app_password)
+        print(f"SMTP Test: {'erfolgreich' if smtp_result.ok else 'Fehler'}")
+        print(f"IMAP Test: {'erfolgreich' if imap_result.ok else 'Fehler'}")
+        if not smtp_result.ok or not imap_result.ok:
+            print("Konto wurde nicht gespeichert.")
+            return
+        token = input(f"Zum Speichern exakt {EMAIL_ACCOUNT_SAVE_TOKEN} eingeben: ")
+        tested_account = build_email_account_from_plain_password(
+            display_name=account.display_name,
+            email_address=account.email_address,
+            smtp_host=account.smtp_host,
+            smtp_port=account.smtp_port,
+            imap_host=account.imap_host,
+            imap_port=account.imap_port,
+            username=account.username,
+            app_password=app_password,
+            last_test_ok=True,
+        )
+        result = save_email_account(tested_account, approval_token=token)
+        print(result.message)
+
+    def _test_email_account_from_input(self) -> None:
+        """Test stored SMTP/IMAP credentials without sending."""
+        account = load_email_account()
+        if account is None:
+            print("Kein E-Mail-Konto verbunden.")
+            return
+        try:
+            password = decrypt_email_account_password(account)
+        except Exception:
+            print("E-Mail-Passwort konnte lokal nicht entschluesselt werden.")
+            return
+        smtp_result = check_smtp_login(account=account, app_password=password)
+        imap_result = check_imap_login(account=account, app_password=password)
+        print(f"SMTP Test: {'erfolgreich' if smtp_result.ok else 'Fehler'}")
+        print(f"IMAP Test: {'erfolgreich' if imap_result.ok else 'Fehler'}")
+
+    def _delete_email_account_from_input(self) -> None:
+        """Delete stored email account with hard token."""
+        token = input(f"Zum Loeschen exakt {EMAIL_ACCOUNT_DELETE_TOKEN} eingeben: ")
+        result = delete_email_account(approval_token=token)
+        print(result.message)
+
+    def _show_email_activation_gate_from_input(self) -> None:
+        """Show whether real email activation could be allowed later."""
+        token = input(f"Token fuer Pruefung ({EMAIL_ACTIVATION_TOKEN}): ")
+        smoke = run_safety_smoke()
+        gate = build_email_activation_gate(
+            approval_token=token,
+            scanner_smoke_passed=smoke.passed,
+        )
+        print(f"EMAIL AKTIVIEREN erlaubt: {gate.allowed}")
+        print(f"Safety Smoke: {'PASS' if smoke.passed else 'FAIL'}")
+        if gate.blocked_reasons:
+            print("Blocker:")
+            for reason in gate.blocked_reasons:
+                print(f"- {reason}")
+        print("Hinweis: Dieser Lauf setzt ENABLE_REAL_EMAIL nicht automatisch auf True.")
 
     def run(self) -> None:
         """Run the basic interaction loop until the user exits."""

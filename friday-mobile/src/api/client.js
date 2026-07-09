@@ -199,6 +199,41 @@ export async function buildTaskForwardDraft(payload) {
   });
 }
 
+export async function sendTaskForwardEmail(payload) {
+  return callApi("/api/accounts/email/send-task-forward", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getEmailAccountStatus() {
+  return callApi("/api/accounts/email/status");
+}
+
+export async function connectEmailAccount(payload) {
+  return callApi("/api/accounts/email/connect", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function testEmailAccountConnection() {
+  return callApi("/api/accounts/email/test", {
+    method: "POST",
+  });
+}
+
+export async function deleteEmailAccount(payload) {
+  return callApi("/api/accounts/email", {
+    method: "DELETE",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getEmailInbox(limit = 10) {
+  return callApi(`/api/messages/email-inbox?limit=${encodeURIComponent(String(limit))}`);
+}
+
 export async function getPrivacy() {
   return callApi("/api/privacy");
 }

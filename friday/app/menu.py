@@ -19,6 +19,16 @@ MENU_OPTIONS: List[Tuple[str, str]] = [
     ("11", "Backup / Restore"),
     ("12", "Privacy Dashboard"),
     ("13", "E-Mail-Entwurf Preview"),
+    ("14", "Konten"),
+]
+
+ACCOUNT_MENU_OPTIONS: List[Tuple[str, str]] = [
+    ("1", "E-Mail-Konto Status anzeigen"),
+    ("2", "E-Mail-Konto verbinden"),
+    ("3", "E-Mail-Verbindung testen"),
+    ("4", "E-Mail-Konto löschen"),
+    ("5", "E-Mail-Aktivierung prüfen"),
+    ("6", "Zurück zum Hauptmenü"),
 ]
 
 TASK_MENU_OPTIONS: List[Tuple[str, str]] = [
@@ -71,7 +81,19 @@ def show_menu() -> str:
     print("Hinweis: Friday bleibt lokal. Externe Aktionen sind deaktiviert.")
     for option, label in MENU_OPTIONS:
         print(f"{option}. {label}")
-    return input("Auswahl (1-13): ").strip()
+    return input("Auswahl (1-14): ").strip()
+
+
+def show_account_menu() -> str:
+    """Show the local accounts submenu and return the selection."""
+    print("\n" + "-" * 40)
+    print("Konten")
+    print("-" * 40)
+    print("Hinweis: E-Mail bleibt deaktiviert, bis EMAIL AKTIVIEREN spaeter ausgefuehrt wird.")
+    print("WhatsApp bleibt Deep-Link ueber dein Handy.")
+    for option, label in ACCOUNT_MENU_OPTIONS:
+        print(f"{option}. {label}")
+    return input("Auswahl (1-6): ").strip()
 
 
 def show_task_menu() -> str:

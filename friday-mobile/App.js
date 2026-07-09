@@ -22,9 +22,12 @@ import {
   buildTaskForwardDraft,
   checkHealth,
   completeTask,
+  connectEmailAccount,
   createContact,
   createTask,
   deleteTask,
+  getEmailAccountStatus,
+  getEmailInbox,
   generateTaskSuggestionsForMessage,
   getApiUrl,
   getCalendar,
@@ -35,6 +38,8 @@ import {
   getMessages,
   getPrivacy,
   getTasks,
+  sendTaskForwardEmail,
+  testEmailAccountConnection,
   rejectMessageSuggestion,
   rejectTaskSuggestion,
 } from "./src/api/client";
@@ -228,6 +233,14 @@ export default function App() {
   const [newContactWhatsapp, setNewContactWhatsapp] = useState("");
   const [newContactNotes, setNewContactNotes] = useState("");
   const [privacy, setPrivacy] = useState(null);
+  const [emailAccountStatus, setEmailAccountStatus] = useState(null);
+  const [emailInbox, setEmailInbox] = useState(null);
+  const [emailPreset, setEmailPreset] = useState("gmail");
+  const [emailAddress, setEmailAddress] = useState("");
+  const [emailUsername, setEmailUsername] = useState("");
+  const [emailAppPassword, setEmailAppPassword] = useState("");
+  const [emailAccountToken, setEmailAccountToken] = useState("");
+  const [emailAccountResult, setEmailAccountResult] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskForwardTo, setNewTaskForwardTo] = useState("");
   const [forwardTask, setForwardTask] = useState(null);
@@ -341,10 +354,16 @@ export default function App() {
     if (screenName === "Nachrichten") {
       const messagePayload = await getMessages();
       const suggestions = await getMessageSuggestions();
+      const inbox = await getEmailInbox(10).catch((err) => ({
+        connected: false,
+        items: [],
+        message: normalizeApiError(err),
+      }));
       const list = messagePayload?.items || [];
       setMessages(isArray(list));
       setMessageSuggestions(isArray(suggestions?.message_suggestions));
       setTaskSuggestions(isArray(suggestions?.task_suggestions));
+      setEmailInbox(inbox);
       return;
     }
 
@@ -362,7 +381,9 @@ export default function App() {
 
     if (screenName === "Datenschutz") {
       const payload = await getPrivacy();
+      const emailStatus = await getEmailAccountStatus().catch(() => null);
       setPrivacy(payload);
+      setEmailAccountStatus(emailStatus);
     }
   };
 
@@ -579,6 +600,77 @@ export default function App() {
       setForwardExternalOpenResult(
         `Externe App konnte nicht geöffnet werden: ${normalizeApiError(err)}. Friday hat nichts gesendet.`,
       );
+    }
+  };
+
+  const sendForwardEmailThroughFriday = async () => {
+    if (!forwardTask || !forwardContact || forwardChannel !== "email") {
+      return;
+    }
+    setActionBusy(true);
+    try {
+      const result = await sendTaskForwardEmail({
+        task_id: forwardTask.id,
+        contact_id: forwardContact.id,
+        subject: `Aufgabe: ${forwardTask.title || ""}`,
+        body: forwardDraft,
+        approval_token: forwardApprovalToken.trim(),
+      });
+      setForwardExternalOpenResult(
+        result?.sent
+          ? `Friday hat die E-Mail gesendet. Message-ID: ${result?.message_id || "-"}`
+          : `Friday hat nicht gesendet: ${(result?.guard?.blocked_reasons || []).join(" / ") || result?.message || "blockiert"}`,
+      );
+    } catch (err) {
+      setForwardExternalOpenResult(`E-Mail-Versand blockiert: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleConnectEmailAccount = async () => {
+    if (!emailAddress.trim() || !emailAppPassword.trim()) {
+      setEmailAccountResult("E-Mail-Adresse und App-Passwort sind erforderlich.");
+      return;
+    }
+    setActionBusy(true);
+    setEmailAccountResult("Verbindungstest läuft…");
+    try {
+      const result = await connectEmailAccount({
+        preset_name: emailPreset.trim() || "gmail",
+        email_address: emailAddress.trim(),
+        username: emailUsername.trim() || emailAddress.trim(),
+        app_password: emailAppPassword,
+        approval_token: emailAccountToken.trim(),
+      });
+      setEmailAppPassword("");
+      setEmailAccountResult(
+        result?.saved
+          ? "E-Mail-Konto lokal gespeichert. Real-Versand bleibt aus, bis EMAIL AKTIVIEREN separat freigegeben wird."
+          : result?.message || "Konto wurde nicht gespeichert.",
+      );
+      const status = await getEmailAccountStatus();
+      setEmailAccountStatus(status);
+    } catch (err) {
+      setEmailAccountResult(`Konto konnte nicht verbunden werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleTestEmailAccount = async () => {
+    setActionBusy(true);
+    try {
+      const result = await testEmailAccountConnection();
+      setEmailAccountResult(
+        result?.connected
+          ? `SMTP: ${result.smtp_ok ? "OK" : "Fehler"} / IMAP: ${result.imap_ok ? "OK" : "Fehler"}`
+          : "Kein E-Mail-Konto verbunden.",
+      );
+    } catch (err) {
+      setEmailAccountResult(`Test fehlgeschlagen: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
     }
   };
 
@@ -809,6 +901,18 @@ export default function App() {
                       onPress={openForwardExternalApp}
                     />
                   )}
+                  {forwardTokenApproved &&
+                    forwardChannel === "email" &&
+                    emailAccountStatus?.real_email_enabled &&
+                    hasForwardTarget(forwardContact, forwardChannel) && (
+                      <ActionButton
+                        small
+                        variant="success"
+                        label="Jetzt durch Friday senden"
+                        onPress={sendForwardEmailThroughFriday}
+                        disabled={actionBusy}
+                      />
+                    )}
                   {forwardTokenApproved && (!hasForwardTarget(forwardContact, forwardChannel) || !forwardDeepLink) && (
                     <Text style={styles.approvalResultText}>
                       Kein öffnungsfähiges Ziel für {channelLabel(forwardChannel)} vorhanden.
@@ -908,6 +1012,22 @@ export default function App() {
             </View>
           ))}
           {messages.length === 0 && <EmptyState icon="✉" text="Keine Nachrichten." />}
+          <SectionTitle>E-Mail-Posteingang (nur lesen)</SectionTitle>
+          {!emailInbox?.connected && (
+            <View style={styles.card}>
+              <Text style={styles.cardBody}>
+                {emailInbox?.message || "Kein E-Mail-Konto verbunden."}
+              </Text>
+            </View>
+          )}
+          {emailInbox?.connected && isArray(emailInbox.items).map((item, index) => (
+            <View key={`${item.subject || "mail"}-${index}`} style={styles.card}>
+              <Text style={styles.cardTitle}>{item.subject || "(ohne Betreff)"}</Text>
+              <Text style={styles.cardMeta}>Von: {item.sender || "-"}</Text>
+              <Text style={styles.cardMeta}>{item.date || ""}</Text>
+              <Text style={styles.cardBody}>{item.text_preview || ""}</Text>
+            </View>
+          ))}
 
           <SectionTitle>Antwort-Vorschläge</SectionTitle>
           {messageSuggestions.map((suggestion) => (
@@ -1132,6 +1252,91 @@ export default function App() {
             ))}
           </View>
           {!!note && <Text style={styles.privacyNote}>{note}</Text>}
+          <SectionTitle>Konten</SectionTitle>
+          <View style={styles.card}>
+            <View style={styles.privacyRow}>
+              <Text style={styles.privacyLabel}>E-Mail-Konto</Text>
+              <Chip
+                label={emailAccountStatus?.connected ? "verbunden" : "nicht verbunden"}
+                color={emailAccountStatus?.connected ? colors.sage : colors.textSoft}
+              />
+            </View>
+            <Text style={styles.cardMeta}>
+              Real-Versand: {emailAccountStatus?.real_email_enabled ? "aktiv" : "aus"}
+            </Text>
+            <Text style={styles.cardMeta}>
+              Letzter Test OK: {emailAccountStatus?.last_test_ok ? "ja" : "nein"}
+            </Text>
+            <Text style={styles.forwardSafety}>
+              Am sichersten verbindest du das Konto direkt am PC. Ueber Handy wird das App-Passwort zur lokalen PC-API gesendet:
+              Tailscale ist verschluesselt, Heim-LAN-HTTP nicht.
+            </Text>
+            <TextInput
+              value={emailPreset}
+              onChangeText={setEmailPreset}
+              style={styles.input}
+              placeholder="Preset: gmail/outlook/gmx/web.de"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+            />
+            <TextInput
+              value={emailAddress}
+              onChangeText={setEmailAddress}
+              style={styles.input}
+              placeholder="E-Mail-Adresse"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
+            <TextInput
+              value={emailUsername}
+              onChangeText={setEmailUsername}
+              style={styles.input}
+              placeholder="Benutzername (leer = E-Mail)"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+            />
+            <TextInput
+              value={emailAppPassword}
+              onChangeText={setEmailAppPassword}
+              style={styles.input}
+              placeholder="App-Passwort"
+              placeholderTextColor={colors.textSoft}
+              secureTextEntry
+              autoCapitalize="none"
+            />
+            <TextInput
+              value={emailAccountToken}
+              onChangeText={setEmailAccountToken}
+              style={styles.input}
+              placeholder="KONTO SPEICHERN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <View style={styles.row}>
+              <ActionButton
+                small
+                variant="success"
+                label="Konto verbinden"
+                onPress={handleConnectEmailAccount}
+                disabled={actionBusy}
+              />
+              <ActionButton
+                small
+                variant="ghost"
+                label="Verbindung testen"
+                onPress={handleTestEmailAccount}
+                disabled={actionBusy}
+              />
+            </View>
+            {!!emailAccountResult && <Text style={styles.approvalResultText}>{emailAccountResult}</Text>}
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>WhatsApp</Text>
+            <Text style={styles.cardBody}>
+              WhatsApp bleibt ueber dein Handy verbunden: Friday befuellt die Nachricht, du tippst selbst auf Senden.
+            </Text>
+          </View>
         </View>
       );
     }
