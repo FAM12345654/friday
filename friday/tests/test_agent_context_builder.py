@@ -56,6 +56,19 @@ def test_build_agent_context_filters_by_whatsapp_channel() -> None:
     assert "Nicht fuer WhatsApp." not in context
 
 
+def test_build_agent_context_includes_customer_betreuer() -> None:
+    context = build_agent_context(
+        contact={"name": "Kunde Alpha", "contact_type": "kunde", "betreuer": "alex"},
+        channel="email",
+        policies=[],
+        email_account=SimpleNamespace(agent_notes=""),
+        whatsapp_notes={"agent_notes": ""},
+    )
+
+    assert "Kunde Kunde Alpha, Betreuer: Alex" in context
+    assert "Kontaktart: kunde" in context
+
+
 def test_build_agent_context_returns_empty_string_when_no_notes_exist() -> None:
     assert (
         build_agent_context(

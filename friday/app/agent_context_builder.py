@@ -58,7 +58,12 @@ def build_agent_context(
     if contact:
         contact_notes = _clean_text(contact.get("notes"))
         contact_type = _clean_text(contact.get("contact_type") or contact.get("category"))
+        betreuer = _clean_text(contact.get("betreuer"))
         contact_lines: list[str] = []
+        if contact_type == "kunde" and betreuer:
+            contact_lines.append(
+                f"Kunde {_contact_label(contact)}, Betreuer: {betreuer.title()}"
+            )
         if contact_type:
             contact_lines.append(f"Kontaktart: {contact_type}")
         if contact_notes:

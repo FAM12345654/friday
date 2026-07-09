@@ -35,6 +35,7 @@ class ContactContextAgent:
         notes: str | None = "",
         email_address: str | None = None,
         whatsapp_target: str | None = None,
+        betreuer: str | None = None,
     ) -> Dict[str, Any]:
         """Create a local contact entry."""
         if self.contact_repository is None:
@@ -45,6 +46,7 @@ class ContactContextAgent:
             notes=notes,
             email_address=email_address,
             whatsapp_target=whatsapp_target,
+            betreuer=betreuer,
         )
 
     def update_contact(
@@ -56,6 +58,7 @@ class ContactContextAgent:
         notes: str | None = None,
         email_address: str | None = None,
         whatsapp_target: str | None = None,
+        betreuer: str | None = None,
     ) -> Dict[str, Any] | None:
         """Update a local contact entry."""
         if self.contact_repository is None:
@@ -67,6 +70,7 @@ class ContactContextAgent:
             notes=notes,
             email_address=email_address,
             whatsapp_target=whatsapp_target,
+            betreuer=betreuer,
         )
 
     def get_category_for_sender(self, sender: str) -> str:
@@ -79,3 +83,13 @@ class ContactContextAgent:
                     return normalize_contact_category(category)
             return "sonstiges"
         return self.contact_repository.get_contact_type_by_name(sender)
+
+    def find_contact_for_sender(self, sender: str) -> Dict[str, Any] | None:
+        """Find a stored contact for a local sender identifier."""
+        if self.contact_repository is None:
+            sender_lower = sender.lower()
+            for contact in self.load_contacts():
+                if str(contact.get("name", "")).lower() == sender_lower:
+                    return contact
+            return None
+        return self.contact_repository.find_contact_for_sender(sender)

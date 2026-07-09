@@ -51,7 +51,7 @@ def test_process_whatsapp_message_creates_review_suggestions(tmp_path) -> None:
         chat_id="task-chat",
         sender_name="Kontakt",
         sender_number="task-number",
-        body="todo",
+        body="todo fuer Philip",
         received_at="2026-07-09T10:05:00+00:00",
         db_path=db_path,
     )

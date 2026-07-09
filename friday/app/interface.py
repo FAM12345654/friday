@@ -2970,8 +2970,9 @@ class FridayInterface:
             print("3. Kontakt bearbeiten (Vorschau)")
             print("4. Kontakt vergessen")
             print("5. Zurück zum Hauptmenü")
+            print("6. Einfachen Kontakt speichern")
 
-            choice = input("Auswahl (1-5): ").strip()
+            choice = input("Auswahl (1-6): ").strip()
             if choice == "1":
                 self._show_contact_contexts()
             elif choice == "2":
@@ -2982,8 +2983,48 @@ class FridayInterface:
                 self._forget_contact_context_from_input()
             elif choice == "5":
                 return
+            elif choice == "6":
+                self._create_simple_contact_from_input()
             else:
                 print(INVALID_SELECTION)
+
+    def _create_simple_contact_from_input(self) -> None:
+        """Create a simple local contact used by message and task rules."""
+        repository = getattr(self.message_agent, "contact_repository", None)
+        if repository is None:
+            print("Kontakt-Speicher ist nicht verfügbar.")
+            return
+
+        self._section_title("Einfachen Kontakt speichern")
+        name = input("Name / Absender: ").strip()
+        if not name:
+            print("Kontaktname ist erforderlich.")
+            return
+
+        contact_type = input(
+            "Kontaktart (arbeit/freund/familie/kunde/sonstiges): "
+        ).strip().lower() or "sonstiges"
+        betreuer = None
+        if contact_type == "kunde":
+            betreuer = input("Betreuer (flo/philip/alex, leer = keiner): ").strip().lower() or None
+
+        notes = input("Notiz (optional): ").strip()
+        try:
+            contact = repository.create_contact(
+                name=name,
+                contact_type=contact_type,
+                notes=notes,
+                betreuer=betreuer,
+            )
+        except ValueError as error:
+            print(str(error))
+            return
+
+        print("Kontakt wurde lokal gespeichert.")
+        print(f"Name: {contact['name']}")
+        print(f"Kontaktart: {contact['contact_type']}")
+        if contact.get("betreuer"):
+            print(f"Betreuer: {contact['betreuer']}")
 
     def _show_safety_status(self) -> None:
         """Show which real services are currently disabled."""

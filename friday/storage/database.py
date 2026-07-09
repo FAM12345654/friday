@@ -86,7 +86,8 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 contact_type TEXT,
                 notes TEXT,
                 email_address TEXT,
-                whatsapp_target TEXT
+                whatsapp_target TEXT,
+                betreuer TEXT
             );
 
             CREATE TABLE IF NOT EXISTS contact_contexts (
@@ -241,6 +242,8 @@ def _ensure_contact_target_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE contacts ADD COLUMN email_address TEXT")
     if "whatsapp_target" not in existing:
         connection.execute("ALTER TABLE contacts ADD COLUMN whatsapp_target TEXT")
+    if "betreuer" not in existing:
+        connection.execute("ALTER TABLE contacts ADD COLUMN betreuer TEXT")
 
 
 def _ensure_account_policy_transform_column(connection: sqlite3.Connection) -> None:
@@ -354,12 +357,13 @@ def seed_database_from_json(db_path: Path | str | None = None) -> None:
                         "notes": item.get("notes", ""),
                         "email_address": item.get("email_address"),
                         "whatsapp_target": item.get("whatsapp_target"),
+                        "betreuer": item.get("betreuer"),
                     }
                 )
             connection.executemany(
                 """
-                INSERT INTO contacts (id, name, contact_type, notes, email_address, whatsapp_target)
-                VALUES (:id, :name, :contact_type, :notes, :email_address, :whatsapp_target)
+                INSERT INTO contacts (id, name, contact_type, notes, email_address, whatsapp_target, betreuer)
+                VALUES (:id, :name, :contact_type, :notes, :email_address, :whatsapp_target, :betreuer)
                 """,
                 prepared_contacts,
             )

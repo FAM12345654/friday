@@ -17,6 +17,7 @@ from friday.config import (
 )
 from friday.storage.database import setup_local_database
 from friday.storage.database import get_connection
+from friday.storage.repositories import ContactRepository
 
 
 def _build_message_agent(tmp_path):
@@ -36,6 +37,15 @@ def _insert_message(db_file, message_id: int, sender: str, text: str) -> None:
         )
 
 
+def _insert_philip_customer(db_file, name: str = "Chef") -> None:
+    ContactRepository(db_file).create_contact(
+        name=name,
+        contact_type="kunde",
+        notes="Testkunde fuer lokale Zuständigkeitsregel.",
+        betreuer="philip",
+    )
+
+
 def test_generate_local_suggestions_creates_for_scheduling_messages(tmp_path) -> None:
     """Only scheduling-related messages should create local suggestions."""
     agent = _build_message_agent(tmp_path)
@@ -51,6 +61,7 @@ def test_generate_local_task_suggestions_creates_for_task_messages(tmp_path) -> 
     db_file = tmp_path / "friday.db"
     setup_local_database(db_file)
     _insert_message(db_file, 10, "Chef", "Kannst du bitte die Rechnung prüfen?")
+    _insert_philip_customer(db_file, "Chef")
     agent = MessageAgent(db_path=db_file)
 
     suggestions = agent.generate_local_task_suggestions()
@@ -76,6 +87,7 @@ def test_generate_local_task_suggestions_does_not_duplicate(tmp_path) -> None:
     db_file = tmp_path / "friday.db"
     setup_local_database(db_file)
     _insert_message(db_file, 11, "Chef", "Bitte bitte einen Bericht fertig machen.")
+    _insert_philip_customer(db_file, "Chef")
     agent = MessageAgent(db_path=db_file)
     first = agent.generate_local_task_suggestions()
     second = agent.generate_local_task_suggestions()
@@ -92,6 +104,7 @@ def test_generate_local_task_suggestions_only_for_task_intents(tmp_path) -> None
     setup_local_database(db_file)
     _insert_message(db_file, 12, "Kollege", "Kannst du bitte die Unterlagen vorbereiten?")
     _insert_message(db_file, 13, "Kollege", "Wie ist der Stand?")
+    _insert_philip_customer(db_file, "Kollege")
     agent = MessageAgent(db_path=db_file)
     agent.generate_local_suggestions()
 
@@ -109,10 +122,47 @@ def test_generate_local_task_suggestions_does_not_create_for_non_task_messages(t
     assert suggestions == []
 
 
+def test_generate_local_task_suggestions_accepts_explicit_philip_trigger(tmp_path) -> None:
+    db_file = tmp_path / "friday.db"
+    setup_local_database(db_file)
+    _insert_message(db_file, 140, "Kollege", "Kannst du bitte Philip die Datei schicken?")
+    agent = MessageAgent(db_path=db_file)
+
+    suggestions = agent.generate_local_task_suggestions()
+
+    assert len(suggestions) == 1
+    assert suggestions[0]["message_id"] == 140
+
+
+def test_generate_local_task_suggestions_skips_unassigned_task_message(tmp_path) -> None:
+    db_file = tmp_path / "friday.db"
+    setup_local_database(db_file)
+    _insert_message(db_file, 141, "Kollege", "Kannst du bitte die Datei schicken?")
+    agent = MessageAgent(db_path=db_file)
+
+    suggestions = agent.generate_local_task_suggestions()
+
+    assert suggestions == []
+
+
+def test_generate_local_task_suggestions_uses_customer_betreuer(tmp_path) -> None:
+    db_file = tmp_path / "friday.db"
+    setup_local_database(db_file)
+    _insert_message(db_file, 142, "Kunde Alpha", "Bitte bitte das Angebot vorbereiten.")
+    _insert_philip_customer(db_file, "Kunde Alpha")
+    agent = MessageAgent(db_path=db_file)
+
+    suggestions = agent.generate_local_task_suggestions()
+
+    assert len(suggestions) == 1
+    assert suggestions[0]["message_id"] == 142
+
+
 def test_get_pending_task_suggestions_returns_rows(tmp_path) -> None:
     db_file = tmp_path / "friday.db"
     setup_local_database(db_file)
     _insert_message(db_file, 15, "Chef", "Kannst du bitte eine Notiz prüfen?")
+    _insert_philip_customer(db_file, "Chef")
     agent = MessageAgent(db_path=db_file)
     agent.generate_local_task_suggestions()
 
@@ -209,6 +259,7 @@ def test_approve_task_suggestion_marks_rejected(tmp_path) -> None:
     db_file = tmp_path / "friday.db"
     setup_local_database(db_file)
     _insert_message(db_file, 16, "Chef", "Bitte bitte das Dokument absenden.")
+    _insert_philip_customer(db_file, "Chef")
     agent = MessageAgent(db_path=db_file)
     suggestion = agent.generate_local_task_suggestions()[0]
 
@@ -222,6 +273,7 @@ def test_edit_task_suggestion_updates_task_fields(tmp_path) -> None:
     db_file = tmp_path / "friday.db"
     setup_local_database(db_file)
     _insert_message(db_file, 17, "Chef", "Bitte prüfe den Entwurf.")
+    _insert_philip_customer(db_file, "Chef")
     agent = MessageAgent(db_path=db_file)
     suggestion = agent.generate_local_task_suggestions()[0]
 

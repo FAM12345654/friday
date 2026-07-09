@@ -11,6 +11,7 @@ from friday.app.calendar_event_extraction import (
     extract_calendar_event_candidate,
     render_calendar_event_review_text,
 )
+from friday.app.todo_relevance import is_relevant_for_user
 from friday.app.whatsapp_inbox_store import (
     WHATSAPP_MESSAGE_ID_OFFSET,
     WhatsAppProcessResult,
@@ -149,6 +150,14 @@ class MessageAgent:
             return self.contact_repository.get_contact_type_by_name(sender)
         return self.contact_agent.get_category_for_sender(sender)
 
+    def get_sender_contact(self, sender: str) -> dict | None:
+        """Find a local contact for sender-based relevance checks."""
+        if self.contact_agent and hasattr(self.contact_agent, "find_contact_for_sender"):
+            return self.contact_agent.find_contact_for_sender(sender)
+        if self.contact_repository is None:
+            return None
+        return self.contact_repository.find_contact_for_sender(sender)
+
     def generate_local_suggestions(self) -> list[Dict[str, Any]]:
         """Create local reply suggestions for scheduling-related messages.
 
@@ -176,12 +185,16 @@ class MessageAgent:
 
         suggestions: list[Dict[str, Any]] = []
         for message in self.get_messages():
-            if self.detect_intent(message.get("text", "")) != "task":
+            text = str(message.get("text", ""))
+            if self.detect_intent(text) != "task":
+                continue
+            sender = message.get("sender", "Unbekannt")
+            sender_contact = self.get_sender_contact(str(sender))
+            if not is_relevant_for_user(text=text, sender_contact=sender_contact):
                 continue
 
-            sender = message.get("sender", "Unbekannt")
             title = f"Aufgabe aus Nachricht von {sender}"
-            notes = str(message.get("text", ""))
+            notes = text
             category = self.get_contact_type(sender)
             suggestions.append(
                 self.task_suggestion_repository.create_task_suggestion(
@@ -242,7 +255,12 @@ class MessageAgent:
                 message_suggestions_created += 1
                 suggestion_created = True
 
-            if self.detect_intent(str(synthetic_message.get("text") or "")) == "task":
+            synthetic_text = str(synthetic_message.get("text") or "")
+            sender_contact = self.get_sender_contact(str(synthetic_message["sender"]))
+            if (
+                self.detect_intent(synthetic_text) == "task"
+                and is_relevant_for_user(text=synthetic_text, sender_contact=sender_contact)
+            ):
                 task = self.task_suggestion_repository.create_task_suggestion(
                     message_id=int(synthetic_message["id"]),
                     title=f"Aufgabe aus WhatsApp von {synthetic_message['sender']}",

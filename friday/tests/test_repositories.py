@@ -57,3 +57,60 @@ def test_contact_repository_reads_and_defaults(tmp_path) -> None:
     assert contacts
     assert repo.get_contact_type_by_name("Kundenbetreuung Blau") in {"kunde", "sonstiges"}
     assert repo.get_contact_type_by_name("Keine Person") == "sonstiges"
+
+
+def test_contact_repository_stores_customer_betreuer(tmp_path) -> None:
+    db_file = _build_repo_db(tmp_path)
+    repo = ContactRepository(db_file)
+
+    contact = repo.create_contact("Kunde Alpha", contact_type="kunde", betreuer="philip")
+
+    assert contact["contact_type"] == "kunde"
+    assert contact["betreuer"] == "philip"
+
+
+def test_contact_repository_clears_betreuer_for_non_customer(tmp_path) -> None:
+    db_file = _build_repo_db(tmp_path)
+    repo = ContactRepository(db_file)
+
+    contact = repo.create_contact("Team Alpha", contact_type="arbeit", betreuer="philip")
+
+    assert contact["contact_type"] == "arbeit"
+    assert contact["betreuer"] is None
+
+
+def test_contact_repository_rejects_invalid_customer_betreuer(tmp_path) -> None:
+    db_file = _build_repo_db(tmp_path)
+    repo = ContactRepository(db_file)
+
+    try:
+        repo.create_contact("Kunde Beta", contact_type="kunde", betreuer="nobody")
+    except ValueError as error:
+        assert "Betreuer must be one of" in str(error)
+    else:
+        raise AssertionError("Invalid betreuer should be rejected.")
+
+
+def test_contact_repository_keeps_free_relation_strings(tmp_path) -> None:
+    db_file = _build_repo_db(tmp_path)
+    repo = ContactRepository(db_file)
+
+    contact = repo.create_contact("Spezialkontakt", contact_type="mentor")
+
+    assert contact["contact_type"] == "mentor"
+    assert repo.get_contact_type_by_name("Spezialkontakt") == "mentor"
+
+
+def test_contact_repository_finds_sender_by_email_and_whatsapp(tmp_path) -> None:
+    db_file = _build_repo_db(tmp_path)
+    repo = ContactRepository(db_file)
+    repo.create_contact(
+        "Kunde Gamma",
+        contact_type="kunde",
+        email_address="gamma@example.test",
+        whatsapp_target="+49 171 1234567",
+        betreuer="philip",
+    )
+
+    assert repo.find_contact_for_sender("gamma@example.test")["name"] == "Kunde Gamma"
+    assert repo.find_contact_for_sender("+491711234567")["betreuer"] == "philip"

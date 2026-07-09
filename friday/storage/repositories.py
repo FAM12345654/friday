@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 import calendar
+import re
 import sqlite3
 from typing import List
 
@@ -614,21 +615,46 @@ class ContactRepository:
         "customer": "kunde",
         "other": "sonstiges",
     }
+    VALID_BETREUER = {"flo", "philip", "alex"}
+    CONTACT_COLUMNS = "id, name, contact_type, notes, email_address, whatsapp_target, betreuer"
 
     def __init__(self, db_path: Path | str | None = None) -> None:
         self.db_path = db_path or get_database_path()
 
     def _normalize_contact_type(self, contact_type: str | None) -> str:
         normalized_type = (contact_type or "work").strip().lower() or "work"
-        normalized_type = self.TYPE_ALIASES.get(normalized_type, normalized_type)
-        return normalized_type if normalized_type in self.VALID_TYPES else "sonstiges"
+        return self.TYPE_ALIASES.get(normalized_type, normalized_type)
+
+    def _normalize_betreuer(
+        self,
+        betreuer: str | None,
+        contact_type: str | None,
+    ) -> str | None:
+        if self._normalize_contact_type(contact_type) != "kunde":
+            return None
+        normalized = (betreuer or "").strip().lower()
+        if not normalized:
+            return None
+        if normalized not in self.VALID_BETREUER:
+            allowed = ", ".join(sorted(self.VALID_BETREUER))
+            raise ValueError(f"Betreuer must be one of: {allowed}.")
+        return normalized
+
+    @staticmethod
+    def _normalize_lookup_value(value: str | None) -> str:
+        return " ".join(str(value or "").strip().casefold().split())
+
+    @staticmethod
+    def _normalize_phone_value(value: str | None) -> str:
+        digits = re.sub(r"\D+", "", str(value or ""))
+        return digits if len(digits) >= 5 else ""
 
     def get_contact_by_id(self, contact_id: int) -> dict | None:
         """Return one stored contact by id."""
         with get_connection(self.db_path) as connection:
             row = connection.execute(
                 """
-                SELECT id, name, contact_type, notes, email_address, whatsapp_target
+                SELECT id, name, contact_type, notes, email_address, whatsapp_target, betreuer
                 FROM contacts
                 WHERE id = ?
                 LIMIT 1
@@ -642,7 +668,7 @@ class ContactRepository:
         with get_connection(self.db_path) as connection:
             rows = connection.execute(
                 """
-                SELECT id, name, contact_type, notes, email_address, whatsapp_target
+                SELECT id, name, contact_type, notes, email_address, whatsapp_target, betreuer
                 FROM contacts
                 ORDER BY name
                 """,
@@ -656,20 +682,22 @@ class ContactRepository:
         notes: str | None = "",
         email_address: str | None = None,
         whatsapp_target: str | None = None,
+        betreuer: str | None = None,
     ) -> dict:
         """Create a local contact entry."""
         normalized_name = name.strip()
         if not normalized_name:
             raise ValueError("Contact name must not be empty.")
         normalized_type = self._normalize_contact_type(contact_type)
+        normalized_betreuer = self._normalize_betreuer(betreuer, normalized_type)
         normalized_notes = "" if notes is None else notes
         normalized_email = (email_address or "").strip() or None
         normalized_whatsapp = (whatsapp_target or "").strip() or None
         with get_connection(self.db_path) as connection:
             cursor = connection.execute(
                 """
-                INSERT INTO contacts (name, contact_type, notes, email_address, whatsapp_target)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO contacts (name, contact_type, notes, email_address, whatsapp_target, betreuer)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     normalized_name,
@@ -677,11 +705,12 @@ class ContactRepository:
                     normalized_notes,
                     normalized_email,
                     normalized_whatsapp,
+                    normalized_betreuer,
                 ),
             )
             row = connection.execute(
                 """
-                SELECT id, name, contact_type, notes, email_address, whatsapp_target
+                SELECT id, name, contact_type, notes, email_address, whatsapp_target, betreuer
                 FROM contacts
                 WHERE id = ?
                 """,
@@ -699,6 +728,7 @@ class ContactRepository:
         notes: str | None = None,
         email_address: str | None = None,
         whatsapp_target: str | None = None,
+        betreuer: str | None = None,
     ) -> dict | None:
         """Update selected local contact fields and return the updated contact."""
         current = self.get_contact_by_id(contact_id)
@@ -725,6 +755,13 @@ class ContactRepository:
         if whatsapp_target is not None:
             updates.append("whatsapp_target = :whatsapp_target")
             params["whatsapp_target"] = whatsapp_target.strip() or None
+        final_contact_type = str(params.get("contact_type", current.get("contact_type")))
+        if betreuer is not None:
+            updates.append("betreuer = :betreuer")
+            params["betreuer"] = self._normalize_betreuer(betreuer, final_contact_type)
+        elif contact_type is not None and final_contact_type != "kunde":
+            updates.append("betreuer = :betreuer")
+            params["betreuer"] = None
 
         if not updates:
             return current
@@ -739,16 +776,39 @@ class ContactRepository:
 
     def get_contact_type_by_name(self, name: str) -> str:
         """Return a known contact type, fallback to other."""
+        contact = self.find_contact_for_sender(name)
+        if contact is not None:
+            return self._normalize_contact_type(contact.get("contact_type"))
+        return "sonstiges"
+
+    def find_contact_for_sender(self, sender: str | None) -> dict | None:
+        """Find a contact by displayed sender, email address, or WhatsApp target."""
+        normalized_sender = self._normalize_lookup_value(sender)
+        phone_sender = self._normalize_phone_value(sender)
+        if not normalized_sender and not phone_sender:
+            return None
+
         with get_connection(self.db_path) as connection:
-            row = connection.execute(
-                "SELECT contact_type FROM contacts WHERE name = ? LIMIT 1",
-                (name,),
-            ).fetchone()
-        if row is None:
-            return "sonstiges"
-        contact_type = str(row[0] or "other").lower()
-        contact_type = self.TYPE_ALIASES.get(contact_type, contact_type)
-        return contact_type if contact_type in self.VALID_TYPES else "sonstiges"
+            rows = connection.execute(
+                f"SELECT {self.CONTACT_COLUMNS} FROM contacts ORDER BY id"
+            ).fetchall()
+
+        for row in rows:
+            contact = row_to_dict(row)
+            lookup_values = {
+                self._normalize_lookup_value(contact.get("name")),
+                self._normalize_lookup_value(contact.get("email_address")),
+                self._normalize_lookup_value(contact.get("whatsapp_target")),
+            }
+            phone_values = {
+                self._normalize_phone_value(contact.get("email_address")),
+                self._normalize_phone_value(contact.get("whatsapp_target")),
+            }
+            if normalized_sender in lookup_values:
+                return contact
+            if phone_sender and phone_sender in phone_values:
+                return contact
+        return None
 
 
 class MessageSuggestionRepository:

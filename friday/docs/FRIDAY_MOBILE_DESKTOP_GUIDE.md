@@ -137,6 +137,28 @@ Dabei kann E-Mail oder WhatsApp als Zielkanal ausgewaehlt werden.
 Auch dieser Flow sendet nichts echt; Details stehen in `FRIDAY_MOBILE_TASK_DELEGATION_DRAFT_FLOW.md`.
 Der Weg zu spaeterem echtem Versand ist in `FRIDAY_MESSAGING_PROVIDER_GATE.md` dokumentiert.
 
+## Kontakte, Kunden-Betreuer und To-do-Regel
+
+Im Kontakte-Tab koennen haeufige Kontakte lokal gespeichert werden.
+Die Kontaktart bleibt eine lokale Relation, z. B. `arbeit`, `freund`, `familie`, `kunde` oder `sonstiges`.
+
+Wenn ein Kontakt als `Kunde` gespeichert wird, kann zusaetzlich ein Betreuer gewaehlt werden:
+
+- Flo
+- Philip
+- Alex
+
+Diese Betreuer-Information steuert lokale Aufgaben-Vorschlaege:
+
+- Task-artige Nachrichten werden nur als To-do vorgeschlagen, wenn der Text ganzwoertig `Philip`, `Phips`, `PH` oder `Zeitler` enthaelt.
+- Oder wenn der bekannte Absender ein Kunde mit Betreuer `Philip` ist.
+- Andere Kunden oder private Kontakte erzeugen nicht automatisch ein To-do fuer Philip.
+
+In der Nachrichtenansicht kann ein unbekannter Absender direkt lokal als Kontakt gespeichert werden.
+Bei `Kunde` wird dort ebenfalls der Betreuer ausgewaehlt.
+Friday sendet dabei nichts und nutzt keine Cloud-KI; die Regel ist deterministisch in Python.
+Details stehen in `FRIDAY_CONTACT_BETREUER_TODO_RULE_GATE.md`.
+
 ## WhatsApp mitlesen (Read-Bridge)
 
 Friday enthaelt eine lokale WhatsApp-Web-Read-Bridge als getrenntes Node-Projekt unter `friday-whatsapp-bridge/`.

@@ -53,6 +53,13 @@ def _insert_task_message(db_file, message_id: int, sender: str, text: str) -> No
             """,
             (message_id, sender, text, "2026-07-05T12:00:00", "other"),
         )
+        connection.execute(
+            """
+            INSERT INTO contacts (name, contact_type, notes, betreuer)
+            VALUES (?, ?, ?, ?)
+            """,
+            (sender, "kunde", "Testkunde fuer Task-Suggestion-Review.", "philip"),
+        )
 
 
 def _set_inputs(monkeypatch, values: list[str]) -> None:

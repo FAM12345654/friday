@@ -192,3 +192,17 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 | View-Prefs | lokale Tabelle `calendar_view_prefs` speichert nur Anzeigeeinstellungen |
 | Safety | keine neuen externen Aktionen; Write/Delete bleiben hart gegatet |
 | Doku | `FRIDAY_CALENDAR_VIEW_FILTER_FIXES_GATE.md` |
+
+## Friday Kontakt-Betreuer und To-do-Zustaendigkeit
+
+| Bereich | Ergebnis |
+|---|---|
+| Ziel | Kunden-Betreuer an lokalen Kontakten und deterministische To-do-Zustaendigkeitsregel |
+| Kontakte | `contacts` speichert optional `betreuer` fuer `contact_type = kunde` |
+| Betreuer | erlaubt: `flo`, `philip`, `alex`; Nicht-Kunden leeren/ignorieren Betreuer |
+| To-do-Regel | Task-Suggestions nur bei ganzwoertigem Philip/Phips/PH/Zeitler oder Kunde mit Betreuer Philip |
+| Mobile | Kontakte-Tab und unbekannte Nachrichten-Absender koennen Kontaktart/Betreuer lokal speichern |
+| CLI | Kontakt-Menue erhaelt Option `6. Einfachen Kontakt speichern`, Rueckweg `5` bleibt unveraendert |
+| Agent-Kontext | Kunden-Betreuer werden in lokalen KI-Draft-Kontext aufgenommen |
+| Safety | kein echter Versand, keine Cloud-KI, keine neue externe Aktion |
+| Doku | `FRIDAY_CONTACT_BETREUER_TODO_RULE_GATE.md` |

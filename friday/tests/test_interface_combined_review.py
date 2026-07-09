@@ -6,6 +6,7 @@ from friday.agents.calendar_agent import CalendarAgent
 from friday.agents.message_agent import MessageAgent
 from friday.agents.task_agent import TaskAgent
 from friday.app.interface import FridayInterface
+from friday.storage.database import get_connection
 from friday.storage.database import setup_local_database
 
 
@@ -52,6 +53,18 @@ def _set_inputs(monkeypatch, values: list[str]) -> None:
 
 def _insert_custom_messages(message_agent: MessageAgent, messages: list[dict]) -> list[dict]:
     message_agent.get_messages = lambda: messages  # type: ignore[method-assign]
+    with get_connection(message_agent.db_path) as connection:
+        for message in messages:
+            sender = message.get("sender")
+            if not sender:
+                continue
+            connection.execute(
+                """
+                INSERT INTO contacts (name, contact_type, notes, betreuer)
+                VALUES (?, ?, ?, ?)
+                """,
+                (sender, "kunde", "Testkunde fuer Combined Review.", "philip"),
+            )
     return messages
 
 

@@ -162,6 +162,7 @@ class ContactCreateRequest(BaseModel):
     notes: Optional[str] = None
     email_address: Optional[str] = None
     whatsapp_target: Optional[str] = None
+    betreuer: Optional[str] = None
 
 
 class ContactUpdateRequest(BaseModel):
@@ -170,6 +171,7 @@ class ContactUpdateRequest(BaseModel):
     notes: Optional[str] = None
     email_address: Optional[str] = None
     whatsapp_target: Optional[str] = None
+    betreuer: Optional[str] = None
 
 
 class ContactCategoryPreviewRequest(BaseModel):
@@ -1440,6 +1442,7 @@ def create_contact(payload: ContactCreateRequest) -> dict[str, Any]:
             notes=payload.notes,
             email_address=payload.email_address,
             whatsapp_target=payload.whatsapp_target,
+            betreuer=payload.betreuer,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -24,6 +24,15 @@ def _build_agents(tmp_path):
 
 def _set_messages(message_agent: MessageAgent, messages: list[dict]) -> None:
     message_agent.get_messages = lambda: messages  # type: ignore[method-assign]
+    for message in messages:
+        sender = message.get("sender")
+        if sender:
+            message_agent.contact_repository.create_contact(  # type: ignore[union-attr]
+                name=sender,
+                contact_type="kunde",
+                notes="Testkunde fuer Review Batch Apply.",
+                betreuer="philip",
+            )
 
 
 def _allowed_guard(action_type: str, selected_ids: list[int], token: str):

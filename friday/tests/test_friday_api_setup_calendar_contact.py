@@ -177,14 +177,16 @@ def test_contact_patch_endpoint_updates_local_agent_notes(monkeypatch) -> None:
 
     response = client.patch(
         "/api/contacts/5",
-        json={"notes": "Mag kurze Nachrichten.", "contact_type": "arbeit"},
+        json={"notes": "Mag kurze Nachrichten.", "contact_type": "kunde", "betreuer": "philip"},
     )
 
     assert response.status_code == 200
     payload = response.json()["data"]
     assert captured["contact_id"] == 5
     assert captured["values"]["notes"] == "Mag kurze Nachrichten."
+    assert captured["values"]["betreuer"] == "philip"
     assert payload["notes"] == "Mag kurze Nachrichten."
+    assert payload["betreuer"] == "philip"
 
 
 def test_email_agent_notes_endpoint_uses_local_store(monkeypatch) -> None:

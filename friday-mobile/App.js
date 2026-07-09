@@ -243,6 +243,48 @@ const hasForwardTarget = (contact, channel) =>
     ? Boolean(contact?.whatsapp_target)
     : Boolean(contact?.email_address);
 
+const contactTypeOptions = [
+  { value: "arbeit", label: "Arbeit" },
+  { value: "freund", label: "Freund" },
+  { value: "familie", label: "Familie" },
+  { value: "kunde", label: "Kunde" },
+  { value: "sonstiges", label: "Sonstiges" },
+];
+
+const betreuerOptions = [
+  { value: "flo", label: "Flo" },
+  { value: "philip", label: "Philip" },
+  { value: "alex", label: "Alex" },
+];
+
+const betreuerLabel = (value) =>
+  betreuerOptions.find((item) => item.value === value)?.label || value || "-";
+
+const normalizeLookup = (value) =>
+  String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+
+const normalizePhoneLookup = (value) => String(value || "").replace(/\D+/g, "");
+
+const senderHasContact = (sender, contacts) => {
+  const normalizedSender = normalizeLookup(sender);
+  const senderPhone = normalizePhoneLookup(sender);
+  if (!normalizedSender && senderPhone.length < 5) {
+    return false;
+  }
+  return contacts.some((contact) => {
+    const values = [
+      normalizeLookup(contact.name),
+      normalizeLookup(contact.email_address),
+      normalizeLookup(contact.whatsapp_target),
+    ];
+    const phoneValues = [
+      normalizePhoneLookup(contact.email_address),
+      normalizePhoneLookup(contact.whatsapp_target),
+    ];
+    return values.includes(normalizedSender) || (senderPhone.length >= 5 && phoneValues.includes(senderPhone));
+  });
+};
+
 const buildForwardDraft = (task, contact, channel) => {
   const contactName = contact?.name || "du";
   const target =
@@ -362,8 +404,12 @@ export default function App() {
   const [newContactEmail, setNewContactEmail] = useState("");
   const [newContactWhatsapp, setNewContactWhatsapp] = useState("");
   const [newContactNotes, setNewContactNotes] = useState("");
+  const [newContactType, setNewContactType] = useState("arbeit");
+  const [newContactBetreuer, setNewContactBetreuer] = useState("philip");
   const [contactNotesDrafts, setContactNotesDrafts] = useState({});
   const [contactNotesResult, setContactNotesResult] = useState("");
+  const [senderAssignmentDrafts, setSenderAssignmentDrafts] = useState({});
+  const [senderAssignmentResult, setSenderAssignmentResult] = useState("");
   const [privacy, setPrivacy] = useState(null);
   const [setupStatus, setSetupStatus] = useState(null);
   const [accountPolicies, setAccountPolicies] = useState(null);
@@ -529,12 +575,14 @@ export default function App() {
         status: { read_enabled: false, connected: false },
         message: normalizeApiError(err),
       }));
+      const contactPayload = await getContacts().catch(() => []);
       const list = messagePayload?.items || [];
       setMessages(isArray(list));
       setMessageSuggestions(isArray(suggestions?.message_suggestions));
       setTaskSuggestions(isArray(suggestions?.task_suggestions));
       setEmailInbox(inbox);
       setWhatsappInbox(whatsapp);
+      setContacts(isArray(contactPayload));
       return;
     }
 
@@ -646,15 +694,18 @@ export default function App() {
     try {
       await createContact({
         name: newContactName.trim(),
-        contact_type: "work",
+        contact_type: newContactType,
         notes: newContactNotes.trim(),
         email_address: newContactEmail.trim(),
         whatsapp_target: newContactWhatsapp.trim(),
+        betreuer: newContactType === "kunde" ? newContactBetreuer : undefined,
       });
       setNewContactName("");
       setNewContactEmail("");
       setNewContactWhatsapp("");
       setNewContactNotes("");
+      setNewContactType("arbeit");
+      setNewContactBetreuer("philip");
       const payload = await getContacts();
       setContacts(isArray(payload));
       setContactNotesDrafts(
@@ -682,6 +733,52 @@ export default function App() {
       setContactNotesResult("Kontakt-Notiz wurde lokal gespeichert.");
     } catch (err) {
       setContactNotesResult(`Kontakt-Notiz konnte nicht gespeichert werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const updateSenderAssignmentDraft = (sender, patch) => {
+    setSenderAssignmentDrafts((current) => {
+      const existing = current[sender] || { contact_type: "arbeit", betreuer: "philip" };
+      return {
+        ...current,
+        [sender]: {
+          ...existing,
+          ...patch,
+        },
+      };
+    });
+  };
+
+  const handleAssignSenderContact = async (sender) => {
+    if (!String(sender || "").trim()) {
+      return;
+    }
+    const draft = senderAssignmentDrafts[sender] || { contact_type: "arbeit", betreuer: "philip" };
+    setActionBusy(true);
+    setSenderAssignmentResult("");
+    try {
+      await createContact({
+        name: String(sender).trim(),
+        contact_type: draft.contact_type,
+        notes: "Aus unbekanntem Absender lokal gespeichert.",
+        betreuer: draft.contact_type === "kunde" ? draft.betreuer : undefined,
+      });
+      setSenderAssignmentResult(
+        draft.contact_type === "kunde"
+          ? `Kontakt lokal gespeichert: ${sender} ist Kunde, Betreuer: ${betreuerLabel(draft.betreuer)}.`
+          : `Kontakt lokal gespeichert: ${sender} (${draft.contact_type}).`,
+      );
+      const payload = await getContacts();
+      setContacts(isArray(payload));
+      setSenderAssignmentDrafts((current) => {
+        const next = { ...current };
+        delete next[sender];
+        return next;
+      });
+    } catch (err) {
+      setSenderAssignmentResult(`Kontakt konnte nicht gespeichert werden: ${normalizeApiError(err)}`);
     } finally {
       setActionBusy(false);
     }
@@ -1446,8 +1543,71 @@ export default function App() {
                   disabled={actionBusy}
                 />
               </View>
+              {!senderHasContact(message.sender, contacts) && (
+                <View style={styles.assignmentBox}>
+                  <Text style={styles.forwardLabel}>Unbekannter Absender</Text>
+                  <Text style={styles.cardMeta}>
+                    Lege lokal fest, wer diese Person ist. Bei Kunden steuert der Betreuer die To-do-Regel.
+                  </Text>
+                  <View style={styles.row}>
+                    {contactTypeOptions.map((option) => {
+                      const draft = senderAssignmentDrafts[message.sender] || {
+                        contact_type: "arbeit",
+                        betreuer: "philip",
+                      };
+                      return (
+                        <ActionButton
+                          key={`${message.id}-${option.value}`}
+                          small
+                          variant={draft.contact_type === option.value ? "success" : "ghost"}
+                          label={option.label}
+                          onPress={() =>
+                            updateSenderAssignmentDraft(message.sender, {
+                              contact_type: option.value,
+                            })
+                          }
+                        />
+                      );
+                    })}
+                  </View>
+                  {(senderAssignmentDrafts[message.sender]?.contact_type || "arbeit") === "kunde" && (
+                    <View style={styles.row}>
+                      {betreuerOptions.map((option) => {
+                        const draft = senderAssignmentDrafts[message.sender] || {
+                          contact_type: "kunde",
+                          betreuer: "philip",
+                        };
+                        return (
+                          <ActionButton
+                            key={`${message.id}-betreuer-${option.value}`}
+                            small
+                            variant={draft.betreuer === option.value ? "success" : "ghost"}
+                            label={option.label}
+                            onPress={() =>
+                              updateSenderAssignmentDraft(message.sender, {
+                                contact_type: "kunde",
+                                betreuer: option.value,
+                              })
+                            }
+                          />
+                        );
+                      })}
+                    </View>
+                  )}
+                  <ActionButton
+                    small
+                    variant="ghost"
+                    label="Absender lokal speichern"
+                    onPress={() => handleAssignSenderContact(message.sender)}
+                    disabled={actionBusy}
+                  />
+                </View>
+              )}
             </View>
           ))}
+          {!!senderAssignmentResult && (
+            <Text style={styles.approvalResultText}>{senderAssignmentResult}</Text>
+          )}
           {!!calendarSuggestionResult && (
             <View style={styles.card}>
               <View style={styles.cardHeader}>
@@ -1862,6 +2022,34 @@ export default function App() {
               keyboardType="phone-pad"
               returnKeyType="done"
             />
+            <Text style={styles.forwardLabel}>Kontaktart</Text>
+            <View style={styles.row}>
+              {contactTypeOptions.map((option) => (
+                <ActionButton
+                  key={`new-contact-${option.value}`}
+                  small
+                  variant={newContactType === option.value ? "success" : "ghost"}
+                  label={option.label}
+                  onPress={() => setNewContactType(option.value)}
+                />
+              ))}
+            </View>
+            {newContactType === "kunde" && (
+              <>
+                <Text style={styles.forwardLabel}>Betreuer</Text>
+                <View style={styles.row}>
+                  {betreuerOptions.map((option) => (
+                    <ActionButton
+                      key={`new-contact-betreuer-${option.value}`}
+                      small
+                      variant={newContactBetreuer === option.value ? "success" : "ghost"}
+                      label={option.label}
+                      onPress={() => setNewContactBetreuer(option.value)}
+                    />
+                  ))}
+                </View>
+              </>
+            )}
             <TextInput
               value={newContactNotes}
               onChangeText={setNewContactNotes}
@@ -1893,6 +2081,11 @@ export default function App() {
                 <Chip label={contact.contact_type || "other"} color={colors.sage} />
               </View>
               {!!contact.notes && <Text style={styles.cardBody}>{contact.notes}</Text>}
+              {contact.contact_type === "kunde" && !!contact.betreuer && (
+                <Text style={styles.cardMeta}>
+                  Betreuer: {betreuerLabel(contact.betreuer)}
+                </Text>
+              )}
               {!!contact.email_address && <Text style={styles.cardMeta}>E-Mail: {contact.email_address}</Text>}
               {!!contact.whatsapp_target && <Text style={styles.cardMeta}>WhatsApp: {contact.whatsapp_target}</Text>}
               <TextInput
@@ -2714,6 +2907,14 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     padding: 12,
     ...softShadow,
+  },
+  assignmentBox: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 12,
   },
   forwardLabel: {
     color: colors.textSoft,
