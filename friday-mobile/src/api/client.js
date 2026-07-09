@@ -220,6 +220,30 @@ export async function updateContact(contactId, payload) {
   });
 }
 
+export async function getLearning() {
+  return callApi("/api/learning");
+}
+
+export async function answerLearningQuestion(questionId, optionId) {
+  return callApi(`/api/learning/questions/${encodeURIComponent(String(questionId))}/answer`, {
+    method: "POST",
+    body: JSON.stringify({ option_id: optionId }),
+  });
+}
+
+export async function dismissLearningQuestion(questionId) {
+  return callApi(`/api/learning/questions/${encodeURIComponent(String(questionId))}/dismiss`, {
+    method: "POST",
+  });
+}
+
+export async function updateLearnedRule(ruleId, enabled) {
+  return callApi(`/api/learning/rules/${encodeURIComponent(String(ruleId))}`, {
+    method: "PATCH",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
 export async function buildTaskForwardDraft(payload) {
   return callApi("/api/ai/task-forward-draft", {
     method: "POST",

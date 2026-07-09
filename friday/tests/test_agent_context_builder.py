@@ -69,6 +69,31 @@ def test_build_agent_context_includes_customer_betreuer() -> None:
     assert "Kontaktart: kunde" in context
 
 
+def test_build_agent_context_includes_learned_rules() -> None:
+    context = build_agent_context(
+        contact=None,
+        channel="email",
+        policies=[],
+        email_account=SimpleNamespace(agent_notes=""),
+        whatsapp_notes={"agent_notes": ""},
+        learned_rules=[
+            {
+                "kind": "sender_contact",
+                "key": "kunde@example.test",
+                "value": {
+                    "sender": "Kunde Example",
+                    "contact_type": "kunde",
+                    "betreuer": "philip",
+                },
+                "enabled": True,
+            }
+        ],
+    )
+
+    assert "Gelernte lokale Regeln" in context
+    assert "Kunde Example: Kontaktart kunde, Betreuer Philip" in context
+
+
 def test_build_agent_context_returns_empty_string_when_no_notes_exist() -> None:
     assert (
         build_agent_context(

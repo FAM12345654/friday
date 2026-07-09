@@ -26,6 +26,7 @@ from friday.storage.repositories import (
     MsMailMessageRepository,
     TaskSuggestionRepository,
 )
+from friday.storage.learning_repository import LearningRepository
 
 
 MS_MAIL_MESSAGE_ID_OFFSET = 3_000_000
@@ -86,6 +87,7 @@ class MessageAgent:
         self.message_repository = MessageRepository(self.db_path) if USE_SQLITE_STORAGE else None
         self.contact_repository = ContactRepository(self.db_path) if USE_SQLITE_STORAGE else None
         self.ms_mail_repository = MsMailMessageRepository(self.db_path) if USE_SQLITE_STORAGE else None
+        self.learning_repository = LearningRepository(self.db_path) if USE_SQLITE_STORAGE else None
         self.suggestion_repository = MessageSuggestionRepository(self.db_path) if USE_SQLITE_STORAGE else None
         self.task_suggestion_repository = (
             TaskSuggestionRepository(self.db_path) if USE_SQLITE_STORAGE else None
@@ -219,6 +221,12 @@ class MessageAgent:
             return None
         return self.contact_repository.find_contact_for_sender(sender)
 
+    def get_active_learned_rules(self) -> list[dict]:
+        """Return active local learning rules for deterministic agent behavior."""
+        if self.learning_repository is None:
+            return []
+        return self.learning_repository.list_rules(include_disabled=False)
+
     def generate_local_suggestions(self) -> list[Dict[str, Any]]:
         """Create local reply suggestions for scheduling-related messages.
 
@@ -245,13 +253,19 @@ class MessageAgent:
             return []
 
         suggestions: list[Dict[str, Any]] = []
+        learned_rules = self.get_active_learned_rules()
         for message in self.get_messages():
             text = str(message.get("text", ""))
             if self.detect_intent(text) != "task":
                 continue
             sender = message.get("sender", "Unbekannt")
             sender_contact = self.get_sender_contact(str(sender))
-            if not is_relevant_for_user(text=text, sender_contact=sender_contact):
+            if not is_relevant_for_user(
+                text=text,
+                sender_contact=sender_contact,
+                sender=str(sender),
+                learned_rules=learned_rules,
+            ):
                 continue
 
             title = f"Aufgabe aus Nachricht von {sender}"
@@ -294,6 +308,7 @@ class MessageAgent:
         processed_count = 0
         message_suggestions_created = 0
         task_suggestions_created = 0
+        learned_rules = self.get_active_learned_rules()
 
         for item in get_unprocessed_whatsapp_messages(db_path=self.db_path):
             synthetic_message = {
@@ -320,7 +335,12 @@ class MessageAgent:
             sender_contact = self.get_sender_contact(str(synthetic_message["sender"]))
             if (
                 self.detect_intent(synthetic_text) == "task"
-                and is_relevant_for_user(text=synthetic_text, sender_contact=sender_contact)
+                and is_relevant_for_user(
+                    text=synthetic_text,
+                    sender_contact=sender_contact,
+                    sender=str(synthetic_message["sender"]),
+                    learned_rules=learned_rules,
+                )
             ):
                 task = self.task_suggestion_repository.create_task_suggestion(
                     message_id=int(synthetic_message["id"]),
@@ -364,6 +384,7 @@ class MessageAgent:
         message_suggestions_created = 0
         task_suggestions_created = 0
         calendar_suggestions_created = 0
+        learned_rules = self.get_active_learned_rules()
 
         for item in self.ms_mail_repository.get_unprocessed_messages():
             synthetic_message = {
@@ -412,6 +433,8 @@ class MessageAgent:
             if self.detect_intent(text) == "task" and is_relevant_for_user(
                 text=text,
                 sender_contact=sender_contact,
+                sender=sender,
+                learned_rules=learned_rules,
             ):
                 task = self.task_suggestion_repository.create_task_suggestion(
                     message_id=int(synthetic_message["id"]),

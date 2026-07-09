@@ -245,6 +245,29 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 created_at TEXT NOT NULL,
                 UNIQUE (source, sender_key)
             );
+
+            CREATE TABLE IF NOT EXISTS learning_questions (
+                id INTEGER PRIMARY KEY,
+                kind TEXT NOT NULL,
+                subject_ref TEXT NOT NULL,
+                question_text TEXT NOT NULL,
+                options_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                answered_at TEXT,
+                UNIQUE (kind, subject_ref)
+            );
+
+            CREATE TABLE IF NOT EXISTS learned_rules (
+                id INTEGER PRIMARY KEY,
+                kind TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value_json TEXT NOT NULL,
+                source_question_id INTEGER,
+                created_at TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                UNIQUE (kind, key)
+            );
             """
         )
         _ensure_task_priority_column(connection)

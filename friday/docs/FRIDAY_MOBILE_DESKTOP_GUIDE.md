@@ -465,3 +465,20 @@ In der mobilen Nachrichtenansicht zeigt Friday fuer das geteilte Office-Postfach
 Die Familienhelden-Mail-Ansicht zeigt weiterhin eine kurze Liste. Beim Antippen einer Microsoft-Mail laedt Friday den lokal gespeicherten Volltext aus SQLite und zeigt Absender, Empfaenger, Postfach, Datum und Relevanzgrund.
 
 Datenschutz-Hinweis: Volltexte aus Microsoft Graph werden lokal gespeichert, damit die lokale KI die Relevanz auf dem ganzen Inhalt pruefen kann. Diese Inhalte werden nicht in Git gespeichert und nicht an Cloud-KI gesendet.
+
+## Lernen-Reiter
+
+Der neue Tab `Lernen` zeigt Fragen aus offensichtlich erkannten lokalen Routinen, z. B. haeufige unbekannte Absender, Kunden ohne Betreuer oder wiederkehrende Themen.
+
+Antworten werden als lokale Regeln gespeichert. Das ist kein Modell-Nachtraining. Friday nutzt diese Regeln sofort fuer lokale Relevanzentscheidungen und Agent-Kontext.
+
+Moegliche Aktionen:
+
+- Frage beantworten,
+- Frage auf spaeter setzen,
+- gelernte Regeln ansehen,
+- gelernte Regeln aktivieren oder deaktivieren.
+
+Safety-Hinweis: Der Lernen-Reiter sendet nichts, erstellt keine echten Termine und ruft keine neuen externen Dienste auf.
+
+Details: `FRIDAY_LEARNING_TAB_GATE.md`.

@@ -252,3 +252,14 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 - Office-Relevanz nutzt deterministische Regeln plus lokale KI auf vollem Body. Fallback bei KI-Fehler: sichtbar markieren.
 - Mobile Detailansicht zeigt den kompletten lokal gespeicherten Mail-Text erst nach Antippen.
 - Safety: weiterhin `Mail.Read`, kein `Mail.Send`, kein `Mail.ReadWrite`, keine Cloud-KI fuer Body-Inhalte.
+
+## Lernen-Reiter und lokale Regeln
+
+- Neuer lokaler Routine-Detector fuer haeufige unbekannte Absender, Kunden ohne Betreuer, wiederkehrende Mail-Themen und wiederkehrende Kalendertermine ohne Kategorie.
+- Neue lokale SQLite-Tabellen `learning_questions` und `learned_rules`.
+- Neue API-Endpunkte unter `/api/learning`.
+- CLI erhaelt Hauptmenuepunkt `17. Lernen`.
+- Mobile App erhaelt Tab `Lernen` mit Fragekarten, Antwortoptionen, `Später` und Regelverlauf.
+- Aktive Lernregeln wirken in `is_relevant_for_user` und `build_agent_context`.
+- Safety: kein Modell-Nachtraining, keine externen Aktionen, keine neuen Scopes oder Pakete.
+- Doku: `FRIDAY_LEARNING_TAB_GATE.md`.

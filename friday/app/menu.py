@@ -22,6 +22,7 @@ MENU_OPTIONS: List[Tuple[str, str]] = [
     ("14", "Konten"),
     ("15", "Spam / Blockiert"),
     ("16", "Alle Microsoft-Mails anzeigen"),
+    ("17", "Lernen"),
 ]
 
 ACCOUNT_MENU_OPTIONS: List[Tuple[str, str]] = [
@@ -87,7 +88,7 @@ def show_menu() -> str:
     print("Hinweis: Friday bleibt lokal. Externe Aktionen sind deaktiviert.")
     for option, label in MENU_OPTIONS:
         print(f"{option}. {label}")
-    return input("Auswahl (1-16): ").strip()
+    return input("Auswahl (1-17): ").strip()
 
 
 def show_account_menu() -> str:

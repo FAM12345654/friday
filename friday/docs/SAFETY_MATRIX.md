@@ -313,3 +313,4 @@ Safety:
 | Microsoft-Mail Body-Speicherung | erlaubt lokal | nur `Mail.Read`, volle Bodies lokal in SQLite, keine Cloud-KI, keine Git-Speicherung |
 | Microsoft-Mail KI-Relevanz | erlaubt lokal | deterministisch zuerst; bei unklaren Office-Mails lokale KI/Ollama auf vollem Body; Fallback sichtbar |
 | Microsoft-Mail Detailansicht | erlaubt read-only | zeigt lokal gespeicherten Volltext, keine Provider-Schreibaktion |
+| Lernen-Reiter | erlaubt lokal | erkennt Routinen aus lokalen Daten, speichert `learned_rules`, kein Modell-Nachtraining, keine externen Aktionen |

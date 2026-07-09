@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import re
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from friday.app.model_output_validator import validate_model_json
 
@@ -36,10 +37,63 @@ def _text_tokens(text: str) -> set[str]:
     return {match.group(0).casefold() for match in _TOKEN_RE.finditer(text or "")}
 
 
+def _rule_value(rule: Mapping[str, Any]) -> Mapping[str, Any]:
+    value = rule.get("value")
+    if isinstance(value, Mapping):
+        return value
+    raw_value = rule.get("value_json")
+    if isinstance(raw_value, str):
+        try:
+            parsed = json.loads(raw_value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, Mapping) else {}
+    return {}
+
+
+def _rule_enabled(rule: Mapping[str, Any]) -> bool:
+    return bool(rule.get("enabled", True))
+
+
+def _sender_matches_rule(sender: str | None, sender_key: str | None) -> bool:
+    normalized_sender = str(sender or "").casefold()
+    normalized_key = str(sender_key or "").casefold()
+    return bool(normalized_key and normalized_key in normalized_sender)
+
+
+def _learned_rules_mark_relevant(
+    *,
+    text: str,
+    sender: str | None,
+    learned_rules: Iterable[Mapping[str, Any]] | None,
+) -> bool:
+    tokens = _text_tokens(text)
+    for rule in learned_rules or ():
+        if not _rule_enabled(rule):
+            continue
+        kind = str(rule.get("kind") or "")
+        value = _rule_value(rule)
+        if kind == "sender_contact":
+            if value.get("contact_type") == "kunde" and value.get("betreuer") == "philip":
+                sender_key = str(rule.get("key") or value.get("sender") or "")
+                if _sender_matches_rule(sender, sender_key):
+                    return True
+        if kind == "mail_topic_task_rule" and value.get("create_task") is True:
+            sender_key = str(value.get("sender_key") or "")
+            if sender_key and not _sender_matches_rule(sender, sender_key):
+                continue
+            topic_tokens = _text_tokens(str(value.get("topic") or ""))
+            if topic_tokens and topic_tokens.intersection(tokens):
+                return True
+    return False
+
+
 def is_relevant_for_user(
     *,
     text: str,
     sender_contact: Mapping[str, Any] | None = None,
+    sender: str | None = None,
+    learned_rules: Iterable[Mapping[str, Any]] | None = None,
 ) -> bool:
     """Return whether a task-like message should become a Friday task.
 
@@ -52,6 +106,13 @@ def is_relevant_for_user(
         betreuer = str(sender_contact.get("betreuer") or "").strip().casefold()
         if betreuer == "philip":
             return True
+
+    if _learned_rules_mark_relevant(
+        text=text,
+        sender=sender,
+        learned_rules=learned_rules,
+    ):
+        return True
 
     return bool(USER_TRIGGER_WORDS.intersection(_text_tokens(text)))
 

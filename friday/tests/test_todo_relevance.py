@@ -31,6 +31,36 @@ def test_relevance_rejects_other_betreuer_without_trigger() -> None:
     )
 
 
+def test_relevance_uses_active_learned_sender_rule() -> None:
+    assert is_relevant_for_user(
+        text="Bitte Angebot vorbereiten.",
+        sender="Kunde Example <kunde@example.test>",
+        learned_rules=[
+            {
+                "kind": "sender_contact",
+                "key": "kunde@example.test",
+                "value": {"contact_type": "kunde", "betreuer": "philip"},
+                "enabled": True,
+            }
+        ],
+    )
+
+
+def test_relevance_ignores_disabled_learned_rule() -> None:
+    assert not is_relevant_for_user(
+        text="Bitte Angebot vorbereiten.",
+        sender="Kunde Example <kunde@example.test>",
+        learned_rules=[
+            {
+                "kind": "sender_contact",
+                "key": "kunde@example.test",
+                "value": {"contact_type": "kunde", "betreuer": "philip"},
+                "enabled": False,
+            }
+        ],
+    )
+
+
 def test_office_mail_relevance_hides_irrelevant_shared_mailbox_message() -> None:
     result = determine_mail_relevance(
         account="office@familienhelden.at",

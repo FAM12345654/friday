@@ -127,6 +127,7 @@ from friday.app.local_data_import_manifest_reader import read_local_data_import_
 from friday.app.restore_dry_run import build_restore_dry_run
 from friday.app.restore_write_guard import RESTORE_WRITE_APPROVAL_TOKEN
 from friday.app.restore_writer import write_local_restore_copy
+from friday.app.routine_detector import detect_routine_candidates
 from friday.app.safety_smoke_runner import run_safety_smoke
 from friday.app.privacy_dashboard import (
     build_privacy_dashboard_summary,
@@ -150,6 +151,7 @@ from friday.app.privacy_cleanup_writer import apply_privacy_cleanup
 from friday import config
 from friday.app.ms_mail_account_store import ms_mail_account_status
 from friday.storage.contact_context_repository import ContactContextRepository
+from friday.storage.learning_repository import LearningRepository
 from friday.storage.repositories import BlockedSenderRepository
 
 
@@ -179,6 +181,7 @@ class FridayInterface:
         self.contact_context_repository = contact_context_repository or ContactContextRepository(
             getattr(self.task_agent, "db_path", None)
         )
+        self.learning_repository = LearningRepository(getattr(self.task_agent, "db_path", None))
         self.contact_prompt_suppression_entries: tuple[ContactPromptSuppressionEntry, ...] = ()
         self.email_drafts: list[EmailDraft] = []
         self.approval_agent = approval_agent or ApprovalAgent()
@@ -331,6 +334,167 @@ class FridayInterface:
             print(f"  Im Standardfilter sichtbar: {visible} ({reason})")
             if item.get("snippet"):
                 print(f"  {item.get('snippet')}")
+
+    def _collect_learning_messages(self) -> list[dict[str, Any]]:
+        """Collect local messages for routine detection without external reads."""
+        messages: list[dict[str, Any]] = []
+        seen: set[tuple[str, str, str]] = set()
+
+        def _append(item: dict[str, Any]) -> None:
+            sender = str(item.get("sender") or "").strip()
+            subject = str(item.get("subject") or "").strip()
+            text = str(item.get("text") or item.get("body_full") or item.get("snippet") or "").strip()
+            key = (sender.casefold(), subject.casefold(), text[:120].casefold())
+            if not sender or key in seen:
+                return
+            seen.add(key)
+            messages.append({**item, "sender": sender, "text": "\n".join(part for part in (subject, text) if part)})
+
+        for message in self.message_agent.get_messages(include_spam=True):
+            _append(dict(message))
+        repository = getattr(self.message_agent, "ms_mail_repository", None)
+        if repository is not None:
+            for item in repository.list_messages(limit=100, include_spam=True, include_all=True):
+                _append(
+                    {
+                        "sender": item.get("sender") or "Microsoft Mail",
+                        "subject": item.get("subject"),
+                        "text": "\n".join(
+                            part
+                            for part in (
+                                str(item.get("snippet") or "").strip(),
+                                str(item.get("body_full") or "").strip(),
+                            )
+                            if part
+                        ),
+                        "received_at": item.get("received_at"),
+                        "source": "ms_mail",
+                    }
+                )
+        return messages
+
+    def _sync_learning_questions(self) -> list[dict[str, Any]]:
+        """Detect local routines and create missing learning questions."""
+        contacts = self.contact_context_repository.list_contact_contexts()
+        if not contacts and hasattr(self.message_agent, "contact_repository"):
+            contact_repository = getattr(self.message_agent, "contact_repository", None)
+            if contact_repository is not None:
+                contacts = contact_repository.get_contacts()
+        try:
+            calendar_items = self.calendar_agent.load_calendar()
+        except Exception:
+            calendar_items = []
+        candidates = detect_routine_candidates(
+            messages=self._collect_learning_messages(),
+            contacts=contacts,
+            calendar_items=calendar_items,
+        )
+        self.learning_repository.sync_questions_from_candidates(candidates)
+        return [candidate.to_dict() for candidate in candidates]
+
+    def open_learning_menu(self) -> None:
+        """Manage local learning questions and learned rules."""
+        while True:
+            self._section_title("Lernen")
+            candidates = self._sync_learning_questions()
+            questions = self.learning_repository.list_open_questions()
+            rules = self.learning_repository.list_rules(include_disabled=True)
+            print("Hinweis: Lernen speichert lokale Regeln. Es ist kein Modell-Nachtraining.")
+            print(f"Erkannte Routinen: {len(candidates)}")
+            print(f"Offene Fragen: {len(questions)}")
+            print(f"Gelernte Regeln: {len(rules)}")
+            print("1. Offene Fragen anzeigen")
+            print("2. Frage beantworten")
+            print("3. Frage auf später setzen")
+            print("4. Gelernte Regeln anzeigen")
+            print("5. Regel aktivieren/deaktivieren")
+            print("6. Zurück zum Hauptmenü")
+            choice = input("Auswahl (1-6): ").strip()
+            if choice == "1":
+                self._show_learning_questions(questions)
+            elif choice == "2":
+                self._answer_learning_question_from_input()
+            elif choice == "3":
+                self._dismiss_learning_question_from_input()
+            elif choice == "4":
+                self._show_learned_rules()
+            elif choice == "5":
+                self._toggle_learned_rule_from_input()
+            elif choice == "6" or not choice:
+                return
+            else:
+                print(INVALID_SELECTION)
+
+    def _show_learning_questions(self, questions: list[dict[str, Any]] | None = None) -> None:
+        """Print open local learning questions."""
+        questions = questions if questions is not None else self.learning_repository.list_open_questions()
+        if not questions:
+            print("Keine offenen Lernfragen.")
+            return
+        for question in questions:
+            print(f"\n[{question['id']}] {question['question_text']}")
+            options_payload = question.get("options") or {}
+            for evidence in options_payload.get("evidence", []) if isinstance(options_payload, dict) else []:
+                print(f"  Hinweis: {evidence}")
+            options = options_payload.get("items", []) if isinstance(options_payload, dict) else []
+            for option in options:
+                print(f"  - {option.get('id')}: {option.get('label')}")
+
+    def _answer_learning_question_from_input(self) -> None:
+        question_id = input("Lernfrage-ID: ").strip()
+        if not question_id.isdigit():
+            print("Ungültige Lernfrage-ID.")
+            return
+        question = self.learning_repository.get_question(int(question_id))
+        if question is None:
+            print("Lernfrage wurde nicht gefunden.")
+            return
+        self._show_learning_questions([question])
+        option_id = input("Antwort-ID: ").strip()
+        try:
+            result = self.learning_repository.answer_question(int(question_id), option_id)
+        except ValueError as error:
+            print(str(error))
+            return
+        print(result["message"])
+
+    def _dismiss_learning_question_from_input(self) -> None:
+        question_id = input("Lernfrage-ID für später: ").strip()
+        if not question_id.isdigit():
+            print("Ungültige Lernfrage-ID.")
+            return
+        try:
+            result = self.learning_repository.dismiss_question(int(question_id))
+        except ValueError as error:
+            print(str(error))
+            return
+        print(result["message"])
+
+    def _show_learned_rules(self) -> None:
+        rules = self.learning_repository.list_rules(include_disabled=True)
+        if not rules:
+            print("Noch keine Lernregeln gespeichert.")
+            return
+        for rule in rules:
+            status = "aktiv" if rule.get("enabled") else "inaktiv"
+            print(f"- [{rule['id']}] {rule['kind']} / {rule['key']} ({status})")
+            print(f"  {rule.get('value')}")
+
+    def _toggle_learned_rule_from_input(self) -> None:
+        rule_id = input("Regel-ID: ").strip()
+        if not rule_id.isdigit():
+            print("Ungültige Regel-ID.")
+            return
+        mode = input("Aktivieren? (ja/nein): ").strip().casefold()
+        if mode not in {"ja", "nein"}:
+            print(INVALID_SELECTION)
+            return
+        try:
+            rule = self.learning_repository.set_rule_enabled(int(rule_id), enabled=mode == "ja")
+        except ValueError as error:
+            print(str(error))
+            return
+        print(f"Regel ist jetzt {'aktiv' if rule.get('enabled') else 'inaktiv'}.")
 
     def _show_spam_and_blocked_senders(self) -> None:
         """Show local spam previews and allow local sender unblock."""
@@ -3199,6 +3363,9 @@ class FridayInterface:
             return True
         if choice == "16":
             self._show_all_ms_mail_messages()
+            return True
+        if choice == "17":
+            self.open_learning_menu()
             return True
         if choice == "7":
             print("Friday wird beendet.")

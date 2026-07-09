@@ -112,6 +112,7 @@ from friday.app.local_ollama_config_apply_guard import build_local_ollama_config
 from friday.app.local_ollama_config_preview import build_local_ollama_config_preview
 from friday.app.local_model_provider import get_local_model_fallback_count
 from friday.app.messaging_audit_preview import build_messaging_audit_preview
+from friday.app.routine_detector import detect_routine_candidates
 from friday.app.setup_status import build_setup_status
 from friday.app.whatsapp_bridge_activation_gate import (
     WHATSAPP_BRIDGE_ACTIVATION_TOKEN,
@@ -127,6 +128,7 @@ from friday.app.whatsapp_inbox_store import (
 )
 from friday.config import DEMO_DATE, USE_REAL_TODAY
 from friday.storage.database import setup_local_database
+from friday.storage.learning_repository import LearningRepository
 from friday.storage.repositories import BlockedSenderRepository, MsMailMessageRepository
 
 
@@ -372,6 +374,14 @@ class CalendarViewPrefsRequest(BaseModel):
     day_end: str | None = "23:59"
 
 
+class LearningAnswerRequest(BaseModel):
+    option_id: str
+
+
+class LearningRuleUpdateRequest(BaseModel):
+    enabled: bool
+
+
 for _request_model in (
     CalendarEventExtractRequest,
     ContactUpdateRequest,
@@ -385,6 +395,8 @@ for _request_model in (
     CalendarEventFromMessageWriteRequest,
     CalendarEventDeleteGuardRequest,
     CalendarViewPrefsRequest,
+    LearningAnswerRequest,
+    LearningRuleUpdateRequest,
 ):
     _request_model.model_rebuild()
 
@@ -766,6 +778,83 @@ def _find_contact(contact_id: int) -> dict[str, Any]:
     raise HTTPException(status_code=404, detail="Contact not found.")
 
 
+def _collect_learning_messages() -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def _append(item: dict[str, Any]) -> None:
+        sender = str(item.get("sender") or "").strip()
+        text = str(item.get("text") or item.get("body_full") or item.get("snippet") or "").strip()
+        subject = str(item.get("subject") or "").strip()
+        key = (sender.casefold(), subject.casefold(), text[:120].casefold())
+        if not sender or key in seen:
+            return
+        seen.add(key)
+        messages.append({**item, "sender": sender, "text": "\n".join(part for part in (subject, text) if part)})
+
+    for message in message_agent.get_messages(include_spam=True):
+        _append(dict(message))
+
+    if message_agent.ms_mail_repository is not None:
+        for item in message_agent.ms_mail_repository.list_messages(
+            limit=100,
+            include_spam=True,
+            include_all=True,
+        ):
+            _append(
+                {
+                    "id": f"ms-mail:{item.get('id')}",
+                    "sender": item.get("sender") or "Microsoft Mail",
+                    "subject": item.get("subject"),
+                    "text": "\n".join(
+                        part
+                        for part in (
+                            str(item.get("snippet") or "").strip(),
+                            str(item.get("body_full") or "").strip(),
+                        )
+                        if part
+                    ),
+                    "received_at": item.get("received_at"),
+                    "source": "ms_mail",
+                }
+            )
+    return messages
+
+
+def _collect_learning_calendar_items() -> list[dict[str, Any]]:
+    try:
+        return [dict(item) for item in calendar_agent.load_calendar()]
+    except Exception:
+        return []
+
+
+def _sync_learning_state() -> tuple[LearningRepository, list[dict[str, Any]]]:
+    repository = LearningRepository(message_agent.db_path)
+    candidates = detect_routine_candidates(
+        messages=_collect_learning_messages(),
+        contacts=contact_agent.load_contacts(),
+        calendar_items=_collect_learning_calendar_items(),
+    )
+    repository.sync_questions_from_candidates(candidates)
+    return repository, [candidate.to_dict() for candidate in candidates]
+
+
+def _learning_payload(repository: LearningRepository, candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    open_questions = repository.list_open_questions()
+    rules = repository.list_rules(include_disabled=True)
+    return {
+        "open_questions": open_questions,
+        "open_count": len(open_questions),
+        "learned_rules": rules,
+        "rule_count": len(rules),
+        "candidate_count": len(candidates),
+        "candidates": candidates,
+        "local_only": True,
+        "model_training": False,
+        "external_actions": False,
+    }
+
+
 @app.get("/")
 def root() -> dict[str, Any]:
     return _envelope({"status": "ok", "service": "friday-api"})
@@ -832,6 +921,57 @@ def get_dashboard() -> dict[str, Any]:
 @app.get("/api/setup/status")
 def get_setup_status() -> dict[str, Any]:
     return _envelope(build_setup_status())
+
+
+@app.get("/api/learning")
+def get_learning() -> dict[str, Any]:
+    repository, candidates = _sync_learning_state()
+    return _envelope(_learning_payload(repository, candidates))
+
+
+@app.post("/api/learning/questions/{question_id}/answer")
+def answer_learning_question(question_id: int, payload: LearningAnswerRequest) -> dict[str, Any]:
+    repository, candidates = _sync_learning_state()
+    try:
+        result = repository.answer_question(question_id, payload.option_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _envelope(
+        {
+            "result": result,
+            **_learning_payload(repository, candidates),
+        }
+    )
+
+
+@app.post("/api/learning/questions/{question_id}/dismiss")
+def dismiss_learning_question(question_id: int) -> dict[str, Any]:
+    repository, candidates = _sync_learning_state()
+    try:
+        result = repository.dismiss_question(question_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _envelope(
+        {
+            "result": result,
+            **_learning_payload(repository, candidates),
+        }
+    )
+
+
+@app.patch("/api/learning/rules/{rule_id}")
+def update_learning_rule(rule_id: int, payload: LearningRuleUpdateRequest) -> dict[str, Any]:
+    repository, candidates = _sync_learning_state()
+    try:
+        rule = repository.set_rule_enabled(rule_id, payload.enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _envelope(
+        {
+            "rule": rule,
+            **_learning_payload(repository, candidates),
+        }
+    )
 
 
 @app.get("/api/accounts/policies")

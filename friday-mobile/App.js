@@ -19,6 +19,7 @@ import {
   approveMessageSuggestion,
   approveTaskSuggestion,
   archiveTask,
+  answerLearningQuestion,
   buildTaskForwardDraft,
   checkHealth,
   completeTask,
@@ -31,6 +32,7 @@ import {
   deleteCalendarEvent,
   deleteMsMailAccount,
   deleteTask,
+  dismissLearningQuestion,
   getAccountPolicies,
   getCalendarAccountStatus,
   getEmailAccountStatus,
@@ -46,6 +48,7 @@ import {
   getCalendarViewPrefs,
   getContacts,
   getDashboard,
+  getLearning,
   getBlockedSenders,
   getMessageSuggestion,
   getMessageSuggestions,
@@ -68,6 +71,7 @@ import {
   updateContact,
   updateCalendarViewPrefs,
   updateEmailAgentNotes,
+  updateLearnedRule,
   updateWhatsAppAgentNotes,
 } from "./src/api/client";
 
@@ -78,6 +82,7 @@ const screens = [
   { key: "Spam", icon: "!" },
   { key: "Kalender", icon: "▦" },
   { key: "Kontakte", icon: "☺" },
+  { key: "Lernen", icon: "?" },
   { key: "Datenschutz", icon: "🛡" },
   { key: "Setup", icon: "⚙" },
 ];
@@ -454,6 +459,8 @@ export default function App() {
   const [contactNotesResult, setContactNotesResult] = useState("");
   const [senderAssignmentDrafts, setSenderAssignmentDrafts] = useState({});
   const [senderAssignmentResult, setSenderAssignmentResult] = useState("");
+  const [learning, setLearning] = useState(null);
+  const [learningResult, setLearningResult] = useState("");
   const [privacy, setPrivacy] = useState(null);
   const [setupStatus, setSetupStatus] = useState(null);
   const [accountPolicies, setAccountPolicies] = useState(null);
@@ -700,6 +707,13 @@ export default function App() {
       return;
     }
 
+    if (screenName === "Lernen") {
+      const payload = await getLearning();
+      setLearning(payload);
+      setLearningResult("");
+      return;
+    }
+
     if (screenName === "Datenschutz") {
       const payload = await getPrivacy();
       const emailStatus = await getEmailAccountStatus().catch(() => null);
@@ -818,6 +832,48 @@ export default function App() {
       setContactNotesResult("Kontakt-Notiz wurde lokal gespeichert.");
     } catch (err) {
       setContactNotesResult(`Kontakt-Notiz konnte nicht gespeichert werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleAnswerLearningQuestion = async (question, optionId) => {
+    setActionBusy(true);
+    setLearningResult("");
+    try {
+      const payload = await answerLearningQuestion(question.id, optionId);
+      setLearning(payload);
+      setLearningResult(payload?.result?.message || "Antwort wurde lokal gespeichert.");
+    } catch (err) {
+      setLearningResult(`Lernfrage konnte nicht beantwortet werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleDismissLearningQuestion = async (question) => {
+    setActionBusy(true);
+    setLearningResult("");
+    try {
+      const payload = await dismissLearningQuestion(question.id);
+      setLearning(payload);
+      setLearningResult(payload?.result?.message || "Lernfrage wurde auf später gesetzt.");
+    } catch (err) {
+      setLearningResult(`Lernfrage konnte nicht verschoben werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleToggleLearnedRule = async (rule) => {
+    setActionBusy(true);
+    setLearningResult("");
+    try {
+      const payload = await updateLearnedRule(rule.id, !rule.enabled);
+      setLearning(payload);
+      setLearningResult(`Regel ist jetzt ${payload?.rule?.enabled ? "aktiv" : "inaktiv"}.`);
+    } catch (err) {
+      setLearningResult(`Regel konnte nicht geändert werden: ${normalizeApiError(err)}`);
     } finally {
       setActionBusy(false);
     }
@@ -2551,6 +2607,87 @@ export default function App() {
       );
     }
 
+    if (active === "Lernen") {
+      const questions = isArray(learning?.open_questions);
+      const rules = isArray(learning?.learned_rules);
+      return (
+        <View>
+          <View style={styles.privacyBanner}>
+            <Text style={styles.privacyBannerIcon}>?</Text>
+            <Text style={styles.privacyBannerText}>
+              Lernen speichert lokale Regeln und Präferenzen. Das ist kein Modell-Nachtraining.
+            </Text>
+          </View>
+          <View style={styles.statGrid}>
+            <StatCard label="Offene Fragen" value={learning?.open_count || 0} tint={colors.accent} />
+            <StatCard label="Gelernte Regeln" value={learning?.rule_count || 0} tint={colors.sage} />
+          </View>
+          {!!learningResult && <Text style={styles.approvalResultText}>{learningResult}</Text>}
+          <SectionTitle>Offene Lernfragen</SectionTitle>
+          {questions.map((question) => {
+            const optionsPayload = question.options || {};
+            const options = isArray(optionsPayload.items);
+            const evidence = isArray(optionsPayload.evidence);
+            return (
+              <View key={question.id} style={styles.card}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.cardTitle}>{question.question_text}</Text>
+                  <Chip label={question.kind || "Routine"} color={colors.warn} />
+                </View>
+                {evidence.map((item, index) => (
+                  <Text key={`${question.id}-evidence-${index}`} style={styles.cardMeta}>
+                    Hinweis: {item}
+                  </Text>
+                ))}
+                <View style={styles.row}>
+                  {options.map((option) => (
+                    <ActionButton
+                      key={`${question.id}-${option.id}`}
+                      small
+                      variant={option.id === "ignorieren" ? "ghost" : "success"}
+                      label={option.label || option.id}
+                      onPress={() => handleAnswerLearningQuestion(question, option.id)}
+                      disabled={actionBusy}
+                    />
+                  ))}
+                </View>
+                <ActionButton
+                  small
+                  variant="ghost"
+                  label="Später"
+                  onPress={() => handleDismissLearningQuestion(question)}
+                  disabled={actionBusy}
+                />
+              </View>
+            );
+          })}
+          {questions.length === 0 && <EmptyState icon="?" text="Keine offenen Lernfragen." />}
+          <SectionTitle>Bereits gelernt</SectionTitle>
+          {rules.map((rule) => (
+            <View key={rule.id} style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{rule.kind || "Regel"}</Text>
+                <Chip label={rule.enabled ? "aktiv" : "inaktiv"} color={rule.enabled ? colors.success : colors.textSoft} />
+              </View>
+              <Text style={styles.cardMeta}>Schlüssel: {rule.key || "-"}</Text>
+              <Text style={styles.cardBody}>{JSON.stringify(rule.value || {}, null, 2)}</Text>
+              <ActionButton
+                small
+                variant={rule.enabled ? "ghost" : "success"}
+                label={rule.enabled ? "Regel deaktivieren" : "Regel aktivieren"}
+                onPress={() => handleToggleLearnedRule(rule)}
+                disabled={actionBusy}
+              />
+            </View>
+          ))}
+          {rules.length === 0 && <EmptyState icon="?" text="Noch keine Regeln gelernt." />}
+          <Text style={styles.forwardSafety}>
+            Alle Lernregeln bleiben lokal. Friday sendet dadurch keine Nachrichten und erstellt keine Termine automatisch.
+          </Text>
+        </View>
+      );
+    }
+
     if (active === "Datenschutz") {
       const external = privacy?.external_services || {};
       const writes = privacy?.writes || {};
@@ -3170,17 +3307,20 @@ export default function App() {
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll}>
           <View style={styles.tabs}>
-            {screens.map(({ key, icon }) => (
-              <TouchableOpacity
-                key={key}
-                onPress={() => setActive(key)}
-                style={[styles.tab, active === key && styles.tabActive]}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.tabIcon, active === key && styles.tabTextActive]}>{icon}</Text>
-                <Text style={[styles.tabText, active === key && styles.tabTextActive]}>{key}</Text>
-              </TouchableOpacity>
-            ))}
+            {screens.map(({ key, icon }) => {
+              const label = key === "Lernen" && learning?.open_count ? `${key} (${learning.open_count})` : key;
+              return (
+                <TouchableOpacity
+                  key={key}
+                  onPress={() => setActive(key)}
+                  style={[styles.tab, active === key && styles.tabActive]}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.tabIcon, active === key && styles.tabTextActive]}>{icon}</Text>
+                  <Text style={[styles.tabText, active === key && styles.tabTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </ScrollView>
 

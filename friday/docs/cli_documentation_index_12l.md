@@ -138,3 +138,7 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 
 - `FRIDAY_MS_MAIL_READ_GATE.md` dokumentiert die lokale Body-Speicherung, KI-Relevanz auf vollem Inhalt und die mobile Detailansicht.
 - `FRIDAY_MS_MAIL_SENDER_RELEVANCE_GATE.md` bleibt die Absender-/Office-Filter-Grundlage und wurde um Full-Body-Relevanz erweitert.
+
+## Lernen-Reiter Gate
+
+- `FRIDAY_LEARNING_TAB_GATE.md` dokumentiert lokale Routine-Erkennung, Lernfragen, `learned_rules`, Mobile/CLI-Anbindung und Safety-Grenzen ohne Modell-Nachtraining.
