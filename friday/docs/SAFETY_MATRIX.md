@@ -163,6 +163,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Local Ollama Real Project Apply Gate Plan | geplant | beschreibt spaeteren echten Projekt-Apply; aktuell kein Write auf `friday/config.py` und keine Aktivierung |
 | Local Ollama Real Project Apply Guard | umgesetzt read-only | prueft Token, Safety Smoke, Health Check und Projekt-`config.py`; schreibt nicht und aktiviert nichts |
 | Local Ollama Real Project Apply Readiness Gate | abgeschlossen | bestaetigt Preview, Apply Gate, Writer und Real-Project-Guard; echter Write bleibt blockiert |
+| Local Ollama Real Project Apply Implementation Plan | geplant | beschreibt spaeteren echten Projekt-Apply mit Backup, Tests und Rollback; aktuell kein Write |
 | Local Model Settings / Health Preview / Validation Pipeline | umgesetzt | Mock bleibt Default; Ollama Health Check ist localhost-only; Validator+Logic Check blockiert riskante Ausgaben |
 | Lokale Notifications | erlaubt opt-in | Default `False`; nur Konsolen-Zusammenfassung, kein Toast, kein Netzwerk |
 | Demo-Modus | getrennt | echte Arbeits-DB bleibt `friday.db`; Demo-Seeds nur in `friday_demo.db` |

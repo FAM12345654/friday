@@ -93,3 +93,5 @@ Local Ollama Real Project Apply Implementation Plan:
   ausgefuehrt und validiert wird,
 - Rollback verbindlich definieren,
 - weiterhin keinen Write in der Planungsrunde ausfuehren.
+
+Status danach: Der Implementation Plan ist in `FRIDAY_LOCAL_OLLAMA_REAL_PROJECT_APPLY_IMPLEMENTATION_PLAN.md` dokumentiert.
