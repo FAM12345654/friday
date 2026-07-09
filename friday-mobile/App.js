@@ -101,6 +101,9 @@ const normalizeApiError = (error) => {
 
 const channelLabel = (channel) => (channel === "whatsapp" ? "WhatsApp" : "E-Mail");
 
+const approvalTokenFor = (channel) =>
+  channel === "whatsapp" ? "WHATSAPP SENDEN" : "EMAIL SENDEN";
+
 const buildForwardDraft = (task, contact, channel) => {
   const contactName = contact?.name || "du";
   const target =
@@ -224,6 +227,8 @@ export default function App() {
   const [forwardChannel, setForwardChannel] = useState("email");
   const [forwardDraft, setForwardDraft] = useState("");
   const [forwardMockResult, setForwardMockResult] = useState("");
+  const [forwardApprovalToken, setForwardApprovalToken] = useState("");
+  const [forwardApprovalResult, setForwardApprovalResult] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
 
   useEffect(() => {
@@ -421,6 +426,8 @@ export default function App() {
     setForwardChannel("email");
     setForwardDraft("");
     setForwardMockResult("");
+    setForwardApprovalToken("");
+    setForwardApprovalResult("");
     if (contacts.length === 0) {
       try {
         const payload = await getContacts();
@@ -437,12 +444,16 @@ export default function App() {
     setForwardChannel("email");
     setForwardDraft("");
     setForwardMockResult("");
+    setForwardApprovalToken("");
+    setForwardApprovalResult("");
   };
 
   const selectForwardContact = (contact) => {
     setForwardContact(contact);
     setForwardDraft(buildForwardDraft(forwardTask, contact, forwardChannel));
     setForwardMockResult("");
+    setForwardApprovalToken("");
+    setForwardApprovalResult("");
   };
 
   const selectForwardChannel = (channel) => {
@@ -451,6 +462,8 @@ export default function App() {
       setForwardDraft(buildForwardDraft(forwardTask, forwardContact, channel));
     }
     setForwardMockResult("");
+    setForwardApprovalToken("");
+    setForwardApprovalResult("");
   };
 
   const simulateForwardSend = () => {
@@ -463,6 +476,19 @@ export default function App() {
         : forwardContact.email_address || "keine E-Mail-Adresse gespeichert";
     setForwardMockResult(
       `Simulation: Würde per ${channelLabel(forwardChannel)} an ${target} gesendet. Es wurde nichts echt gesendet.`,
+    );
+  };
+
+  const checkForwardApprovalToken = () => {
+    const expected = approvalTokenFor(forwardChannel);
+    if (forwardApprovalToken.trim() !== expected) {
+      setForwardApprovalResult(
+        `Freigabe abgelehnt. Erwarteter Token: ${expected}. Es wurde nichts gesendet.`,
+      );
+      return;
+    }
+    setForwardApprovalResult(
+      `Mock-Freigabe akzeptiert (${expected}). Der echte Versand bleibt deaktiviert.`,
     );
   };
 
@@ -666,6 +692,33 @@ export default function App() {
               {!!forwardMockResult && (
                 <View style={styles.mockResultBox}>
                   <Text style={styles.mockResultText}>{forwardMockResult}</Text>
+                </View>
+              )}
+              {!!forwardDraft && (
+                <View style={styles.approvalBox}>
+                  <Text style={styles.forwardLabel}>Freigabe-Token vorbereiten</Text>
+                  <Text style={styles.cardMeta}>
+                    Für echten Versand wäre exakt `{approvalTokenFor(forwardChannel)}` nötig.
+                  </Text>
+                  <TextInput
+                    value={forwardApprovalToken}
+                    onChangeText={setForwardApprovalToken}
+                    style={styles.input}
+                    placeholder={approvalTokenFor(forwardChannel)}
+                    placeholderTextColor={colors.textSoft}
+                    autoCapitalize="characters"
+                    returnKeyType="done"
+                  />
+                  <ActionButton
+                    small
+                    variant="ghost"
+                    label="Freigabe prüfen"
+                    onPress={checkForwardApprovalToken}
+                    disabled={!forwardApprovalToken.trim()}
+                  />
+                  {!!forwardApprovalResult && (
+                    <Text style={styles.approvalResultText}>{forwardApprovalResult}</Text>
+                  )}
                 </View>
               )}
               <Text style={styles.forwardSafety}>
@@ -1378,6 +1431,21 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   mockResultText: {
+    color: colors.deep,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
+  approvalBox: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 8,
+    marginTop: 12,
+    padding: 12,
+  },
+  approvalResultText: {
     color: colors.deep,
     fontSize: 12,
     fontWeight: "700",

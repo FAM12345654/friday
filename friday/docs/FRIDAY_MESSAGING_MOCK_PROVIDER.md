@@ -42,3 +42,5 @@ Ziel:
 - harte Tokens `EMAIL SENDEN` / `WHATSAPP SENDEN` vorbereiten,
 - weiterhin nur Mock Provider,
 - kein echter Versand.
+
+Status: umgesetzt in `FRIDAY_MESSAGING_APPROVAL_SCREEN.md`.

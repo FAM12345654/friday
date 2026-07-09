@@ -77,3 +77,7 @@ Lokale Ziel-Felder sind dokumentiert in:
 Die lokale Versandsimulation ist dokumentiert in:
 
 `FRIDAY_MESSAGING_MOCK_PROVIDER.md`
+
+Die lokale Freigabepruefung mit harten Tokens ist dokumentiert in:
+
+`FRIDAY_MESSAGING_APPROVAL_SCREEN.md`
