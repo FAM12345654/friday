@@ -313,6 +313,7 @@ Local AI bleibt im MVP ein lokaler Mock- und Preview-Block:
 - Modell-Ausgaben koennen keine Obsidian Writes oder externen Aktionen ausloesen.
 
 Details:
+- [Friday Local Ollama User Setup Guide](FRIDAY_LOCAL_OLLAMA_USER_SETUP_GUIDE.md)
 - [Local AI Finalization Gate](archive/LOCAL_AI_FINALIZATION_GATE.md)
 
 ## Obsidian Brain Preview

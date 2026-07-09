@@ -57,3 +57,5 @@ Danach muss ein eigener Konfigurations-/Freigabe-Schritt folgen. Dieser Schritt 
 ## Naechster sinnvoller Schritt
 
 Local Ollama User Setup Guide: kurze Anleitung, wie Ollama lokal installiert, ein Modell geladen und Friday danach sicher getestet wird.
+
+Status danach: Die Nutzeranleitung ist in `FRIDAY_LOCAL_OLLAMA_USER_SETUP_GUIDE.md` dokumentiert.
