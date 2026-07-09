@@ -282,3 +282,17 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Kalenderquellen mergen | erlaubt read-only | Source-Policies werden gefiltert; defekte Quellen erzeugen isolierte Fehler |
 | Termin aus Nachricht uebernehmen | gated extern | Review + editierbare Felder + Google-Write nur mit `TERMIN SPEICHERN` |
 | Kalendertermin loeschen | gated extern | Google-Delete nur mit `TERMIN LOESCHEN`, Haupt-Policy und Verbindung OK |
+
+## Microsoft Mail Read-only Gate
+
+| Modul | Lesen | Schreiben | Extern | Approval |
+|---|---|---|---|---|
+| Familienhelden Microsoft Mail | Ja, nur `Mail.Read` | Nein | Microsoft Graph nur in `ms_mail_provider.py` | `KONTO SPEICHERN` + `MAIL LESEN AKTIVIEREN` |
+
+Safety:
+
+- `ENABLE_MS_MAIL_READ = False` per Default.
+- `ENABLE_REAL_EMAIL = False` bleibt unveraendert.
+- Kein `Mail.Send`.
+- Mail-Volltexte werden nicht gespeichert.
+- Tests mocken Graph/OAuth.

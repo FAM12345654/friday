@@ -400,3 +400,37 @@ In der Mobile-App sind die Notizen sichtbar in:
 - `Setup` fuer Account-Policy-Notizen und PH-Zeitfenster.
 
 Details: `FRIDAY_PH_TIME_WINDOW_AGENT_NOTES_GATE.md`.
+
+## Familienhelden-Postfach read-only via Microsoft Graph
+
+Friday kann das Familienhelden-Microsoft-365-Postfach nur lesend verbinden. Das ist getrennt vom normalen E-Mail-Senden: `ENABLE_REAL_EMAIL` bleibt aus.
+
+### Azure App Registrierung
+
+1. In Azure / Entra ID eine App Registration erstellen.
+2. Anwendungstyp: Public Client / Mobile & Desktop.
+3. Redirect URI: `http://localhost`.
+4. Microsoft Graph Delegated Permissions setzen:
+   - `Mail.Read`
+   - `offline_access`
+   - `User.Read`
+5. Kein `Mail.Send` vergeben.
+6. Client-ID in der Friday App in `Setup` oder `Datenschutz > Konten` eintragen.
+
+### Verbinden in Friday
+
+1. In der App `OAuth-Link öffnen` antippen.
+2. Microsoft Login abschliessen.
+3. Die `localhost` Rueckgabe-URL in Friday einfuegen.
+4. Token `KONTO SPEICHERN` eingeben.
+5. Danach `MAIL LESEN AKTIVIEREN` ausfuehren und Friday API neu starten.
+6. Danach kann `Familienhelden-Mails synchronisieren` genutzt werden.
+
+Grenzen:
+
+- Friday liest nur Betreff, Absender, Empfangszeit und Vorschau.
+- Friday sendet keine E-Mail.
+- Aufgaben und Termine entstehen nur als lokale Review-Vorschlaege.
+- Sync ist deaktiviert, solange `ENABLE_MS_MAIL_READ = False` ist.
+
+Details: `FRIDAY_MS_MAIL_READ_GATE.md`.

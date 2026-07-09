@@ -82,6 +82,27 @@ from friday.app.email_account_store import (
 )
 from friday.app.email_activation_gate import EMAIL_ACTIVATION_TOKEN, build_email_activation_gate
 from friday.app.email_imap_reader import check_imap_login, read_recent_inbox_emails
+from friday.app.ms_mail_account_store import (
+    MS_MAIL_ACCOUNT_DELETE_TOKEN,
+    MS_MAIL_ACCOUNT_SAVE_TOKEN,
+    build_ms_mail_account,
+    decrypt_ms_mail_token_bundle,
+    delete_ms_mail_account,
+    load_ms_mail_account,
+    ms_mail_account_status,
+    save_ms_mail_account,
+)
+from friday.app.ms_mail_provider import (
+    build_authorization_url as build_ms_mail_authorization_url,
+    exchange_auth_response as exchange_ms_mail_auth_response,
+    list_messages as list_ms_mail_messages,
+    test_connection as test_ms_mail_connection,
+)
+from friday.app.ms_mail_read_activation_gate import (
+    MS_MAIL_READ_ACTIVATION_TOKEN,
+    apply_ms_mail_read_activation_to_config,
+    build_ms_mail_read_activation_gate,
+)
 from friday.app.email_send_guard import EMAIL_SEND_TOKEN, check_email_send_allowed, log_email_send
 from friday.app.email_smtp_sender import check_smtp_login, send_single_email
 from friday.app.local_ollama_activation_gate import build_local_ollama_activation_gate
@@ -104,6 +125,7 @@ from friday.app.whatsapp_inbox_store import (
 )
 from friday.config import DEMO_DATE, USE_REAL_TODAY
 from friday.storage.database import setup_local_database
+from friday.storage.repositories import MsMailMessageRepository
 
 
 def _allowed_origins() -> list[str]:
@@ -219,6 +241,23 @@ class EmailAccountDeleteRequest(BaseModel):
 class EmailActivationGateRequest(BaseModel):
     approval_token: str
     scanner_smoke_passed: bool = False
+
+
+class MsMailConnectRequest(BaseModel):
+    client_id: str
+    tenant: str | None = "common"
+    authorization_response: str | None = None
+    approval_token: str | None = None
+
+
+class MsMailActivationGateRequest(BaseModel):
+    approval_token: str
+    scanner_smoke_passed: bool = False
+    execute_write: bool = False
+
+
+class MsMailSyncRequest(BaseModel):
+    top: int = 25
 
 
 class EmailSendRequest(BaseModel):
@@ -1655,6 +1694,145 @@ def get_email_activation_gate(payload: EmailActivationGateRequest) -> dict[str, 
     return _envelope(asdict(gate))
 
 
+
+
+@app.get("/api/accounts/ms-mail/status")
+def get_ms_mail_status() -> dict[str, Any]:
+    return _envelope(ms_mail_account_status())
+
+
+@app.post("/api/accounts/ms-mail/connect")
+def connect_ms_mail_account(payload: MsMailConnectRequest) -> dict[str, Any]:
+    if not payload.authorization_response:
+        preview = build_ms_mail_authorization_url(
+            client_id=payload.client_id,
+            tenant=payload.tenant,
+        )
+        if not preview.ok:
+            raise HTTPException(status_code=400, detail=preview.message)
+        return _envelope(asdict(preview))
+
+    exchange = exchange_ms_mail_auth_response(
+        client_id=payload.client_id,
+        tenant=payload.tenant,
+        authorization_response=payload.authorization_response,
+    )
+    if not exchange.ok or exchange.token_bundle is None:
+        return _envelope(asdict(exchange))
+
+    test = test_ms_mail_connection(token_bundle=exchange.token_bundle)
+    if not test.ok:
+        return _envelope(
+            {
+                "connected": False,
+                "saved": False,
+                "message": test.message,
+                "blocked_reasons": test.blocked_reasons,
+                "external_call_used": True,
+                "read_only": True,
+            }
+        )
+
+    try:
+        account = build_ms_mail_account(
+            client_id=payload.client_id,
+            tenant=payload.tenant,
+            username=test.username or "unknown@microsoft.local",
+            token_bundle=exchange.token_bundle,
+            last_test_ok=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    result = save_ms_mail_account(
+        account,
+        approval_token=payload.approval_token or "",
+    )
+    if not result.persisted:
+        raise HTTPException(status_code=403, detail=result.message)
+    return _envelope(
+        {
+            "connected": True,
+            "saved": True,
+            "message": result.message,
+            "status": ms_mail_account_status(),
+            "read_only": True,
+            "real_email_enabled": config.ENABLE_REAL_EMAIL,
+        }
+    )
+
+
+@app.post("/api/accounts/ms-mail/activation-gate")
+def get_ms_mail_activation_gate(payload: MsMailActivationGateRequest) -> dict[str, Any]:
+    if payload.execute_write:
+        gate = apply_ms_mail_read_activation_to_config(
+            config_path=config.PACKAGE_DIR / "config.py",
+            approval_token=payload.approval_token,
+            scanner_smoke_passed=payload.scanner_smoke_passed,
+            execute_write=True,
+            post_write_validation=lambda path: (
+                "ENABLE_MS_MAIL_READ = True" in path.read_text(encoding="utf-8")
+                and "ENABLE_REAL_EMAIL = False" in path.read_text(encoding="utf-8")
+            ),
+        )
+    else:
+        gate = build_ms_mail_read_activation_gate(
+            approval_token=payload.approval_token,
+            scanner_smoke_passed=payload.scanner_smoke_passed,
+        )
+    return _envelope(asdict(gate))
+
+
+@app.post("/api/accounts/ms-mail/sync")
+def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str, Any]:
+    if not config.ENABLE_MS_MAIL_READ:
+        raise HTTPException(status_code=403, detail="Microsoft-Mail-Lesen ist deaktiviert.")
+    account = load_ms_mail_account()
+    if account is None:
+        raise HTTPException(status_code=404, detail="Kein Microsoft-Mail-Konto verbunden.")
+    token_bundle = decrypt_ms_mail_token_bundle(account)
+    top = payload.top if payload is not None else 25
+    result = list_ms_mail_messages(token_bundle=token_bundle, top=top)
+    if not result.ok:
+        return _envelope(asdict(result))
+    repository = MsMailMessageRepository(message_agent.db_path)
+    stored = repository.upsert_messages(list(result.messages))
+    process_result = message_agent.process_unprocessed_ms_mail_messages()
+    return _envelope(
+        {
+            "synced": True,
+            "stored_count": len(stored),
+            "provider_count": len(result.messages),
+            "process_result": process_result,
+            "read_only": True,
+            "real_email_enabled": config.ENABLE_REAL_EMAIL,
+        }
+    )
+
+
+@app.get("/api/messages/ms-mail")
+def get_ms_mail_messages(limit: int = Query(default=10)) -> dict[str, Any]:
+    repository = MsMailMessageRepository(message_agent.db_path)
+    items = repository.list_messages(limit=limit)
+    return _envelope(
+        {
+            "items": items,
+            "count": len(items),
+            "status": ms_mail_account_status(),
+            "read_only": True,
+            "real_email_enabled": config.ENABLE_REAL_EMAIL,
+        }
+    )
+
+
+@app.delete("/api/accounts/ms-mail")
+def delete_ms_mail_account_endpoint(payload: EmailAccountDeleteRequest) -> dict[str, Any]:
+    result = delete_ms_mail_account(approval_token=payload.approval_token)
+    if not result.allowed:
+        raise HTTPException(status_code=403, detail=result.message)
+    return _envelope({"deleted": True, "status": ms_mail_account_status()})
+
+
 @app.get("/api/messages/email-inbox")
 def get_email_inbox_preview(limit: int = Query(default=10)) -> dict[str, Any]:
     account = load_email_account()
@@ -1867,6 +2045,7 @@ def get_privacy() -> dict[str, Any]:
                 "email": False,
                 "whatsapp": False,
                 "whatsapp_bridge_read": config.ENABLE_WHATSAPP_BRIDGE_READ,
+                "ms_mail_read": config.ENABLE_MS_MAIL_READ,
                 "sms": False,
                 "calendar": False,
                 "weather": False,

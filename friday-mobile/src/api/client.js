@@ -268,6 +268,42 @@ export async function getEmailInbox(limit = 10) {
   return callApi(`/api/messages/email-inbox?limit=${encodeURIComponent(String(limit))}`);
 }
 
+export async function getMsMailStatus() {
+  return callApi("/api/accounts/ms-mail/status");
+}
+
+export async function connectMsMailAccount(payload) {
+  return callApi("/api/accounts/ms-mail/connect", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function activateMsMailRead(payload) {
+  return callApi("/api/accounts/ms-mail/activation-gate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function syncMsMailMessages(payload = { top: 25 }) {
+  return callApi("/api/accounts/ms-mail/sync", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getMsMailMessages(limit = 10) {
+  return callApi(`/api/messages/ms-mail?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export async function deleteMsMailAccount(payload) {
+  return callApi("/api/accounts/ms-mail", {
+    method: "DELETE",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getWhatsAppStatus() {
   return callApi("/api/whatsapp/status");
 }

@@ -125,3 +125,5 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_PH_TIME_WINDOW_AGENT_NOTES_GATE.md` | PH-Zeitfenster fuer Outlook-ICS/team-hampejs und lokale Agent-Notizen fuer KI-Drafts | vorhanden |
 | `FRIDAY_CALENDAR_VIEW_FILTER_FIXES_GATE.md` | Kalender-Merge-Ansicht, tokenbasierter PH-Filter und Datums-/Zeitfenster | vorhanden |
 | `FRIDAY_CONTACT_BETREUER_TODO_RULE_GATE.md` | Kontakt-Betreuer fuer Kunden und deterministische To-do-Zustaendigkeit | vorhanden |
+
+| `FRIDAY_MS_MAIL_READ_GATE.md` | Familienhelden Microsoft Graph Mail.Read Gate, OAuth, Sync, Rollback | vorhanden |

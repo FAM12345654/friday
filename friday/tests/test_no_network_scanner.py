@@ -100,6 +100,15 @@ def test_no_network_scanner_allows_ics_provider_urllib_allowlist() -> None:
     assert findings == ()
 
 
+def test_no_network_scanner_allows_ms_mail_provider_urllib_allowlist() -> None:
+    findings = scan_python_source_for_network_usage(
+        'from urllib import request\nrequest.urlopen("https://graph.microsoft.com/v1.0/me")\n',
+        file_path="friday/app/ms_mail_provider.py",
+    )
+
+    assert findings == ()
+
+
 def test_no_network_scanner_blocks_urllib_outside_ics_provider() -> None:
     findings = scan_python_source_for_network_usage(
         'from urllib import request\nrequest.urlopen("https://example.invalid/calendar.ics")\n',

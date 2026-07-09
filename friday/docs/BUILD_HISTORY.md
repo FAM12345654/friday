@@ -206,3 +206,13 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 | Agent-Kontext | Kunden-Betreuer werden in lokalen KI-Draft-Kontext aufgenommen |
 | Safety | kein echter Versand, keine Cloud-KI, keine neue externe Aktion |
 | Doku | `FRIDAY_CONTACT_BETREUER_TODO_RULE_GATE.md` |
+
+## Familienhelden Microsoft Mail Read-only
+
+- Neuer Microsoft Graph Mail.Read Provider: `friday/app/ms_mail_provider.py`.
+- Neuer verschluesselter Account Store: `friday/app/ms_mail_account_store.py`.
+- Neues Aktivierungs-Gate: `friday/app/ms_mail_read_activation_gate.py`.
+- Neue lokale Tabelle: `ms_mail_messages` fuer Absender, Betreff, Empfangszeit und Vorschau.
+- Neue API-Endpunkte unter `/api/accounts/ms-mail` und `/api/messages/ms-mail`.
+- Mobile App zeigt Familienhelden-Postfach read-only mit Connect/Status/Sync/Preview.
+- Kein Mail-Senden; `ENABLE_REAL_EMAIL` bleibt `False`.

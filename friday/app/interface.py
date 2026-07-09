@@ -3032,6 +3032,7 @@ class FridayInterface:
         print(f"E-Mail echt aktiv: {config.ENABLE_REAL_EMAIL}")
         print(f"WhatsApp echt aktiv: {config.ENABLE_REAL_WHATSAPP}")
         print(f"WhatsApp Read-Bridge aktiv: {config.ENABLE_WHATSAPP_BRIDGE_READ}")
+        print(f"Microsoft Mail Lesen aktiv: {config.ENABLE_MS_MAIL_READ}")
         print(f"SMS echt aktiv: {config.ENABLE_REAL_SMS}")
         print(f"Kalender echt aktiv: {config.ENABLE_REAL_CALENDAR}")
         print(f"Wetter echt aktiv: {config.ENABLE_REAL_WEATHER}")

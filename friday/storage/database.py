@@ -212,6 +212,17 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 suggestion_created INTEGER NOT NULL DEFAULT 0,
                 UNIQUE (chat_id, received_at)
             );
+
+            CREATE TABLE IF NOT EXISTS ms_mail_messages (
+                id INTEGER PRIMARY KEY,
+                message_id TEXT NOT NULL UNIQUE,
+                sender TEXT,
+                subject TEXT,
+                received_at TEXT,
+                snippet TEXT,
+                processed INTEGER NOT NULL DEFAULT 0,
+                suggestion_created INTEGER NOT NULL DEFAULT 0
+            );
             """
         )
         _ensure_task_priority_column(connection)

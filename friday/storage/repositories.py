@@ -447,6 +447,116 @@ class MessageRepository:
             return [row_to_dict(row) for row in rows]
 
 
+class MsMailMessageRepository:
+    """Stores read-only Microsoft Graph mail previews locally."""
+
+    SNIPPET_LIMIT = 500
+
+    def __init__(self, db_path: Path | str | None = None) -> None:
+        self.db_path = db_path or get_database_path()
+
+    @staticmethod
+    def _clean(value: object) -> str:
+        return " ".join(str(value or "").strip().split())
+
+    def upsert_messages(self, messages: list[dict] | tuple[dict, ...]) -> tuple[dict, ...]:
+        """Insert or update message previews without storing full bodies."""
+        normalized: list[dict[str, object]] = []
+        for item in messages:
+            message_id = self._clean(item.get("message_id"))
+            if not message_id:
+                continue
+            normalized.append(
+                {
+                    "message_id": message_id,
+                    "sender": self._clean(item.get("sender")),
+                    "subject": self._clean(item.get("subject")),
+                    "received_at": self._clean(item.get("received_at")),
+                    "snippet": str(item.get("snippet") or "")[: self.SNIPPET_LIMIT],
+                }
+            )
+
+        if not normalized:
+            return ()
+
+        with get_connection(self.db_path) as connection:
+            connection.executemany(
+                """
+                INSERT INTO ms_mail_messages (
+                    message_id, sender, subject, received_at, snippet, processed, suggestion_created
+                )
+                VALUES (
+                    :message_id, :sender, :subject, :received_at, :snippet, 0, 0
+                )
+                ON CONFLICT(message_id) DO UPDATE SET
+                    sender = excluded.sender,
+                    subject = excluded.subject,
+                    received_at = excluded.received_at,
+                    snippet = excluded.snippet
+                """,
+                normalized,
+            )
+            ids = [item["message_id"] for item in normalized]
+            placeholders = ", ".join("?" for _ in ids)
+            rows = connection.execute(
+                f"""
+                SELECT id, message_id, sender, subject, received_at, snippet, processed, suggestion_created
+                FROM ms_mail_messages
+                WHERE message_id IN ({placeholders})
+                ORDER BY received_at DESC, id DESC
+                """,
+                ids,
+            ).fetchall()
+        return tuple(row_to_dict(row) for row in rows)
+
+    def list_messages(self, limit: int = 25) -> list[dict]:
+        """Return recent read-only Microsoft mail previews."""
+        safe_limit = max(1, min(int(limit), 100))
+        with get_connection(self.db_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, message_id, sender, subject, received_at, snippet, processed, suggestion_created
+                FROM ms_mail_messages
+                ORDER BY received_at DESC, id DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [row_to_dict(row) for row in rows]
+
+    def get_unprocessed_messages(self, limit: int = 50) -> list[dict]:
+        """Return MS mail previews not yet processed into review suggestions."""
+        safe_limit = max(1, min(int(limit), 100))
+        with get_connection(self.db_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, message_id, sender, subject, received_at, snippet, processed, suggestion_created
+                FROM ms_mail_messages
+                WHERE processed = 0
+                ORDER BY received_at DESC, id DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [row_to_dict(row) for row in rows]
+
+    def mark_processed(self, local_id: int, *, suggestion_created: bool) -> None:
+        """Mark one locally stored MS mail preview as processed."""
+        with get_connection(self.db_path) as connection:
+            connection.execute(
+                """
+                UPDATE ms_mail_messages
+                SET processed = 1,
+                    suggestion_created = :suggestion_created
+                WHERE id = :local_id
+                """,
+                {
+                    "local_id": local_id,
+                    "suggestion_created": 1 if suggestion_created else 0,
+                },
+            )
+
+
 class CalendarRepository:
     """Reads calendar blocks and computes local free slots."""
 

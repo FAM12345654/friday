@@ -18,6 +18,9 @@ def test_modules_import() -> None:
         "friday.app.local_model_provider",
         "friday.app.logic_check_agent",
         "friday.app.model_output_validator",
+        "friday.app.ms_mail_account_store",
+        "friday.app.ms_mail_provider",
+        "friday.app.ms_mail_read_activation_gate",
         "friday.app.obsidian_brain",
         "friday.agents.task_agent",
         "friday.agents.message_agent",
@@ -52,6 +55,7 @@ def test_config_safety_flags() -> None:
     assert config.ENABLE_REAL_CALENDAR is True
     assert config.ENABLE_REAL_WEATHER is False
     assert config.ENABLE_REAL_MUSIC is False
+    assert config.ENABLE_MS_MAIL_READ is False
     assert config.REQUIRE_USER_APPROVAL is True
     assert config.USE_REAL_TODAY is True
     assert config.USE_SQLITE_STORAGE is True

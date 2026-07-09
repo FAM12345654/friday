@@ -18,6 +18,7 @@ FORBIDDEN_IMPORT_ROOTS: tuple[str, ...] = (
     "httpx",
     "twilio",
     "googleapiclient",
+    "msal",
     "msgraph",
     "whatsapp",
     "smtplib",
@@ -30,6 +31,7 @@ ALLOWED_FORBIDDEN_IMPORT_FILES: dict[str, tuple[str, ...]] = {
     "email_smtp_sender.py": ("smtplib",),
     "email_imap_reader.py": ("imaplib",),
     "calendar_provider_google.py": ("googleapiclient",),
+    "ms_mail_provider.py": ("msal",),
 }
 
 

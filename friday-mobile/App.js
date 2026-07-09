@@ -23,6 +23,7 @@ import {
   checkHealth,
   completeTask,
   connectEmailAccount,
+  connectMsMailAccount,
   createAccountPolicy,
   createCalendarEventFromMessage,
   createContact,
@@ -47,10 +48,14 @@ import {
   getMessageSuggestion,
   getMessageSuggestions,
   getMessages,
+  getMsMailMessages,
+  getMsMailStatus,
   getPrivacy,
   getSetupStatus,
   getTasks,
   checkCalendarActivationGate,
+  activateMsMailRead,
+  syncMsMailMessages,
   sendTaskForwardEmail,
   testEmailAccountConnection,
   rejectMessageSuggestion,
@@ -429,6 +434,8 @@ export default function App() {
   const [calendarActivationResult, setCalendarActivationResult] = useState("");
   const [emailAccountStatus, setEmailAccountStatus] = useState(null);
   const [emailInbox, setEmailInbox] = useState(null);
+  const [msMailStatus, setMsMailStatus] = useState(null);
+  const [msMailInbox, setMsMailInbox] = useState(null);
   const [whatsappStatus, setWhatsappStatus] = useState(null);
   const [whatsappInbox, setWhatsappInbox] = useState(null);
   const [emailPreset, setEmailPreset] = useState("gmail");
@@ -439,6 +446,12 @@ export default function App() {
   const [emailAgentNotesResult, setEmailAgentNotesResult] = useState("");
   const [emailAccountToken, setEmailAccountToken] = useState("");
   const [emailAccountResult, setEmailAccountResult] = useState("");
+  const [msMailClientId, setMsMailClientId] = useState("");
+  const [msMailTenant, setMsMailTenant] = useState("common");
+  const [msMailAuthResponse, setMsMailAuthResponse] = useState("");
+  const [msMailAccountToken, setMsMailAccountToken] = useState("");
+  const [msMailActivationToken, setMsMailActivationToken] = useState("");
+  const [msMailResult, setMsMailResult] = useState("");
   const [whatsappAgentNotes, setWhatsappAgentNotes] = useState("");
   const [whatsappAgentNotesResult, setWhatsappAgentNotesResult] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
@@ -570,6 +583,11 @@ export default function App() {
         items: [],
         message: normalizeApiError(err),
       }));
+      const msInbox = await getMsMailMessages(10).catch((err) => ({
+        items: [],
+        status: { connected: false, read_enabled: false },
+        message: normalizeApiError(err),
+      }));
       const whatsapp = await getWhatsAppMessages(10).catch((err) => ({
         items: [],
         status: { read_enabled: false, connected: false },
@@ -581,6 +599,8 @@ export default function App() {
       setMessageSuggestions(isArray(suggestions?.message_suggestions));
       setTaskSuggestions(isArray(suggestions?.task_suggestions));
       setEmailInbox(inbox);
+      setMsMailInbox(msInbox);
+      setMsMailStatus(msInbox?.status || null);
       setWhatsappInbox(whatsapp);
       setContacts(isArray(contactPayload));
       return;
@@ -624,9 +644,11 @@ export default function App() {
     if (screenName === "Datenschutz") {
       const payload = await getPrivacy();
       const emailStatus = await getEmailAccountStatus().catch(() => null);
+      const microsoftStatus = await getMsMailStatus().catch(() => null);
       const waStatus = await getWhatsAppStatus().catch(() => null);
       setPrivacy(payload);
       setEmailAccountStatus(emailStatus);
+      setMsMailStatus(microsoftStatus);
       setWhatsappStatus(waStatus);
       return;
     }
@@ -636,11 +658,15 @@ export default function App() {
       const policies = await getAccountPolicies().catch(() => null);
       const calendarStatus = await getCalendarAccountStatus().catch(() => null);
       const emailStatus = await getEmailAccountStatus().catch(() => null);
+      const microsoftStatus = await getMsMailStatus().catch(() => null);
+      const microsoftInbox = await getMsMailMessages(10).catch(() => null);
       const whatsappNotesPayload = await getWhatsAppAgentNotes().catch(() => null);
       setSetupStatus(payload);
       setAccountPolicies(policies);
       setCalendarAccountStatus(calendarStatus);
       setEmailAccountStatus(emailStatus);
+      setMsMailStatus(microsoftStatus);
+      setMsMailInbox(microsoftInbox);
       setEmailAgentNotes(emailStatus?.agent_notes || "");
       setWhatsappAgentNotes(whatsappNotesPayload?.agent_notes || "");
     }
@@ -1031,6 +1057,96 @@ export default function App() {
       );
     } catch (err) {
       setEmailAccountResult(`Test fehlgeschlagen: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handlePrepareMsMailAuth = async () => {
+    if (!msMailClientId.trim()) {
+      setMsMailResult("Microsoft Client-ID ist erforderlich.");
+      return;
+    }
+    setActionBusy(true);
+    setMsMailResult("");
+    try {
+      const result = await connectMsMailAccount({
+        client_id: msMailClientId.trim(),
+        tenant: msMailTenant.trim() || "common",
+      });
+      const url = result?.authorization_url || "";
+      setMsMailResult(url ? `OAuth-Link geöffnet. Falls nicht: ${url}` : "OAuth-Link konnte nicht erzeugt werden.");
+      if (url) {
+        await Linking.openURL(url);
+      }
+    } catch (err) {
+      setMsMailResult(`OAuth-Link konnte nicht vorbereitet werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleCompleteMsMailConnect = async () => {
+    if (!msMailClientId.trim() || !msMailAuthResponse.trim()) {
+      setMsMailResult("Client-ID und OAuth-Rückgabe-URL sind erforderlich.");
+      return;
+    }
+    setActionBusy(true);
+    setMsMailResult("Microsoft-Mail wird verbunden…");
+    try {
+      const result = await connectMsMailAccount({
+        client_id: msMailClientId.trim(),
+        tenant: msMailTenant.trim() || "common",
+        authorization_response: msMailAuthResponse.trim(),
+        approval_token: msMailAccountToken.trim(),
+      });
+      setMsMailAuthResponse("");
+      setMsMailResult(
+        result?.saved
+          ? "Familienhelden-Postfach lokal verschlüsselt gespeichert. Es bleibt nur lesend."
+          : result?.message || "Microsoft-Mail-Konto wurde nicht gespeichert.",
+      );
+      setMsMailStatus(await getMsMailStatus());
+    } catch (err) {
+      setMsMailResult(`Microsoft-Mail konnte nicht verbunden werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleActivateMsMailRead = async () => {
+    setActionBusy(true);
+    setMsMailResult("");
+    try {
+      const result = await activateMsMailRead({
+        approval_token: msMailActivationToken.trim(),
+        scanner_smoke_passed: true,
+        execute_write: true,
+      });
+      setMsMailResult(
+        result?.config_write_performed
+          ? "Mail-Lesen wurde in der Config aktiviert. Bitte Friday API neu starten."
+          : `Mail-Lesen noch blockiert: ${(result?.blocked_reasons || []).join(" / ") || "Gate nicht erfüllt"}`,
+      );
+      setMsMailStatus(await getMsMailStatus());
+    } catch (err) {
+      setMsMailResult(`Aktivierung blockiert: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleSyncMsMail = async () => {
+    setActionBusy(true);
+    setMsMailResult("");
+    try {
+      const result = await syncMsMailMessages({ top: 25 });
+      setMsMailResult(`Sync fertig: ${result?.stored_count || 0} Mail-Vorschauen lokal aktualisiert.`);
+      setMsMailInbox(await getMsMailMessages(10));
+      setMsMailStatus(await getMsMailStatus());
+      await refreshActive();
+    } catch (err) {
+      setMsMailResult(`Sync blockiert: ${normalizeApiError(err)}`);
     } finally {
       setActionBusy(false);
     }
@@ -1637,6 +1753,41 @@ export default function App() {
               <Text style={styles.cardBody}>{item.text_preview || ""}</Text>
             </View>
           ))}
+
+          <SectionTitle>Familienhelden-Postfach (nur lesen)</SectionTitle>
+          <View style={styles.card}>
+            <View style={styles.privacyRow}>
+              <Text style={styles.privacyLabel}>Microsoft Graph Mail.Read</Text>
+              <Chip
+                label={msMailInbox?.status?.read_enabled ? "aktiv" : "aus"}
+                color={msMailInbox?.status?.read_enabled ? colors.warn : colors.textSoft}
+              />
+            </View>
+            <Text style={styles.forwardSafety}>
+              Nur Lesen. Friday synchronisiert Betreff und Vorschau lokal und sendet nichts.
+            </Text>
+            <ActionButton
+              small
+              variant="ghost"
+              label="Familienhelden-Mails synchronisieren"
+              onPress={handleSyncMsMail}
+              disabled={actionBusy}
+            />
+            {!!msMailInbox?.message && <Text style={styles.cardMeta}>{msMailInbox.message}</Text>}
+          </View>
+          {isArray(msMailInbox?.items).map((item, index) => (
+            <View key={`${item.message_id || "ms-mail"}-${index}`} style={styles.card}>
+              <Text style={styles.cardTitle}>{item.subject || "(ohne Betreff)"}</Text>
+              <Text style={styles.cardMeta}>Von: {item.sender || "-"}</Text>
+              <Text style={styles.cardMeta}>{item.received_at || ""}</Text>
+              <Text style={styles.cardBody}>{item.snippet || ""}</Text>
+            </View>
+          ))}
+          {isArray(msMailInbox?.items).length === 0 && (
+            <View style={styles.card}>
+              <Text style={styles.cardBody}>Noch keine lokal synchronisierten Familienhelden-Mails.</Text>
+            </View>
+          )}
 
           <SectionTitle>WhatsApp (mitgelesen, letzte 10)</SectionTitle>
           <View style={styles.card}>
@@ -2265,6 +2416,104 @@ export default function App() {
               <Text style={styles.approvalResultText}>{emailAgentNotesResult}</Text>
             )}
           </View>
+
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Familienhelden-Postfach (nur lesen)</Text>
+              <Chip
+                label={msMailStatus?.connected ? "verbunden" : "nicht verbunden"}
+                color={msMailStatus?.connected ? colors.sage : colors.textSoft}
+              />
+            </View>
+            <Text style={styles.cardMeta}>
+              Lesen aktiv: {msMailStatus?.read_enabled ? "ja" : "nein"} / Real-Versand: {msMailStatus?.real_email_enabled ? "aktiv" : "aus"}
+            </Text>
+            <Text style={styles.cardMeta}>
+              Konto: {msMailStatus?.username_masked || "-"} / Test OK: {msMailStatus?.last_test_ok ? "ja" : "nein"}
+            </Text>
+            <Text style={styles.forwardSafety}>
+              Microsoft Graph wird nur mit Mail.Read genutzt. Kein Mail.Send, kein automatischer Versand.
+            </Text>
+            <TextInput
+              value={msMailClientId}
+              onChangeText={setMsMailClientId}
+              style={styles.input}
+              placeholder="Azure Client-ID"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+            />
+            <TextInput
+              value={msMailTenant}
+              onChangeText={setMsMailTenant}
+              style={styles.input}
+              placeholder="Tenant: common oder Tenant-ID"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+            />
+            <View style={styles.row}>
+              <ActionButton
+                small
+                variant="ghost"
+                label="OAuth-Link öffnen"
+                onPress={handlePrepareMsMailAuth}
+                disabled={actionBusy}
+              />
+              <ActionButton
+                small
+                variant="success"
+                label="Mail-Sync starten"
+                onPress={handleSyncMsMail}
+                disabled={actionBusy}
+              />
+            </View>
+            <TextInput
+              value={msMailAuthResponse}
+              onChangeText={setMsMailAuthResponse}
+              style={styles.input}
+              placeholder="OAuth-Rückgabe-URL von localhost hier einfügen"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+              multiline
+            />
+            <TextInput
+              value={msMailAccountToken}
+              onChangeText={setMsMailAccountToken}
+              style={styles.input}
+              placeholder="KONTO SPEICHERN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <ActionButton
+              small
+              variant="success"
+              label="Microsoft-Mail verbinden"
+              onPress={handleCompleteMsMailConnect}
+              disabled={actionBusy}
+            />
+            <TextInput
+              value={msMailActivationToken}
+              onChangeText={setMsMailActivationToken}
+              style={styles.input}
+              placeholder="MAIL LESEN AKTIVIEREN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <ActionButton
+              small
+              variant="ghost"
+              label="Read-Gate aktivieren"
+              onPress={handleActivateMsMailRead}
+              disabled={actionBusy}
+            />
+            {!!msMailResult && <Text style={styles.approvalResultText}>{msMailResult}</Text>}
+            {isArray(msMailInbox?.items).slice(0, 3).map((item, index) => (
+              <View key={`${item.message_id || "ms-mail-setup"}-${index}`} style={styles.cardCompact}>
+                <Text style={styles.cardTitle}>{item.subject || "(ohne Betreff)"}</Text>
+                <Text style={styles.cardMeta}>Von: {item.sender || "-"}</Text>
+                <Text style={styles.cardBody}>{item.snippet || ""}</Text>
+              </View>
+            ))}
+          </View>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>WhatsApp</Text>
             <View style={styles.privacyRow}>
@@ -2513,6 +2762,13 @@ export default function App() {
             <View style={styles.privacyRow}>
               <Text style={styles.privacyLabel}>E-Mail</Text>
               <Chip label={setupStatus?.email?.configured ? "konfiguriert" : "nicht verbunden"} color={setupStatus?.email?.configured ? colors.warn : colors.textSoft} />
+            </View>
+            <View style={styles.privacyRow}>
+              <Text style={styles.privacyLabel}>Familienhelden-Mail</Text>
+              <Chip
+                label={setupStatus?.ms_mail?.read_enabled ? "read-only aktiv" : "read-only aus"}
+                color={setupStatus?.ms_mail?.read_enabled ? colors.warn : colors.textSoft}
+              />
             </View>
             <View style={styles.privacyRow}>
               <Text style={styles.privacyLabel}>WhatsApp Read-Bridge</Text>

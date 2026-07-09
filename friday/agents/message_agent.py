@@ -23,8 +23,12 @@ from friday.storage.repositories import (
     ContactRepository,
     MessageRepository,
     MessageSuggestionRepository,
+    MsMailMessageRepository,
     TaskSuggestionRepository,
 )
+
+
+MS_MAIL_MESSAGE_ID_OFFSET = 3_000_000
 
 
 class MessageAgent:
@@ -81,6 +85,7 @@ class MessageAgent:
         self.db_path = db_path or get_database_path()
         self.message_repository = MessageRepository(self.db_path) if USE_SQLITE_STORAGE else None
         self.contact_repository = ContactRepository(self.db_path) if USE_SQLITE_STORAGE else None
+        self.ms_mail_repository = MsMailMessageRepository(self.db_path) if USE_SQLITE_STORAGE else None
         self.suggestion_repository = MessageSuggestionRepository(self.db_path) if USE_SQLITE_STORAGE else None
         self.task_suggestion_repository = (
             TaskSuggestionRepository(self.db_path) if USE_SQLITE_STORAGE else None
@@ -91,7 +96,11 @@ class MessageAgent:
         """Load all local messages."""
         if self.message_repository is not None:
             messages = self.message_repository.get_messages()
-            return messages + self.get_whatsapp_messages_as_local_messages()
+            return (
+                messages
+                + self.get_whatsapp_messages_as_local_messages()
+                + self.get_ms_mail_messages_as_local_messages()
+            )
         with (DATA_DIR / "sample_messages.json").open("r", encoding="utf-8") as file:
             return json.load(file)
 
@@ -111,6 +120,30 @@ class MessageAgent:
                     "source": "whatsapp",
                     "whatsapp_message_id": item.get("id"),
                     "sender_number_masked": item.get("sender_number_masked"),
+                }
+            )
+        return items
+
+    def get_ms_mail_messages_as_local_messages(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Expose synced Microsoft mail previews as local read-only messages."""
+        if self.ms_mail_repository is None:
+            return []
+        items: list[Dict[str, Any]] = []
+        for item in self.ms_mail_repository.list_messages(limit=limit):
+            subject = str(item.get("subject") or "").strip()
+            snippet = str(item.get("snippet") or "").strip()
+            text = "\n".join(part for part in (subject, snippet) if part)
+            items.append(
+                {
+                    "id": MS_MAIL_MESSAGE_ID_OFFSET + int(item["id"]),
+                    "sender": item.get("sender") or "Microsoft Mail",
+                    "text": text,
+                    "received_at": item.get("received_at"),
+                    "contact_type": "email",
+                    "source": "ms_mail",
+                    "ms_mail_message_id": item.get("message_id"),
+                    "subject": subject,
+                    "snippet": snippet,
                 }
             )
         return items
@@ -284,6 +317,90 @@ class MessageAgent:
             message_suggestions_created=message_suggestions_created,
             task_suggestions_created=task_suggestions_created,
         )
+
+    def process_unprocessed_ms_mail_messages(self) -> dict[str, int]:
+        """Create local review suggestions from synced Microsoft mail previews."""
+        if (
+            self.ms_mail_repository is None
+            or self.suggestion_repository is None
+            or self.task_suggestion_repository is None
+        ):
+            return {
+                "processed_count": 0,
+                "message_suggestions_created": 0,
+                "task_suggestions_created": 0,
+                "calendar_suggestions_created": 0,
+            }
+
+        processed_count = 0
+        message_suggestions_created = 0
+        task_suggestions_created = 0
+        calendar_suggestions_created = 0
+
+        for item in self.ms_mail_repository.get_unprocessed_messages():
+            synthetic_message = {
+                "id": MS_MAIL_MESSAGE_ID_OFFSET + int(item["id"]),
+                "sender": item.get("sender") or "Microsoft Mail",
+                "text": "\n".join(
+                    part
+                    for part in (
+                        str(item.get("subject") or "").strip(),
+                        str(item.get("snippet") or "").strip(),
+                    )
+                    if part
+                ),
+                "received_at": item.get("received_at"),
+                "contact_type": "email",
+                "source": "ms_mail",
+            }
+            suggestion_created = False
+            text = str(synthetic_message.get("text") or "")
+
+            if self.is_scheduling_related(text):
+                reply = self.suggestion_repository.create_suggestion(
+                    message_id=int(synthetic_message["id"]),
+                    draft_text=self.create_reply_suggestion(synthetic_message),
+                    suggestion_type="ms_mail_reply",
+                    notes="Lokaler Microsoft-Mail-Read-Only-Entwurf. Kein Versand.",
+                )
+                if reply:
+                    message_suggestions_created += 1
+                    suggestion_created = True
+
+            calendar_suggestion = self.create_calendar_event_suggestion(synthetic_message)
+            if calendar_suggestion:
+                calendar_suggestions_created += 1
+                suggestion_created = True
+
+            sender = str(synthetic_message.get("sender") or "")
+            sender_contact = self.get_sender_contact(sender)
+            if self.detect_intent(text) == "task" and is_relevant_for_user(
+                text=text,
+                sender_contact=sender_contact,
+            ):
+                task = self.task_suggestion_repository.create_task_suggestion(
+                    message_id=int(synthetic_message["id"]),
+                    title=f"Aufgabe aus E-Mail von {sender}",
+                    category=self.get_contact_type(sender),
+                    notes=text,
+                    priority="normal",
+                )
+                if task:
+                    task_suggestions_created += 1
+                    suggestion_created = True
+
+            self.ms_mail_repository.mark_processed(
+                int(item["id"]),
+                suggestion_created=suggestion_created,
+            )
+            processed_count += 1
+
+        return {
+            "processed_count": processed_count,
+            "message_suggestions_created": message_suggestions_created,
+            "task_suggestions_created": task_suggestions_created,
+            "calendar_suggestions_created": calendar_suggestions_created,
+        }
 
     def get_pending_suggestions(self) -> list[Dict[str, Any]]:
         """Return local scheduling suggestions still waiting for review."""

@@ -77,7 +77,7 @@ def test_forbidden_import_scanner_has_safe_flags() -> None:
 
 
 def test_forbidden_import_roots_include_expected_entries() -> None:
-    expected = {"openai", "requests", "httpx", "twilio", "socket"}
+    expected = {"openai", "requests", "httpx", "twilio", "socket", "msal"}
 
     assert expected.issubset(set(FORBIDDEN_IMPORT_ROOTS))
 
@@ -125,3 +125,18 @@ def test_forbidden_import_scanner_allows_google_only_in_calendar_provider() -> N
     assert allowed.passed is True
     assert blocked.passed is False
     assert blocked.findings[0].module == "googleapiclient"
+
+
+def test_forbidden_import_scanner_allows_msal_only_in_ms_mail_provider() -> None:
+    allowed = scan_python_source_for_forbidden_imports(
+        "import msal\n",
+        path="friday/app/ms_mail_provider.py",
+    )
+    blocked = scan_python_source_for_forbidden_imports(
+        "import msal\n",
+        path="friday/app/other_module.py",
+    )
+
+    assert allowed.passed is True
+    assert blocked.passed is False
+    assert blocked.findings[0].module == "msal"
