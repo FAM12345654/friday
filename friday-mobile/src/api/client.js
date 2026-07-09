@@ -290,6 +290,14 @@ export async function getCalendar(date) {
   return callApi(`/api/calendar${query}`);
 }
 
+export async function getGoogleCalendarReadPreview(rangeStart, rangeEnd) {
+  const query = new URLSearchParams({
+    range_start: String(rangeStart),
+    range_end: String(rangeEnd),
+  }).toString();
+  return callApi(`/api/accounts/calendar/google/read-preview?${query}`);
+}
+
 export async function getCalendarSlots(messageId, durationMinutes = 60) {
   const query = new URLSearchParams({
     duration_minutes: String(durationMinutes),

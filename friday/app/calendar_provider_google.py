@@ -7,6 +7,7 @@ other module network/provider-free.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any
 
@@ -24,12 +25,36 @@ GOOGLE_CALENDAR_SCOPES = (
 )
 
 
+def _to_rfc3339(value: str, *, end_of_day: bool = False) -> str:
+    """Normalize a date or datetime string to RFC3339 for the Google Calendar API.
+
+    Google's ``timeMin``/``timeMax`` require a full timestamp with offset. A plain
+    date like ``2026-07-01`` is rejected with HTTP 400, so date-only inputs get a
+    day boundary and UTC marker appended. Existing datetimes pass through unchanged.
+    """
+    text = str(value or "").strip()
+    if not text or "T" in text:
+        return text
+    return f"{text}T23:59:59Z" if end_of_day else f"{text}T00:00:00Z"
+
+
 @dataclass(frozen=True)
 class GoogleOAuthPreview:
     """Preview data for starting a desktop OAuth flow."""
 
     ok: bool
     authorization_url: str | None
+    message: str
+    blocked_reasons: tuple[str, ...]
+    external_call_used: bool
+
+
+@dataclass(frozen=True)
+class GoogleOAuthCredentialsPreview:
+    """Preview result for exchanging a Google OAuth response for credentials."""
+
+    ok: bool
+    credentials_json: str | None
     message: str
     blocked_reasons: tuple[str, ...]
     external_call_used: bool
@@ -70,6 +95,7 @@ def build_google_oauth_authorization_url(
         str(path),
         scopes=list(GOOGLE_CALENDAR_SCOPES),
         redirect_uri="http://localhost",
+        autogenerate_code_verifier=False,
     )
     authorization_url, _state = flow.authorization_url(
         access_type="offline",
@@ -82,6 +108,55 @@ def build_google_oauth_authorization_url(
         message="Google OAuth URL wurde vorbereitet. Anmeldung laeuft im Browser am PC.",
         blocked_reasons=(),
         external_call_used=False,
+    )
+
+
+def exchange_google_oauth_authorization_response(
+    *,
+    client_secrets_path: str | Path,
+    authorization_response: str,
+) -> GoogleOAuthCredentialsPreview:
+    """Exchange the browser callback URL for OAuth credentials."""
+    path = Path(client_secrets_path)
+    if not path.exists() or not path.is_file():
+        return GoogleOAuthCredentialsPreview(
+            ok=False,
+            credentials_json=None,
+            message="Google OAuth Client-Secrets-Datei wurde nicht gefunden.",
+            blocked_reasons=("client_secrets_missing",),
+            external_call_used=False,
+        )
+    clean_response = str(authorization_response or "").strip()
+    if not clean_response:
+        return GoogleOAuthCredentialsPreview(
+            ok=False,
+            credentials_json=None,
+            message="Google OAuth Antwort-URL fehlt.",
+            blocked_reasons=("authorization_response_missing",),
+            external_call_used=False,
+        )
+    deps = _load_google_dependencies()
+    flow = deps["InstalledAppFlow"].from_client_secrets_file(
+        str(path),
+        scopes=list(GOOGLE_CALENDAR_SCOPES),
+        redirect_uri="http://localhost",
+        autogenerate_code_verifier=False,
+    )
+    previous_insecure_transport = os.environ.get("OAUTHLIB_INSECURE_TRANSPORT")
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+    try:
+        flow.fetch_token(authorization_response=clean_response)
+    finally:
+        if previous_insecure_transport is None:
+            os.environ.pop("OAUTHLIB_INSECURE_TRANSPORT", None)
+        else:
+            os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = previous_insecure_transport
+    return GoogleOAuthCredentialsPreview(
+        ok=True,
+        credentials_json=flow.credentials.to_json(),
+        message="Google OAuth Antwort wurde verarbeitet.",
+        blocked_reasons=(),
+        external_call_used=True,
     )
 
 
@@ -162,8 +237,8 @@ class GoogleCalendarProvider:
             calendar_id = self.account.calendar_id if self.account else "primary"
             response = service.events().list(
                 calendarId=calendar_id,
-                timeMin=range_start,
-                timeMax=range_end,
+                timeMin=_to_rfc3339(range_start),
+                timeMax=_to_rfc3339(range_end, end_of_day=True),
                 singleEvents=True,
                 orderBy="startTime",
             ).execute()
@@ -208,4 +283,3 @@ class GoogleCalendarProvider:
                 blocked_reasons=("google_create_failed",),
                 external_call_used=True,
             )
-

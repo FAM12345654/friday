@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from friday.app.account_policy_store import AccountPolicy
+from friday.app.calendar_provider_base import CalendarProviderEvent
 
 
 def _load_api_module():
@@ -107,9 +108,19 @@ def test_account_policies_endpoint_returns_policy_context(monkeypatch) -> None:
     assert "PH = Dienst = belegt" in payload["ai_context"]
 
 
-def test_calendar_activation_gate_endpoint_blocks_without_account() -> None:
+def test_calendar_activation_gate_endpoint_blocks_without_account(monkeypatch) -> None:
     api = _load_api_module()
     client = TestClient(api.app)
+    monkeypatch.setattr(
+        api,
+        "google_calendar_account_status",
+        lambda: {
+            "connected": False,
+            "calendar_id": None,
+            "last_test_ok": False,
+            "real_calendar_enabled": False,
+        },
+    )
 
     response = client.post(
         "/api/accounts/calendar/activation-gate",
@@ -120,3 +131,167 @@ def test_calendar_activation_gate_endpoint_blocks_without_account() -> None:
     payload = response.json()["data"]
     assert payload["allowed"] is False
     assert "calendar_account_missing" in payload["blocked_reasons"]
+
+
+def test_google_calendar_connect_endpoint_requires_exact_token(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+
+    def _must_not_exchange(**_kwargs):
+        raise AssertionError("OAuth exchange must not run without hard approval token.")
+
+    monkeypatch.setattr(api, "exchange_google_oauth_authorization_response", _must_not_exchange)
+
+    response = client.post(
+        "/api/accounts/calendar/google/connect",
+        json={
+            "client_secrets_path": "client.json",
+            "authorization_response": "http://localhost/?code=abc",
+            "approval_token": "JA",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["allowed"] is False
+    assert payload["persisted"] is False
+    assert payload["external_call_used"] is False
+    assert "approval_token_invalid" in payload["blocked_reasons"]
+
+
+def test_google_calendar_connect_endpoint_does_not_return_credentials(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+
+    class _ExchangeResult:
+        ok = True
+        credentials_json = '{"token": "fake-token", "client_secret": "hidden"}'
+        message = "ok"
+        blocked_reasons = ()
+        external_call_used = True
+
+    monkeypatch.setattr(
+        api,
+        "exchange_google_oauth_authorization_response",
+        lambda **_kwargs: _ExchangeResult(),
+    )
+    monkeypatch.setattr(
+        api,
+        "save_google_calendar_account",
+        lambda account, *, approval_token: {
+            "allowed": True,
+            "persisted": True,
+            "message": "stored",
+            "blocked_reasons": (),
+        },
+    )
+
+    response = client.post(
+        "/api/accounts/calendar/google/connect",
+        json={
+            "client_secrets_path": "client.json",
+            "authorization_response": "http://localhost/?code=abc",
+            "approval_token": "KALENDER VERBINDEN",
+            "calendar_id": "primary",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["allowed"] is True
+    assert payload["persisted"] is True
+    assert payload["connected"] is True
+    assert payload["real_calendar_enabled"] is False
+    assert "credentials" not in payload
+    assert "fake-token" not in response.text
+    assert "hidden" not in response.text
+
+
+def test_google_calendar_read_preview_blocks_without_connected_account(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    monkeypatch.setattr(
+        api,
+        "google_calendar_account_status",
+        lambda: {
+            "connected": False,
+            "calendar_id": None,
+            "last_test_ok": False,
+            "real_calendar_enabled": False,
+        },
+    )
+
+    response = client.get(
+        "/api/accounts/calendar/google/read-preview",
+        params={
+            "range_start": "2026-07-15T00:00:00+02:00",
+            "range_end": "2026-07-16T00:00:00+02:00",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["ok"] is False
+    assert payload["read_only"] is True
+    assert payload["write_enabled"] is False
+    assert payload["real_calendar_enabled"] is False
+    assert payload["external_call_used"] is False
+    assert "calendar_account_missing" in payload["blocked_reasons"]
+
+
+def test_google_calendar_read_preview_returns_events_without_enabling_writes(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    monkeypatch.setattr(
+        api,
+        "google_calendar_account_status",
+        lambda: {
+            "connected": True,
+            "calendar_id": "primary",
+            "last_test_ok": True,
+            "real_calendar_enabled": False,
+        },
+    )
+
+    class _Result:
+        ok = True
+        events = (
+            CalendarProviderEvent(
+                id="event-1",
+                provider="google_calendar",
+                calendar_id="primary",
+                title="PH Dienst",
+                start="2026-07-15T10:00:00+02:00",
+                end="2026-07-15T11:00:00+02:00",
+                location="Buero",
+                raw={},
+            ),
+        )
+        message = "Google-Kalender-Events gelesen."
+        blocked_reasons = ()
+        external_call_used = True
+
+    class _Provider:
+        def list_events(self, *, range_start: str, range_end: str):
+            assert range_start == "2026-07-15T00:00:00+02:00"
+            assert range_end == "2026-07-16T00:00:00+02:00"
+            return _Result()
+
+    monkeypatch.setattr(api, "GoogleCalendarProvider", lambda: _Provider())
+
+    response = client.get(
+        "/api/accounts/calendar/google/read-preview",
+        params={
+            "range_start": "2026-07-15T00:00:00+02:00",
+            "range_end": "2026-07-16T00:00:00+02:00",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["ok"] is True
+    assert payload["read_only"] is True
+    assert payload["write_enabled"] is False
+    assert payload["real_calendar_enabled"] is False
+    assert payload["external_call_used"] is True
+    assert payload["events"][0]["title"] == "PH Dienst"

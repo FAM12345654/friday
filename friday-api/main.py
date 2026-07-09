@@ -38,8 +38,17 @@ from friday.app.account_policy_store import (
 from friday.app.calendar_activation_gate import build_calendar_activation_gate
 from friday.app.calendar_event_extraction import extract_calendar_event_candidate
 from friday.app.calendar_event_write_guard import check_calendar_event_write_allowed
-from friday.app.calendar_google_account_store import google_calendar_account_status
-from friday.app.calendar_provider_google import build_google_oauth_authorization_url
+from friday.app.calendar_google_account_store import (
+    GOOGLE_CALENDAR_CONNECT_TOKEN,
+    build_google_calendar_account,
+    google_calendar_account_status,
+    save_google_calendar_account,
+)
+from friday.app.calendar_provider_google import (
+    GoogleCalendarProvider,
+    build_google_oauth_authorization_url,
+    exchange_google_oauth_authorization_response,
+)
 from friday.app.contact_category_classifier import classify_contact_category
 from friday.app.email_account_store import (
     EMAIL_ACCOUNT_DELETE_TOKEN,
@@ -235,6 +244,13 @@ class GoogleOAuthUrlRequest(BaseModel):
     client_secrets_path: str
 
 
+class GoogleOAuthConnectRequest(BaseModel):
+    client_secrets_path: str
+    authorization_response: str
+    approval_token: str
+    calendar_id: str = "primary"
+
+
 class CalendarActivationGateRequest(BaseModel):
     approval_token: str
     scanner_smoke_passed: bool = False
@@ -420,6 +436,102 @@ def get_google_calendar_oauth_url(payload: GoogleOAuthUrlRequest) -> dict[str, A
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _envelope(preview.__dict__)
+
+
+@app.post("/api/accounts/calendar/google/connect")
+def connect_google_calendar_account(payload: GoogleOAuthConnectRequest) -> dict[str, Any]:
+    if payload.approval_token != GOOGLE_CALENDAR_CONNECT_TOKEN:
+        return _envelope(
+            {
+                "allowed": False,
+                "persisted": False,
+                "connected": False,
+                "calendar_id": None,
+                "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,
+                "message": "Google-Kalender wurde nicht gespeichert: Token fehlt.",
+                "blocked_reasons": ("approval_token_invalid",),
+                "external_call_used": False,
+            }
+        )
+    try:
+        exchange = exchange_google_oauth_authorization_response(
+            client_secrets_path=payload.client_secrets_path,
+            authorization_response=payload.authorization_response,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not exchange.ok or exchange.credentials_json is None:
+        return _envelope(
+            {
+                "allowed": False,
+                "persisted": False,
+                "connected": False,
+                "calendar_id": None,
+                "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,
+                "message": exchange.message,
+                "blocked_reasons": exchange.blocked_reasons,
+                "external_call_used": exchange.external_call_used,
+            }
+        )
+    account = build_google_calendar_account(
+        calendar_id=payload.calendar_id,
+        credentials_json=exchange.credentials_json,
+        last_test_ok=False,
+    )
+    save_result = save_google_calendar_account(
+        account,
+        approval_token=payload.approval_token,
+    )
+    return _envelope(
+        {
+            "allowed": bool(save_result["allowed"]),
+            "persisted": bool(save_result["persisted"]),
+            "connected": bool(save_result["persisted"]),
+            "calendar_id": account.calendar_id if save_result["persisted"] else None,
+            "last_test_ok": False,
+            "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,
+            "message": save_result["message"],
+            "blocked_reasons": save_result["blocked_reasons"],
+            "external_call_used": exchange.external_call_used,
+        }
+    )
+
+
+@app.get("/api/accounts/calendar/google/read-preview")
+def get_google_calendar_read_preview(
+    range_start: str = Query(...),
+    range_end: str = Query(...),
+) -> dict[str, Any]:
+    account_status = google_calendar_account_status()
+    if not account_status["connected"]:
+        return _envelope(
+            {
+                "ok": False,
+                "read_only": True,
+                "write_enabled": False,
+                "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,
+                "events": [],
+                "message": "Kein Google-Kalender-Konto verbunden.",
+                "blocked_reasons": ("calendar_account_missing",),
+                "external_call_used": False,
+            }
+        )
+    result = GoogleCalendarProvider().list_events(
+        range_start=range_start,
+        range_end=range_end,
+    )
+    return _envelope(
+        {
+            "ok": result.ok,
+            "read_only": True,
+            "write_enabled": False,
+            "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,
+            "events": [asdict(event) for event in result.events],
+            "message": result.message,
+            "blocked_reasons": result.blocked_reasons,
+            "external_call_used": result.external_call_used,
+        }
+    )
 
 
 @app.post("/api/accounts/calendar/activation-gate")

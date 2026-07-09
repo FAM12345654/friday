@@ -37,6 +37,7 @@ import {
   generateTaskSuggestionsForMessage,
   getApiUrl,
   getCalendar,
+  getGoogleCalendarReadPreview,
   getContacts,
   getDashboard,
   getMessageSuggestion,
@@ -91,6 +92,45 @@ const formatDate = (value) => {
     return "";
   }
   return String(value);
+};
+
+const padDatePart = (value) => String(value).padStart(2, "0");
+
+const formatTimezoneOffset = (date) => {
+  const offset = -date.getTimezoneOffset();
+  const sign = offset >= 0 ? "+" : "-";
+  const absolute = Math.abs(offset);
+  const hours = padDatePart(Math.floor(absolute / 60));
+  const minutes = padDatePart(absolute % 60);
+  return `${sign}${hours}:${minutes}`;
+};
+
+const formatLocalDateTime = (date) => {
+  const year = date.getFullYear();
+  const month = padDatePart(date.getMonth() + 1);
+  const day = padDatePart(date.getDate());
+  const hours = padDatePart(date.getHours());
+  const minutes = padDatePart(date.getMinutes());
+  const seconds = padDatePart(date.getSeconds());
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${formatTimezoneOffset(date)}`;
+};
+
+const buildGoogleCalendarRange = (days = 14) => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(start.getDate() + days);
+  return {
+    rangeStart: formatLocalDateTime(start),
+    rangeEnd: formatLocalDateTime(end),
+  };
+};
+
+const formatCalendarMoment = (value) => {
+  if (!value) {
+    return "?";
+  }
+  return String(value).replace("T", " ").slice(0, 16);
 };
 
 const isArray = (value) => (Array.isArray(value) ? value : []);
@@ -236,6 +276,7 @@ export default function App() {
   const [messageSuggestions, setMessageSuggestions] = useState([]);
   const [taskSuggestions, setTaskSuggestions] = useState([]);
   const [calendar, setCalendar] = useState(null);
+  const [googleCalendarPreview, setGoogleCalendarPreview] = useState(null);
   const [contacts, setContacts] = useState([]);
   const [newContactName, setNewContactName] = useState("");
   const [newContactEmail, setNewContactEmail] = useState("");
@@ -400,7 +441,24 @@ export default function App() {
 
     if (screenName === "Kalender") {
       const payload = await getCalendar();
+      const calendarStatus = await getCalendarAccountStatus().catch(() => null);
+      let googlePreview = null;
+      if (calendarStatus?.google?.connected) {
+        const { rangeStart, rangeEnd } = buildGoogleCalendarRange(30);
+        googlePreview = await getGoogleCalendarReadPreview(rangeStart, rangeEnd).catch((err) => ({
+          ok: false,
+          read_only: true,
+          write_enabled: false,
+          real_calendar_enabled: false,
+          events: [],
+          message: normalizeApiError(err),
+          blocked_reasons: ["google_calendar_read_failed"],
+          external_call_used: true,
+        }));
+      }
       setCalendar(payload);
+      setCalendarAccountStatus(calendarStatus);
+      setGoogleCalendarPreview(googlePreview);
       return;
     }
 
@@ -1259,8 +1317,50 @@ export default function App() {
     if (active === "Kalender") {
       const items = isArray(calendar?.items || calendar?.calendar_items || []);
       const slots = isArray(calendar?.free_slots || []);
+      const googleEvents = isArray(googleCalendarPreview?.events);
+      const googleConnected = Boolean(calendarAccountStatus?.google?.connected);
       return (
         <View>
+          <SectionTitle>Google-Kalender</SectionTitle>
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Google-Verbindung</Text>
+              <Chip
+                label={googleConnected ? "verbunden" : "nicht verbunden"}
+                color={googleConnected ? colors.success : colors.textSoft}
+              />
+            </View>
+            <Text style={styles.cardMeta}>
+              Kalender: {calendarAccountStatus?.google?.calendar_id || "-"}
+            </Text>
+            <Text style={styles.cardMeta}>
+              Verbindungstest: {calendarAccountStatus?.google?.last_test_ok ? "OK" : "nicht geprüft"}
+            </Text>
+            <Text style={styles.cardMeta}>
+              Modus: nur lesen · Schreiben {googleCalendarPreview?.write_enabled ? "aktiv" : "aus"}
+            </Text>
+            {!!googleCalendarPreview?.message && (
+              <Text style={styles.cardBody}>{googleCalendarPreview.message}</Text>
+            )}
+          </View>
+          {googleEvents.map((entry) => (
+            <View key={entry.id ?? `${entry.calendar_id}-${entry.start}-${entry.end}`} style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{entry.title || "Google-Termin"}</Text>
+                <Chip label="Google" color={colors.sage} />
+              </View>
+              <Text style={styles.cardMeta}>
+                {formatCalendarMoment(entry.start)} – {formatCalendarMoment(entry.end)}
+              </Text>
+              {!!entry.location && <Text style={styles.cardMeta}>Ort: {entry.location}</Text>}
+            </View>
+          ))}
+          {googleConnected && googleEvents.length === 0 && (
+            <EmptyState icon="▦" text="Keine Google-Termine in den nächsten 30 Tagen gefunden." />
+          )}
+          {!googleConnected && (
+            <EmptyState icon="▦" text="Google-Kalender ist noch nicht verbunden." />
+          )}
           <SectionTitle>Termine am {calendar?.date || "-"}</SectionTitle>
           {items.map((entry) => (
             <View key={entry.id ?? `${entry.date}-${entry.start}-${entry.end}`} style={styles.card}>
@@ -1269,7 +1369,7 @@ export default function App() {
                 <Chip label={entry.item_type || "busy"} color={colors.accent} />
               </View>
               <Text style={styles.cardMeta}>
-                {entry.start || "?"} – {entry.end || "?"} • {entry.date || calendar?.date}
+                {formatCalendarMoment(entry.start)} – {formatCalendarMoment(entry.end)} • {entry.date || calendar?.date}
               </Text>
             </View>
           ))}
