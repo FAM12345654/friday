@@ -141,3 +141,15 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 | Kalender-Write | weiterhin blockiert, solange `ENABLE_REAL_CALENDAR=False`; Token `TERMIN SPEICHERN` erforderlich |
 | Safety | Google-Imports nur in `calendar_provider_google.py`; Tests mocken Provider |
 | Doku | `FRIDAY_CALENDAR_ACCOUNTS_GATE.md` |
+
+## Friday Calendar Write Activation
+
+| Bereich | Ergebnis |
+|---|---|
+| Ziel | Echtes Google-Kalender-Schreiben als bewusste Safety-Ausnahme aktivieren |
+| Config | `ENABLE_REAL_CALENDAR=True`; E-Mail, WhatsApp, SMS, Wetter und Musik bleiben `False` |
+| Invariante | Local-AI-/Scanner-Sendesperre prueft die fuenf Sende-Flags, Kalender ist entkoppelt |
+| Kalender-Write | pro Event weiter hart gegatet: `TERMIN SPEICHERN`, Haupt-Policy, Verbindung OK |
+| API | `/api/calendar/events/write-guard` erstellt bei erlaubtem Guard genau einen Google-Event und speichert lokale Referenz |
+| Tests | Provider/API-Write gemockt; keine echten Google-Calls in pytest |
+| Rollback | `ENABLE_REAL_CALENDAR=False` setzen und Scanner-Baseline fuer Kalender zurueck auf `False` stellen |

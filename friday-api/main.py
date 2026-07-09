@@ -44,6 +44,7 @@ from friday.app.calendar_google_account_store import (
     google_calendar_account_status,
     save_google_calendar_account,
 )
+from friday.app.calendar_provider_base import CalendarProviderEvent
 from friday.app.calendar_provider_google import (
     GoogleCalendarProvider,
     build_google_oauth_authorization_url,
@@ -776,6 +777,45 @@ def preview_calendar_event_write(payload: CalendarEventWriteGuardRequest) -> dic
         main_policy_ok=main_target.ok,
         connection_ok=bool(account_status["last_test_ok"]),
     )
+    provider_event_created = False
+    provider_result_payload: dict[str, Any] | None = None
+    local_calendar_entry: dict[str, Any] | None = None
+
+    if guard.allowed:
+        calendar_id = str(account_status.get("calendar_id") or "primary")
+        provider_event = CalendarProviderEvent(
+            id=None,
+            provider="google_calendar",
+            calendar_id=calendar_id,
+            title=payload.title,
+            start=payload.start,
+            end=payload.end,
+            location=payload.location,
+            raw=None,
+        )
+        provider_result = GoogleCalendarProvider().create_event(provider_event)
+        provider_result_payload = {
+            "ok": provider_result.ok,
+            "message": provider_result.message,
+            "blocked_reasons": provider_result.blocked_reasons,
+            "provider_event_id": provider_result.provider_event_id,
+            "external_call_used": provider_result.external_call_used,
+            "event": provider_result.event.to_dict() if provider_result.event else None,
+        }
+        if provider_result.ok and provider_result.event is not None:
+            provider_event_created = True
+            repository = calendar_agent.calendar_repository
+            if repository is not None:
+                local_calendar_entry = repository.record_calendar_entry(
+                    provider="google_calendar",
+                    provider_event_id=provider_result.provider_event_id or provider_result.event.id,
+                    policy_id=main_target.policy.id if main_target.policy else None,
+                    title=provider_result.event.title,
+                    start=provider_result.event.start,
+                    end=provider_result.event.end,
+                    location=provider_result.event.location,
+                    notes="Created via Friday calendar write gate.",
+                )
     return _envelope(
         {
             "guard": guard.to_dict(),
@@ -786,7 +826,9 @@ def preview_calendar_event_write(payload: CalendarEventWriteGuardRequest) -> dic
                 "location": payload.location,
             },
             "main_policy": main_target.policy.to_dict() if main_target.policy else None,
-            "provider_event_created": False,
+            "provider_event_created": provider_event_created,
+            "provider_result": provider_result_payload,
+            "calendar_entry": local_calendar_entry,
         }
     )
 

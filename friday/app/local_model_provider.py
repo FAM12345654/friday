@@ -10,6 +10,17 @@ from friday import config
 
 _FALLBACK_COUNT = 0
 
+# Kalender ist eine bewusst aktivierte, separat gegatete Ausnahme.
+# Die Local-AI-Sicherheitsinvariante erzwingt nur, dass externe
+# Sende-/Provider-Aktionen weiterhin ausgeschaltet bleiben.
+EXTERNAL_SEND_FLAGS_REQUIRED_OFF = (
+    "ENABLE_REAL_EMAIL",
+    "ENABLE_REAL_WHATSAPP",
+    "ENABLE_REAL_SMS",
+    "ENABLE_REAL_WEATHER",
+    "ENABLE_REAL_MUSIC",
+)
+
 
 @dataclass(frozen=True)
 class ProviderConfig:
@@ -71,17 +82,12 @@ class LocalAIFinalizationGate:
 
 
 def safety_flags_locked() -> bool:
-    """Return True when all external action flags are disabled."""
-    return not any(
-        (
-            config.ENABLE_REAL_EMAIL,
-            config.ENABLE_REAL_WHATSAPP,
-            config.ENABLE_REAL_SMS,
-            config.ENABLE_REAL_CALENDAR,
-            config.ENABLE_REAL_WEATHER,
-            config.ENABLE_REAL_MUSIC,
-        )
-    )
+    """Return True when external sending/provider flags are disabled.
+
+    Google Calendar is intentionally excluded here because it is enabled only
+    through its own per-event gates.
+    """
+    return not any(getattr(config, flag_name) for flag_name in EXTERNAL_SEND_FLAGS_REQUIRED_OFF)
 
 
 def get_local_model_fallback_count() -> int:

@@ -24,7 +24,9 @@ EXPECTED_SAFETY_FLAGS: dict[str, bool] = {
     "ENABLE_REAL_EMAIL": False,
     "ENABLE_REAL_WHATSAPP": False,
     "ENABLE_REAL_SMS": False,
-    "ENABLE_REAL_CALENDAR": False,
+    # Bewusst aktivierte Ausnahme: echte Kalender-Writes bleiben pro Event
+    # durch KALENDER AKTIVIEREN + TERMIN SPEICHERN + Policy + Verbindung gegatet.
+    "ENABLE_REAL_CALENDAR": True,
     "ENABLE_REAL_WEATHER": False,
     "ENABLE_REAL_MUSIC": False,
     "REQUIRE_USER_APPROVAL": True,

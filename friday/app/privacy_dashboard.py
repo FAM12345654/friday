@@ -220,8 +220,8 @@ def build_privacy_dashboard_summary(
         PrivacySafetyFlag(
             "ENABLE_REAL_CALENDAR",
             config.ENABLE_REAL_CALENDAR,
-            False,
-            _flag_status(config.ENABLE_REAL_CALENDAR, False),
+            True,
+            "intended" if config.ENABLE_REAL_CALENDAR else "unexpected",
         ),
         PrivacySafetyFlag(
             "ENABLE_REAL_WEATHER",
@@ -306,7 +306,11 @@ def build_privacy_dashboard_summary(
         PrivacyExternalAction("E-Mail", config.ENABLE_REAL_EMAIL, "deaktiviert"),
         PrivacyExternalAction("WhatsApp", config.ENABLE_REAL_WHATSAPP, "deaktiviert"),
         PrivacyExternalAction("SMS", config.ENABLE_REAL_SMS, "deaktiviert"),
-        PrivacyExternalAction("Kalender", config.ENABLE_REAL_CALENDAR, "deaktiviert"),
+        PrivacyExternalAction(
+            "Kalender",
+            config.ENABLE_REAL_CALENDAR,
+            "aktiviert, pro Termin hart gegatet" if config.ENABLE_REAL_CALENDAR else "deaktiviert",
+        ),
         PrivacyExternalAction("Wetter", config.ENABLE_REAL_WEATHER, "deaktiviert"),
         PrivacyExternalAction("Musik", config.ENABLE_REAL_MUSIC, "deaktiviert"),
     )

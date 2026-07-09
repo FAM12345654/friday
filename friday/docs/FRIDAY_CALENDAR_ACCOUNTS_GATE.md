@@ -58,20 +58,22 @@ Aktuell gilt:
 
 - kein Google-Token im Git,
 - kein Client-Secret im Git,
-- keine echte Verbindung in Tests,
-- keine echten Kalender-Schreibaktionen,
+- echte Verbindung lokal moeglich, aber verschluesselt unter `local_data`,
+- echte Kalender-Schreibaktionen nur nach hartem Event-Token,
 - Provider-Tests nutzen Fakes/Mocks.
 
 ## Safety-Bewertung
 
-- `ENABLE_REAL_CALENDAR = False` bleibt Default.
-- `KALENDER AKTIVIEREN` ist nur ein Gate/Preview und schreibt keine Config.
+- `ENABLE_REAL_CALENDAR = True` ist eine bewusste, dokumentierte Ausnahme.
+- E-Mail, WhatsApp, SMS, Wetter und Musik bleiben weiterhin erzwungen aus.
+- `KALENDER AKTIVIEREN` ist die einmalige Nutzerentscheidung fuer Kalender-Schreiben.
 - `TERMIN SPEICHERN` ist fuer echte Event-Writes erforderlich.
-- Ohne `ENABLE_REAL_CALENDAR=True` blockiert der Write-Guard.
+- Ohne Haupt-Policy, Verbindungstest und exakten Event-Token blockiert der Write-Guard.
 - Google-Imports sind nur in `calendar_provider_google.py` erlaubt.
 - Keine Cloud-KI.
 - Keine echten Nachrichten.
 - Keine Datenbankspalten wurden geloescht oder geaendert; Tabellen wurden additiv ergaenzt.
+- Rollback: `ENABLE_REAL_CALENDAR=False` setzen und Scanner-Baseline wieder auf Kalender `False` zurueckstellen.
 
 ## Neue Tabellen
 
@@ -92,13 +94,12 @@ Aktuell gilt:
 | `GET /api/accounts/calendar/status` | Kalenderkonto-/Policy-Status |
 | `POST /api/accounts/calendar/google/oauth-url` | OAuth-URL fuer PC-Login vorbereiten |
 | `POST /api/accounts/calendar/activation-gate` | Aktivierungsgate pruefen |
-| `POST /api/calendar/events/write-guard` | Event-Write-Gate pruefen |
+| `POST /api/calendar/events/write-guard` | Event-Write-Gate pruefen und bei erlaubtem Guard genau einen Google-Termin erstellen |
 
 ## Nicht umgesetzt / bewusst deferred
 
 - Microsoft/Outlook Graph Provider,
 - Outlook ICS Provider,
-- echter Projekt-Config-Apply auf `ENABLE_REAL_CALENDAR=True`,
 - automatischer Kalender-Sync,
 - Batch-Write,
 - Schreiben ohne Nutzer-Token,
@@ -123,5 +124,4 @@ git diff --check
 
 ## Naechster sinnvoller Schritt
 
-Gemeinsam am PC den Google-OAuth-Zugang einrichten, eine erste `google_calendar`-Policy anlegen und danach das separate Config-Apply-Gate fuer `ENABLE_REAL_CALENDAR=True` nur nach erfolgreichem Test-Read ausbauen.
-
+Kalender-Schreiben im Mobile-/Desktop-Review-Flow sichtbar anschliessen: Vorschlag pruefen, editieren, dann pro Termin mit `TERMIN SPEICHERN` schreiben.

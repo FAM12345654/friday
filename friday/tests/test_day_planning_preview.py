@@ -139,7 +139,7 @@ def test_day_plan_preview_keeps_safety_flags_local_only() -> None:
     assert ENABLE_REAL_EMAIL is False
     assert ENABLE_REAL_WHATSAPP is False
     assert ENABLE_REAL_SMS is False
-    assert ENABLE_REAL_CALENDAR is False
+    assert ENABLE_REAL_CALENDAR is True
     assert ENABLE_REAL_WEATHER is False
     assert ENABLE_REAL_MUSIC is False
     assert REQUIRE_USER_APPROVAL is True

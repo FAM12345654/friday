@@ -764,7 +764,6 @@ class FridayInterface:
                 config.ENABLE_REAL_EMAIL
                 or config.ENABLE_REAL_WHATSAPP
                 or config.ENABLE_REAL_SMS
-                or config.ENABLE_REAL_CALENDAR
                 or config.ENABLE_REAL_WEATHER
                 or config.ENABLE_REAL_MUSIC
             ),

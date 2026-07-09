@@ -155,20 +155,31 @@ def test_privacy_dashboard_contains_expected_safety_flags(tmp_path) -> None:
     assert flags["ENABLE_REAL_EMAIL"].value is False
     assert flags["ENABLE_REAL_WHATSAPP"].value is False
     assert flags["ENABLE_REAL_SMS"].value is False
-    assert flags["ENABLE_REAL_CALENDAR"].value is False
+    assert flags["ENABLE_REAL_CALENDAR"].value is True
+    assert flags["ENABLE_REAL_CALENDAR"].status == "intended"
     assert flags["ENABLE_REAL_WEATHER"].value is False
     assert flags["ENABLE_REAL_MUSIC"].value is False
     assert flags["REQUIRE_USER_APPROVAL"].value is True
     assert flags["USE_SQLITE_STORAGE"].value is True
-    assert all(flag.status == "safe" for flag in flags.values())
+    assert all(
+        flag.status == "safe"
+        for flag in flags.values()
+        if flag.name != "ENABLE_REAL_CALENDAR"
+    )
 
 
 def test_privacy_dashboard_external_actions_are_disabled(tmp_path) -> None:
     summary = build_privacy_dashboard_summary(project_root=tmp_path)
+    actions = {action.name: action for action in summary.external_actions}
 
     assert summary.external_actions
-    assert all(action.enabled is False for action in summary.external_actions)
-    assert all(action.status == "deaktiviert" for action in summary.external_actions)
+    assert actions["Kalender"].enabled is True
+    assert actions["Kalender"].status == "aktiviert, pro Termin hart gegatet"
+    assert all(
+        action.enabled is False
+        for action in summary.external_actions
+        if action.name != "Kalender"
+    )
 
 
 def test_privacy_dashboard_data_areas_hide_sensitive_details(tmp_path) -> None:

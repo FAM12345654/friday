@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from friday import config
 from friday.app.local_model_preview import preview_local_model_response
 from friday.app.local_model_provider import (
+    EXTERNAL_SEND_FLAGS_REQUIRED_OFF,
     MockLocalModelProvider,
     OllamaLocalModelProvider,
     build_local_ai_finalization_gate,
@@ -17,6 +18,18 @@ from friday.app.local_model_provider import (
 
 def test_safety_flags_locked_for_local_provider() -> None:
     assert safety_flags_locked() is True
+
+
+def test_safety_flags_locked_allows_calendar_exception_but_blocks_senders(monkeypatch) -> None:
+    monkeypatch.setattr(config, "ENABLE_REAL_CALENDAR", True)
+    for flag_name in EXTERNAL_SEND_FLAGS_REQUIRED_OFF:
+        monkeypatch.setattr(config, flag_name, False)
+
+    assert safety_flags_locked() is True
+
+    monkeypatch.setattr(config, "ENABLE_REAL_EMAIL", True)
+
+    assert safety_flags_locked() is False
 
 
 def test_mock_provider_health_check_is_local_only() -> None:

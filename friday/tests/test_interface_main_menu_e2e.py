@@ -534,7 +534,7 @@ def test_privacy_dashboard_menu_shows_external_actions(monkeypatch, capsys) -> N
     assert "Externe Aktionen" in output
     assert "E-Mail: deaktiviert" in output
     assert "WhatsApp: deaktiviert" in output
-    assert "Kalender: deaktiviert" in output
+    assert "Kalender: aktiviert, pro Termin hart gegatet" in output
 
 
 def test_privacy_dashboard_menu_shows_gated_actions_as_status(monkeypatch, capsys) -> None:

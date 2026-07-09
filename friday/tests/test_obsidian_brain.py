@@ -108,7 +108,7 @@ def test_obsidian_brain_finalization_preserves_required_safety_flags() -> None:
     assert config.ENABLE_REAL_EMAIL is False
     assert config.ENABLE_REAL_WHATSAPP is False
     assert config.ENABLE_REAL_SMS is False
-    assert config.ENABLE_REAL_CALENDAR is False
+    assert config.ENABLE_REAL_CALENDAR is True
     assert config.ENABLE_REAL_WEATHER is False
     assert config.ENABLE_REAL_MUSIC is False
     assert config.REQUIRE_USER_APPROVAL is True

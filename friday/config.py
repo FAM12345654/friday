@@ -10,11 +10,13 @@ APP_VERSION = "1.0.0"
 # Friday läuft in dieser Phase nur lokal auf dem Rechner.
 LOCAL_MODE = True
 
-# Alle externen Services sind absichtlich deaktiviert.
+# Externes Senden bleibt absichtlich deaktiviert. Kalender ist die einzige
+# bewusst aktivierte Ausnahme und bleibt pro Termin hart gegatet:
+# KALENDER AKTIVIEREN + TERMIN SPEICHERN + Haupt-Policy + Verbindungstest.
 ENABLE_REAL_EMAIL = False
 ENABLE_REAL_WHATSAPP = False
 ENABLE_REAL_SMS = False
-ENABLE_REAL_CALENDAR = False
+ENABLE_REAL_CALENDAR = True
 ENABLE_REAL_WEATHER = False
 ENABLE_REAL_MUSIC = False
 

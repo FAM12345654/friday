@@ -8,6 +8,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from friday.app.account_policy_store import AccountPolicy
 from friday.app.calendar_provider_base import CalendarProviderEvent
+from friday.storage.database import setup_local_database
+from friday.storage.repositories import CalendarRepository
 
 
 def _load_api_module():
@@ -35,8 +37,8 @@ def test_setup_status_endpoint_reports_local_only_safety_flags() -> None:
     assert payload["local_mode"] is True
     assert payload["safety_flags"]["ENABLE_REAL_EMAIL"] is False
     assert payload["safety_flags"]["ENABLE_REAL_WHATSAPP"] is False
-    assert payload["safety_flags"]["ENABLE_REAL_CALENDAR"] is False
-    assert payload["calendar"]["real_enabled"] is False
+    assert payload["safety_flags"]["ENABLE_REAL_CALENDAR"] is True
+    assert payload["calendar"]["real_enabled"] is True
     assert payload["calendar"]["auto_write_enabled"] is False
 
 
@@ -201,7 +203,7 @@ def test_google_calendar_connect_endpoint_does_not_return_credentials(monkeypatc
     assert payload["allowed"] is True
     assert payload["persisted"] is True
     assert payload["connected"] is True
-    assert payload["real_calendar_enabled"] is False
+    assert payload["real_calendar_enabled"] is True
     assert "credentials" not in payload
     assert "fake-token" not in response.text
     assert "hidden" not in response.text
@@ -234,7 +236,7 @@ def test_google_calendar_read_preview_blocks_without_connected_account(monkeypat
     assert payload["ok"] is False
     assert payload["read_only"] is True
     assert payload["write_enabled"] is False
-    assert payload["real_calendar_enabled"] is False
+    assert payload["real_calendar_enabled"] is True
     assert payload["external_call_used"] is False
     assert "calendar_account_missing" in payload["blocked_reasons"]
 
@@ -292,6 +294,139 @@ def test_google_calendar_read_preview_returns_events_without_enabling_writes(mon
     assert payload["ok"] is True
     assert payload["read_only"] is True
     assert payload["write_enabled"] is False
-    assert payload["real_calendar_enabled"] is False
+    assert payload["real_calendar_enabled"] is True
     assert payload["external_call_used"] is True
     assert payload["events"][0]["title"] == "PH Dienst"
+
+
+def test_calendar_event_write_guard_endpoint_creates_one_mocked_google_event_and_local_entry(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path)
+    api.calendar_agent.calendar_repository = CalendarRepository(db_path)
+    policy = AccountPolicy(
+        id=1,
+        provider="google_calendar",
+        label="Google Hauptkalender",
+        role="main",
+        access="read_write",
+        include_filters={},
+        exclude_filters={},
+        notes="",
+        enabled=True,
+        created_at="2026-07-09T00:00:00+00:00",
+    )
+    created_events: list[CalendarProviderEvent] = []
+    monkeypatch.setattr(api, "list_account_policies", lambda: [policy])
+    monkeypatch.setattr(
+        api,
+        "google_calendar_account_status",
+        lambda: {
+            "connected": True,
+            "calendar_id": "primary",
+            "last_test_ok": True,
+            "real_calendar_enabled": True,
+        },
+    )
+
+    class _CreateResult:
+        ok = True
+        event = CalendarProviderEvent(
+            id="created-1",
+            provider="google_calendar",
+            calendar_id="primary",
+            title="Termin",
+            start="2026-07-15T10:00:00+02:00",
+            end="2026-07-15T11:00:00+02:00",
+            location="Buero",
+            raw={},
+        )
+        message = "Google-Kalendertermin erstellt."
+        blocked_reasons = ()
+        provider_event_id = "created-1"
+        external_call_used = True
+
+    class _Provider:
+        def create_event(self, event: CalendarProviderEvent):
+            created_events.append(event)
+            return _CreateResult()
+
+    monkeypatch.setattr(api, "GoogleCalendarProvider", lambda: _Provider())
+
+    response = client.post(
+        "/api/calendar/events/write-guard",
+        json={
+            "approval_token": "TERMIN SPEICHERN",
+            "title": "Termin",
+            "start": "2026-07-15T10:00:00+02:00",
+            "end": "2026-07-15T11:00:00+02:00",
+            "location": "Buero",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["guard"]["allowed"] is True
+    assert payload["provider_event_created"] is True
+    assert payload["provider_result"]["provider_event_id"] == "created-1"
+    assert payload["calendar_entry"]["provider"] == "google_calendar"
+    assert payload["calendar_entry"]["provider_event_id"] == "created-1"
+    assert payload["calendar_entry"]["policy_id"] == 1
+    assert len(created_events) == 1
+
+
+def test_calendar_event_write_guard_endpoint_does_not_call_provider_when_blocked(
+    monkeypatch,
+) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    policy = AccountPolicy(
+        id=1,
+        provider="google_calendar",
+        label="Google Hauptkalender",
+        role="main",
+        access="read_write",
+        include_filters={},
+        exclude_filters={},
+        notes="",
+        enabled=True,
+        created_at="2026-07-09T00:00:00+00:00",
+    )
+    monkeypatch.setattr(api, "list_account_policies", lambda: [policy])
+    monkeypatch.setattr(
+        api,
+        "google_calendar_account_status",
+        lambda: {
+            "connected": True,
+            "calendar_id": "primary",
+            "last_test_ok": True,
+            "real_calendar_enabled": True,
+        },
+    )
+
+    class _Provider:
+        def create_event(self, event: CalendarProviderEvent):
+            raise AssertionError("Provider must not be called when the hard token is wrong.")
+
+    monkeypatch.setattr(api, "GoogleCalendarProvider", lambda: _Provider())
+
+    response = client.post(
+        "/api/calendar/events/write-guard",
+        json={
+            "approval_token": "JA",
+            "title": "Termin",
+            "start": "2026-07-15T10:00:00+02:00",
+            "end": "2026-07-15T11:00:00+02:00",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["guard"]["allowed"] is False
+    assert payload["provider_event_created"] is False
+    assert payload["provider_result"] is None
+    assert "approval_token_invalid" in payload["guard"]["blocked_reasons"]

@@ -4,15 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from friday.config import (
-    ENABLE_REAL_CALENDAR,
-    ENABLE_REAL_EMAIL,
-    ENABLE_REAL_MUSIC,
-    ENABLE_REAL_SMS,
-    ENABLE_REAL_WEATHER,
-    ENABLE_REAL_WHATSAPP,
-    REQUIRE_USER_APPROVAL,
-)
+from friday import config
+from friday.app.local_model_provider import EXTERNAL_SEND_FLAGS_REQUIRED_OFF
 
 
 @dataclass(frozen=True)
@@ -55,16 +48,9 @@ class LocalModelMockAdapter:
         return LocalModelReadinessStatus(
             mode_supported=True,
             provider_config_present=True,
-            approval_flow_available=REQUIRE_USER_APPROVAL,
+            approval_flow_available=config.REQUIRE_USER_APPROVAL,
             safety_flags_locked=not any(
-                (
-                    ENABLE_REAL_EMAIL,
-                    ENABLE_REAL_WHATSAPP,
-                    ENABLE_REAL_SMS,
-                    ENABLE_REAL_CALENDAR,
-                    ENABLE_REAL_WEATHER,
-                    ENABLE_REAL_MUSIC,
-                )
+                getattr(config, flag_name) for flag_name in EXTERNAL_SEND_FLAGS_REQUIRED_OFF
             ),
             fallback_path_defined=True,
             fallback_status="local_rule_based",

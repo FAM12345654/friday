@@ -49,5 +49,4 @@ def test_classify_contact_category_uses_local_keywords_without_external_actions(
     assert ENABLE_REAL_EMAIL is False
     assert ENABLE_REAL_WHATSAPP is False
     assert ENABLE_REAL_SMS is False
-    assert ENABLE_REAL_CALENDAR is False
-
+    assert ENABLE_REAL_CALENDAR is True

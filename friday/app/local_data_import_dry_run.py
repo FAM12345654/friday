@@ -58,7 +58,6 @@ SAFE_FALSE_FLAGS: tuple[str, ...] = (
     "ENABLE_REAL_EMAIL",
     "ENABLE_REAL_WHATSAPP",
     "ENABLE_REAL_SMS",
-    "ENABLE_REAL_CALENDAR",
     "ENABLE_REAL_WEATHER",
     "ENABLE_REAL_MUSIC",
 )
@@ -73,7 +72,6 @@ CLI_SAFE_FALSE_FLAGS: tuple[str, ...] = (
     "real_email_enabled",
     "real_whatsapp_enabled",
     "real_sms_enabled",
-    "real_calendar_enabled",
     "real_weather_enabled",
     "real_music_enabled",
 )

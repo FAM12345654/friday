@@ -12,7 +12,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | `ENABLE_REAL_EMAIL` | `False` |
 | `ENABLE_REAL_WHATSAPP` | `False` |
 | `ENABLE_REAL_SMS` | `False` |
-| `ENABLE_REAL_CALENDAR` | `False` |
+| `ENABLE_REAL_CALENDAR` | `True` bewusst aktiviert; pro Termin hart gegatet |
 | `ENABLE_REAL_WEATHER` | `False` |
 | `ENABLE_REAL_MUSIC` | `False` |
 | `REQUIRE_USER_APPROVAL` | `True` |
@@ -30,7 +30,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | Setup-Screen | erlaubt read-only | zeigt lokale Flags, KI-/Verbindungsstatus und Setup-Schritte ohne Write |
 | Termin-Erkennung aus Nachrichten | erlaubt lokal | erstellt nur Review-Vorschlag; Python loest Datum/Uhrzeit deterministisch |
 | Kalender-Link-Vorschau | erlaubt preview-only | Link wird angezeigt/vorbereitet, aber Friday erstellt keinen Kalendertermin |
-| Echter Kalender-Write | verboten | `ENABLE_REAL_CALENDAR=False`; erst spaeteres separates Gate |
+| Echter Kalender-Write | gated extern | `ENABLE_REAL_CALENDAR=True`; nur mit Google-Haupt-Policy, Verbindung OK und `TERMIN SPEICHERN` |
 | Account-Policy speichern | gated lokal | Token `POLICY SPEICHERN`; speichert Provider-Regeln, Filter und Notizen lokal |
 | Google-Kalender OAuth-URL | gated/preview | nur im dedizierten Google-Provider-Modul; Client-Secrets/Tokens nie ins Git |
 | Kalender aktivieren | gated preview | Token `KALENDER AKTIVIEREN`, verbundenes Konto, Test OK und Safety Smoke erforderlich; Config-Apply separat |
@@ -231,7 +231,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | E-Mail senden | verboten | Flag false; Guard bleibt vorbereitet, aber blockiert |
 | WhatsApp senden | verboten | Flag false; nur Deep-Link/App-Oeffnung, keine Automatisierung |
 | SMS senden | verboten | Flag false |
-| Kalendertermin erstellen | verboten | Flag false |
+| Kalendertermin erstellen | gated extern | nur Google-Kalender, Haupt-Policy, Verbindung OK und `TERMIN SPEICHERN`; kein Batch/Auto-Write |
 | lokale Ollama Modellaufrufe | erlaubt lokal | nur `http://localhost:11434` oder `http://127.0.0.1:11434`, kein Cloud-Fallback |
 | externe Modellaufrufe | verboten | Cloud-Provider und Remote-AI nicht freigegeben |
 

@@ -72,7 +72,7 @@ def test_message_agent_creates_calendar_event_suggestion_without_calendar_write(
         }
     )
 
-    assert ENABLE_REAL_CALENDAR is False
+    assert ENABLE_REAL_CALENDAR is True
     assert suggestion is not None
     assert suggestion["message_id"] == 77
     assert suggestion["suggestion_type"] == "calendar_event"

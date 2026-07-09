@@ -466,6 +466,49 @@ class CalendarRepository:
             ).fetchall()
             return [row_to_dict(row) for row in rows]
 
+    def record_calendar_entry(
+        self,
+        *,
+        provider: str,
+        provider_event_id: str | None,
+        policy_id: int | None,
+        title: str,
+        start: str,
+        end: str,
+        location: str | None = None,
+        notes: str | None = None,
+    ) -> dict:
+        """Store a local reference to one provider-created calendar event."""
+        created_at = datetime.now(timezone.utc).isoformat()
+        with get_connection(self.db_path) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO calendar_entries
+                (provider, provider_event_id, policy_id, title, start, end, location, notes, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    provider,
+                    provider_event_id,
+                    policy_id,
+                    title,
+                    start,
+                    end,
+                    location,
+                    notes,
+                    created_at,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT id, provider, provider_event_id, policy_id, title, start, end, location, notes, created_at
+                FROM calendar_entries
+                WHERE id = ?
+                """,
+                (int(cursor.lastrowid),),
+            ).fetchone()
+        return row_to_dict(row)
+
     def get_free_slots_for_date(self, date_iso: str, duration_minutes: int = 60) -> List[dict]:
         """Return explicit free slots if present; otherwise compute from busy blocks."""
         items = self.get_items_for_date(date_iso)
