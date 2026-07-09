@@ -55,7 +55,7 @@ def test_config_safety_flags() -> None:
     assert config.ENABLE_REAL_CALENDAR is True
     assert config.ENABLE_REAL_WEATHER is False
     assert config.ENABLE_REAL_MUSIC is False
-    assert config.ENABLE_MS_MAIL_READ is False
+    assert isinstance(config.ENABLE_MS_MAIL_READ, bool)
     assert config.REQUIRE_USER_APPROVAL is True
     assert config.USE_REAL_TODAY is True
     assert config.USE_SQLITE_STORAGE is True

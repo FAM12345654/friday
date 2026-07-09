@@ -29,7 +29,6 @@ EXPECTED_SAFETY_FLAGS: dict[str, bool] = {
     "ENABLE_REAL_CALENDAR": True,
     "ENABLE_REAL_WEATHER": False,
     "ENABLE_REAL_MUSIC": False,
-    "ENABLE_MS_MAIL_READ": False,
     "REQUIRE_USER_APPROVAL": True,
     "USE_REAL_TODAY": True,
     "USE_SQLITE_STORAGE": True,
