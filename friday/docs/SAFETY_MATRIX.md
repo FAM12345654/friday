@@ -156,6 +156,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | AI Task Forwarding Draft | umgesetzt | Produktflow nutzt lokale KI-Provider-Schicht fuer sichtbare Drafts; Mock Default, kein echter Versand, kein Cloud-Modell |
 | Local Ollama Activation Gate | umgesetzt | read-only Status-Gate; Ollama nur lokal, opt-in, Modell gesetzt und Health PASS; sonst Mock-Fallback |
 | Local Ollama Config Preview | umgesetzt | prueft Modellname und lokale Base-URL ohne Config-Write, Health-Check oder Modellaufruf |
+| Local Ollama Manual Config Apply Gate | umgesetzt | prueft Token `OLLAMA AKTIVIEREN`, Safety Smoke und Health PASS; schreibt config.py nicht automatisch |
 | Local Model Settings / Health Preview / Validation Pipeline | umgesetzt | Mock bleibt Default; Ollama Health Check ist localhost-only; Validator+Logic Check blockiert riskante Ausgaben |
 | Lokale Notifications | erlaubt opt-in | Default `False`; nur Konsolen-Zusammenfassung, kein Toast, kein Netzwerk |
 | Demo-Modus | getrennt | echte Arbeits-DB bleibt `friday.db`; Demo-Seeds nur in `friday_demo.db` |
@@ -215,6 +216,7 @@ Zentrale Uebersicht ueber erlaubte, gated und verbotene Aktionen.
 | `BACKUP AUFRAEUMEN` | lokale Backups aufraeumen |
 | `RESTORE AUFRAEUMEN` | lokale Restore-Kopien aufraeumen |
 | `REVIEW AUFRAEUMEN` | lokale Review-History aufraeumen |
+| `OLLAMA AKTIVIEREN` | spaetere manuelle Ollama-Konfiguration freigeben; aktuell nur Guard, kein automatischer Config-Write |
 
 ## Delete-Policy
 

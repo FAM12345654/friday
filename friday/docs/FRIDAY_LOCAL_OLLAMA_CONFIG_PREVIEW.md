@@ -40,3 +40,5 @@ Local Ollama Manual Config Apply Gate:
 - weiterhin Safety Smoke vor dem Umschalten,
 - danach lokaler Health Check,
 - danach erst Draft-Flow-Test.
+
+Status danach: Das manuelle Apply-Gate ist in `FRIDAY_LOCAL_OLLAMA_MANUAL_CONFIG_APPLY_GATE.md` dokumentiert.

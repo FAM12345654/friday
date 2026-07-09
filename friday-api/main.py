@@ -20,6 +20,7 @@ if str(ROOT_DIR) not in sys.path:
 from friday.agents import CalendarAgent, ContactContextAgent, MessageAgent, TaskAgent
 from friday.app.ai_task_forwarding_draft import build_ai_task_forwarding_draft
 from friday.app.local_ollama_activation_gate import build_local_ollama_activation_gate
+from friday.app.local_ollama_config_apply_guard import build_local_ollama_config_apply_gate
 from friday.app.local_ollama_config_preview import build_local_ollama_config_preview
 from friday.config import DEMO_DATE, USE_REAL_TODAY
 from friday.storage.database import setup_local_database
@@ -87,6 +88,14 @@ class TaskForwardDraftRequest(BaseModel):
     task_id: int
     contact_id: int
     channel: str
+
+
+class OllamaConfigApplyGateRequest(BaseModel):
+    model: str
+    base_url: str | None = "http://localhost:11434"
+    approval_token: str
+    scanner_smoke_passed: bool = False
+    health_check_passed: bool = False
 
 
 def _today() -> str:
@@ -402,6 +411,22 @@ def get_ollama_config_preview(
         enable_requested=enable_requested,
     )
     return _envelope(asdict(preview))
+
+
+@app.post("/api/ai/ollama/config-apply-gate")
+def get_ollama_config_apply_gate(payload: OllamaConfigApplyGateRequest) -> dict[str, Any]:
+    preview = build_local_ollama_config_preview(
+        model=payload.model,
+        base_url=payload.base_url,
+        enable_requested=True,
+    )
+    gate = build_local_ollama_config_apply_gate(
+        preview=preview,
+        approval_token=payload.approval_token,
+        scanner_smoke_passed=payload.scanner_smoke_passed,
+        health_check_passed=payload.health_check_passed,
+    )
+    return _envelope(asdict(gate))
 
 
 @app.get("/api/privacy")
