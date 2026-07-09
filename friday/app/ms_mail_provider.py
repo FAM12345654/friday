@@ -39,6 +39,18 @@ def _clean(value: Any) -> str:
     return " ".join(str(value or "").strip().split())
 
 
+def _is_x500_address(value: str | None) -> bool:
+    text = str(value or "").strip().upper()
+    return text.startswith("/O=") or "/OU=EXCHANGE ADMINISTRATIVE GROUP" in text
+
+
+def _short_internal_address(value: str | None) -> str:
+    text = _clean(value)
+    if not text:
+        return "unbekannt"
+    return text[:48] + "..." if len(text) > 48 else text
+
+
 def _authority(tenant: str | None) -> str:
     return MS_AUTHORITY_TEMPLATE.format(tenant=_clean(tenant) or "common")
 
@@ -209,12 +221,51 @@ def test_connection(
     )
 
 
-def _message_sender(item: dict[str, Any]) -> str:
-    sender = item.get("from") or {}
-    email_address = sender.get("emailAddress") if isinstance(sender, dict) else {}
+def _email_address_label(email_address: dict[str, Any] | None, *, fallback: str = "Unbekannter Absender") -> str:
     if isinstance(email_address, dict):
-        return _clean(email_address.get("address") or email_address.get("name"))
-    return ""
+        name = _clean(email_address.get("name"))
+        address = _clean(email_address.get("address"))
+        if _is_x500_address(address):
+            return name or f"Intern {_short_internal_address(address)}"
+        if name and address and name.casefold() != address.casefold():
+            return f"{name} <{address}>"
+        return address or name or fallback
+    return fallback
+
+
+def _message_sender(item: dict[str, Any]) -> str:
+    for key in ("from", "sender"):
+        sender = item.get(key) or {}
+        email_address = sender.get("emailAddress") if isinstance(sender, dict) else {}
+        label = _email_address_label(email_address)
+        if label != "Unbekannter Absender":
+            return label
+    return "Unbekannter Absender"
+
+
+def _recipient_list(item: dict[str, Any]) -> list[dict[str, str]]:
+    recipients: list[dict[str, str]] = []
+    for group_name in ("toRecipients", "ccRecipients"):
+        raw_group = item.get(group_name)
+        if not isinstance(raw_group, list):
+            continue
+        recipient_type = "cc" if group_name == "ccRecipients" else "to"
+        for raw_recipient in raw_group:
+            email_address = raw_recipient.get("emailAddress") if isinstance(raw_recipient, dict) else {}
+            if not isinstance(email_address, dict):
+                continue
+            name = _clean(email_address.get("name"))
+            address = _clean(email_address.get("address"))
+            label = _email_address_label(email_address, fallback="Unbekannter Empfänger")
+            recipients.append(
+                {
+                    "type": recipient_type,
+                    "name": name,
+                    "address": address,
+                    "label": label,
+                }
+            )
+    return recipients
 
 
 def _map_message(item: dict[str, Any]) -> dict[str, Any] | None:
@@ -227,6 +278,7 @@ def _map_message(item: dict[str, Any]) -> dict[str, Any] | None:
         "subject": _clean(item.get("subject")),
         "received_at": _clean(item.get("receivedDateTime")),
         "snippet": str(item.get("bodyPreview") or "")[:MAX_BODY_PREVIEW_CHARS],
+        "recipients": _recipient_list(item),
     }
 
 
@@ -244,7 +296,7 @@ def list_messages(
     query = parse.urlencode(
         {
             "$top": str(limit),
-            "$select": "id,from,subject,receivedDateTime,bodyPreview",
+            "$select": "id,from,sender,toRecipients,ccRecipients,subject,receivedDateTime,bodyPreview",
             "$orderby": "receivedDateTime desc",
         }
     )

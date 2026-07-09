@@ -263,6 +263,17 @@ const spamMessageRef = (message) => {
   return message?.id;
 };
 
+const msMailRelevanceLabel = (reason) => {
+  const labels = {
+    personal_mailbox: "persoenliches Postfach",
+    philip_trigger: "Philip erwaehnt",
+    team_all_partners: "Team",
+    customer_betreuer_philip: "Betreuer Philip",
+    office_not_relevant: "nicht relevant",
+  };
+  return labels[reason] || "Relevanz lokal";
+};
+
 const contactTypeOptions = [
   { value: "arbeit", label: "Arbeit" },
   { value: "freund", label: "Freund" },
@@ -451,6 +462,7 @@ export default function App() {
   const [emailInbox, setEmailInbox] = useState(null);
   const [msMailStatus, setMsMailStatus] = useState(null);
   const [msMailInbox, setMsMailInbox] = useState(null);
+  const [msMailIncludeAll, setMsMailIncludeAll] = useState(false);
   const [whatsappStatus, setWhatsappStatus] = useState(null);
   const [whatsappInbox, setWhatsappInbox] = useState(null);
   const [blockedSenders, setBlockedSenders] = useState([]);
@@ -602,7 +614,7 @@ export default function App() {
         items: [],
         message: normalizeApiError(err),
       }));
-      const msInbox = await getMsMailMessages(10).catch((err) => ({
+      const msInbox = await getMsMailMessages(10, null, false, msMailIncludeAll).catch((err) => ({
         items: [],
         status: { connected: false, read_enabled: false },
         message: normalizeApiError(err),
@@ -692,7 +704,7 @@ export default function App() {
       const calendarStatus = await getCalendarAccountStatus().catch(() => null);
       const emailStatus = await getEmailAccountStatus().catch(() => null);
       const microsoftStatus = await getMsMailStatus().catch(() => null);
-      const microsoftInbox = await getMsMailMessages(10).catch(() => null);
+      const microsoftInbox = await getMsMailMessages(10, null, false, msMailIncludeAll).catch(() => null);
       const whatsappNotesPayload = await getWhatsAppAgentNotes().catch(() => null);
       setSetupStatus(payload);
       setAccountPolicies(policies);
@@ -1169,6 +1181,20 @@ export default function App() {
     }
   };
 
+  const handleToggleMsMailIncludeAll = async () => {
+    const nextIncludeAll = !msMailIncludeAll;
+    setMsMailIncludeAll(nextIncludeAll);
+    setActionBusy(true);
+    setMsMailResult("");
+    try {
+      setMsMailInbox(await getMsMailMessages(10, null, false, nextIncludeAll));
+    } catch (err) {
+      setMsMailResult(`Microsoft-Mail-Ansicht konnte nicht geladen werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const handleSyncMsMail = async (accountId = null) => {
     const selectedAccountId = typeof accountId === "string" ? accountId : null;
     setActionBusy(true);
@@ -1180,7 +1206,7 @@ export default function App() {
       });
       const label = selectedAccountId ? ` fuer ${selectedAccountId}` : "";
       setMsMailResult(`Sync${label} fertig: ${result?.stored_count || 0} Mail-Vorschauen lokal aktualisiert.`);
-      setMsMailInbox(await getMsMailMessages(10));
+      setMsMailInbox(await getMsMailMessages(10, null, false, msMailIncludeAll));
       setMsMailStatus(await getMsMailStatus());
       await refreshActive();
     } catch (err) {
@@ -1861,15 +1887,25 @@ export default function App() {
               />
             </View>
             <Text style={styles.forwardSafety}>
-              Nur Lesen. Friday synchronisiert Betreff und Vorschau lokal und sendet nichts.
+              Nur Lesen. Friday synchronisiert Betreff, Absender, Empfaenger und Vorschau lokal
+              und sendet nichts. Office@ zeigt standardmaessig nur fuer dich relevante Mails.
             </Text>
-            <ActionButton
-              small
-              variant="ghost"
-              label="Familienhelden-Mails synchronisieren"
-              onPress={handleSyncMsMail}
-              disabled={actionBusy}
-            />
+            <View style={styles.row}>
+              <ActionButton
+                small
+                variant="ghost"
+                label="Familienhelden-Mails synchronisieren"
+                onPress={handleSyncMsMail}
+                disabled={actionBusy}
+              />
+              <ActionButton
+                small
+                variant="ghost"
+                label={msMailIncludeAll ? "Nur relevante anzeigen" : "Alle anzeigen"}
+                onPress={handleToggleMsMailIncludeAll}
+                disabled={actionBusy}
+              />
+            </View>
             {!!msMailInbox?.message && <Text style={styles.cardMeta}>{msMailInbox.message}</Text>}
           </View>
           {isArray(msMailInbox?.items).map((item, index) => (
@@ -1877,6 +1913,10 @@ export default function App() {
               <Text style={styles.cardTitle}>{item.subject || "(ohne Betreff)"}</Text>
               <Text style={styles.cardMeta}>Von: {item.sender || "-"}</Text>
               <Text style={styles.cardMeta}>Postfach: {item.account_username || item.account_id || "-"}</Text>
+              <Text style={styles.cardMeta}>
+                Relevanz: {msMailRelevanceLabel(item.relevance_reason)}
+                {Number(item.relevant_for_user || 0) === 0 ? " (nur in Alle anzeigen)" : ""}
+              </Text>
               <Text style={styles.cardMeta}>{item.received_at || ""}</Text>
               <Text style={styles.cardBody}>{item.snippet || ""}</Text>
               <View style={styles.row}>

@@ -19,6 +19,7 @@ def test_message_agent_exposes_ms_mail_as_local_messages(tmp_path) -> None:
                 "subject": "Termin morgen",
                 "received_at": "2026-07-09T10:00:00Z",
                 "snippet": "Passt 15.07.2026 10:00?",
+                "recipients": [{"name": "Philip Zeitler", "address": "philip@familienhelden.at"}],
             }
         ],
         account_id="office_familienhelden_at",
@@ -148,3 +149,32 @@ def test_message_agent_skips_blocked_ms_mail_sender_for_suggestions(tmp_path) ->
     assert agent.get_pending_task_suggestions() == []
     assert agent.get_ms_mail_messages_as_local_messages() == []
     assert agent.get_ms_mail_messages_as_local_messages(include_spam=True)[0]["is_spam"] == 1
+
+
+def test_message_agent_skips_non_relevant_office_ms_mail_for_suggestions(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    repo = MsMailMessageRepository(db_path)
+    repo.upsert_messages(
+        [
+            {
+                "message_id": "graph-office-alex",
+                "sender": "info@example.test",
+                "subject": "Bitte Unterlagen prüfen",
+                "received_at": "2026-07-09T10:00:00Z",
+                "snippet": "Bitte erledigen.",
+                "recipients": [{"name": "Alex", "address": "alex@familienhelden.at"}],
+            }
+        ],
+        account_id="office_familienhelden_at",
+        account_username="office@familienhelden.at",
+    )
+
+    agent = MessageAgent(db_path=db_path)
+    result = agent.process_unprocessed_ms_mail_messages()
+
+    assert result["processed_count"] == 0
+    assert result["task_suggestions_created"] == 0
+    assert agent.get_pending_task_suggestions() == []
+    assert agent.get_ms_mail_messages_as_local_messages() == []
+    assert repo.list_messages(include_all=True)[0]["relevance_reason"] == "office_not_relevant"

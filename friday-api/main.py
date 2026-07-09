@@ -1914,18 +1914,21 @@ def get_ms_mail_messages(
     limit: int = Query(default=10),
     account_id: str | None = Query(default=None),
     include_spam: bool = Query(default=False),
+    include_all: bool = Query(default=False),
 ) -> dict[str, Any]:
     repository = MsMailMessageRepository(message_agent.db_path)
     items = repository.list_messages(
         limit=limit,
         account_id=account_id,
         include_spam=include_spam,
+        include_all=include_all,
     )
     return _envelope(
         {
             "items": items,
             "count": len(items),
             "include_spam": include_spam,
+            "include_all": include_all,
             "status": ms_mail_account_status(),
             "read_only": True,
             "real_email_enabled": config.ENABLE_REAL_EMAIL,

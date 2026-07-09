@@ -168,6 +168,9 @@ class MessageAgent:
                     "subject": subject,
                     "snippet": snippet,
                     "is_spam": item.get("is_spam", 0),
+                    "recipients_json": item.get("recipients_json"),
+                    "relevant_for_user": item.get("relevant_for_user", 1),
+                    "relevance_reason": item.get("relevance_reason"),
                 }
             )
         return items

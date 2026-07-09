@@ -453,3 +453,9 @@ Im Tab `Spam` kannst du blockierte Absender anzeigen und mit `Entblocken / Wiede
 lokal wieder freigeben.
 
 Details: `FRIDAY_LOCAL_SPAM_BLOCKLIST_GATE.md`.
+
+## MS-Mail Office-Relevanzfilter
+
+Siehe `FRIDAY_MS_MAIL_SENDER_RELEVANCE_GATE.md`.
+
+In der mobilen Nachrichtenansicht zeigt Friday fuer das geteilte Office-Postfach standardmaessig nur lokal relevante Mails. Mit `Alle anzeigen` werden auch lokal synchronisierte, aber nicht relevante Office-Mails sichtbar. Persoenliche Postfaecher bleiben voll sichtbar.

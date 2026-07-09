@@ -237,3 +237,11 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 - Mobile App enthaelt `Spam / Absender blockieren` und einen eigenen `Spam`-Tab mit Entblocken.
 - CLI enthaelt `Spam / Blockiert`.
 - Kein echtes Postfach wird verschoben, geloescht oder serverseitig markiert; `Mail.Read` bleibt read-only.
+
+## MS-Mail Absender-Fix und Office-Relevanzfilter
+
+- Neue Doku: `FRIDAY_MS_MAIL_SENDER_RELEVANCE_GATE.md`
+- Microsoft-Mail-Absender werden lokal lesbar normalisiert, inklusive interner X.500-Absender.
+- `office@familienhelden.at` wird in der Standardansicht lokal nach Philip-/Team-/Betreuer-Relevanz gefiltert.
+- `include_all=true`, Mobile `Alle anzeigen` und CLI `Alle Microsoft-Mails anzeigen` zeigen die lokal gespeicherten Ausnahmen.
+- Safety bleibt read-only: `Mail.Read`, kein `Mail.Send`, keine Provider-Schreibaktion.

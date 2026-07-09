@@ -129,3 +129,7 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 | `FRIDAY_MS_MAIL_READ_GATE.md` | Familienhelden Microsoft Graph Mail.Read Gate, OAuth, Sync, Rollback | vorhanden |
 | `FRIDAY_MS_MAIL_READ_GATE.md` | Familienhelden Microsoft Graph Mail.Read Gate mit Multi-Account, Migration, Sync und Rollback | vorhanden |
 | `FRIDAY_LOCAL_SPAM_BLOCKLIST_GATE.md` | Lokaler Spam-/Absender-Block fuer Nachrichten ohne echte Postfachaenderung | vorhanden |
+
+## MS-Mail Sender/Relevance Gate
+
+- `FRIDAY_MS_MAIL_SENDER_RELEVANCE_GATE.md` dokumentiert den lesbaren Absender-Fix und den lokalen Office-Relevanzfilter fuer Microsoft-Mail-Vorschauen.

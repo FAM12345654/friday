@@ -294,13 +294,21 @@ export async function syncMsMailMessages(payload = { top: 25 }) {
   });
 }
 
-export async function getMsMailMessages(limit = 10, accountId = null, includeSpam = false) {
+export async function getMsMailMessages(
+  limit = 10,
+  accountId = null,
+  includeSpam = false,
+  includeAll = false,
+) {
   const params = new URLSearchParams({ limit: String(limit) });
   if (accountId) {
     params.set("account_id", String(accountId));
   }
   if (includeSpam) {
     params.set("include_spam", "true");
+  }
+  if (includeAll) {
+    params.set("include_all", "true");
   }
   return callApi(`/api/messages/ms-mail?${params.toString()}`);
 }

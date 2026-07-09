@@ -210,6 +210,39 @@ def test_ms_mail_sync_stores_dedupes_and_processes_when_enabled(tmp_path, monkey
     assert filtered["items"][0]["account_username"] == "philip@familienhelden.at"
 
 
+def test_ms_mail_endpoint_hides_office_irrelevant_by_default_and_include_all_restores(tmp_path) -> None:
+    api = _load_api_module()
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    api.message_agent = MessageAgent(db_path=db_path)
+    repo = MsMailMessageRepository(db_path)
+    repo.upsert_messages(
+        [
+            {
+                "message_id": "graph-office-hidden",
+                "sender": "info@example.test",
+                "subject": "Bitte Unterlagen prüfen",
+                "received_at": "2026-07-09T10:00:00Z",
+                "snippet": "Bitte erledigen.",
+                "recipients": [{"name": "Alex", "address": "alex@familienhelden.at"}],
+            }
+        ],
+        account_id="office_familienhelden_at",
+        account_username="office@familienhelden.at",
+    )
+
+    client = TestClient(api.app)
+    default_view = client.get("/api/messages/ms-mail").json()["data"]
+    all_view = client.get("/api/messages/ms-mail?include_all=true").json()["data"]
+
+    assert default_view["count"] == 0
+    assert default_view["include_all"] is False
+    assert all_view["count"] == 1
+    assert all_view["include_all"] is True
+    assert all_view["items"][0]["relevant_for_user"] == 0
+    assert all_view["items"][0]["relevance_reason"] == "office_not_relevant"
+
+
 def test_ms_mail_delete_endpoint_removes_selected_account(monkeypatch) -> None:
     api = _load_api_module()
     deleted = []

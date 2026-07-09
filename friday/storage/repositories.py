@@ -6,11 +6,13 @@ from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 import calendar
 import hashlib
+import json
 import re
 import sqlite3
 from typing import List
 
 from friday.config import get_database_path
+from friday.app.todo_relevance import determine_mail_relevance
 from friday.storage.database import get_connection
 
 
@@ -751,6 +753,7 @@ class MsMailMessageRepository:
         normalized_account_id = self._clean(account_id) or "default"
         normalized_account_username = self._clean(account_username)
         blocked_senders = BlockedSenderRepository(self.db_path)
+        contacts = ContactRepository(self.db_path)
         for item in messages:
             provider_message_id = self._clean(item.get("provider_message_id") or item.get("message_id"))
             if not provider_message_id:
@@ -758,6 +761,17 @@ class MsMailMessageRepository:
             item_account_id = self._clean(item.get("account_id")) or normalized_account_id
             item_account_username = self._clean(item.get("account_username")) or normalized_account_username
             sender = self._clean(item.get("sender"))
+            subject = self._clean(item.get("subject"))
+            snippet = str(item.get("snippet") or "")[: self.SNIPPET_LIMIT]
+            recipients = item.get("recipients") if isinstance(item.get("recipients"), list) else []
+            relevance = determine_mail_relevance(
+                account=item_account_username or item_account_id,
+                subject=subject,
+                snippet=snippet,
+                sender=sender,
+                recipients=recipients,
+                sender_contact=contacts.find_contact_for_sender(sender),
+            )
             normalized.append(
                 {
                     "account_id": item_account_id,
@@ -765,10 +779,13 @@ class MsMailMessageRepository:
                     "message_id": self._stored_message_id(item_account_id, provider_message_id),
                     "provider_message_id": provider_message_id,
                     "sender": sender,
-                    "subject": self._clean(item.get("subject")),
+                    "subject": subject,
                     "received_at": self._clean(item.get("received_at")),
-                    "snippet": str(item.get("snippet") or "")[: self.SNIPPET_LIMIT],
+                    "snippet": snippet,
                     "is_spam": 1 if blocked_senders.is_sender_blocked(source="ms_mail", sender=sender) else 0,
+                    "recipients_json": json.dumps(recipients, ensure_ascii=False, sort_keys=True),
+                    "relevant_for_user": 1 if relevance["relevant"] else 0,
+                    "relevance_reason": str(relevance["reason"]),
                 }
             )
 
@@ -780,11 +797,13 @@ class MsMailMessageRepository:
                 """
                 INSERT INTO ms_mail_messages (
                     account_id, account_username, message_id, provider_message_id,
-                    sender, subject, received_at, snippet, processed, suggestion_created, is_spam
+                    sender, subject, received_at, snippet, processed, suggestion_created,
+                    is_spam, recipients_json, relevant_for_user, relevance_reason
                 )
                 VALUES (
                     :account_id, :account_username, :message_id, :provider_message_id,
-                    :sender, :subject, :received_at, :snippet, 0, 0, :is_spam
+                    :sender, :subject, :received_at, :snippet, 0, 0,
+                    :is_spam, :recipients_json, :relevant_for_user, :relevance_reason
                 )
                 ON CONFLICT(message_id) DO UPDATE SET
                     account_id = excluded.account_id,
@@ -797,7 +816,10 @@ class MsMailMessageRepository:
                     is_spam = CASE
                         WHEN excluded.is_spam = 1 THEN 1
                         ELSE ms_mail_messages.is_spam
-                    END
+                    END,
+                    recipients_json = excluded.recipients_json,
+                    relevant_for_user = excluded.relevant_for_user,
+                    relevance_reason = excluded.relevance_reason
                 """,
                 normalized,
             )
@@ -807,7 +829,8 @@ class MsMailMessageRepository:
                 f"""
                 SELECT
                     id, account_id, account_username, message_id, provider_message_id,
-                    sender, subject, received_at, snippet, processed, suggestion_created, is_spam
+                    sender, subject, received_at, snippet, processed, suggestion_created,
+                    is_spam, recipients_json, relevant_for_user, relevance_reason
                 FROM ms_mail_messages
                 WHERE message_id IN ({placeholders})
                 ORDER BY received_at DESC, id DESC
@@ -822,6 +845,7 @@ class MsMailMessageRepository:
         *,
         account_id: str | None = None,
         include_spam: bool = False,
+        include_all: bool = False,
     ) -> list[dict]:
         """Return recent read-only Microsoft mail previews."""
         safe_limit = max(1, min(int(limit), 100))
@@ -833,6 +857,8 @@ class MsMailMessageRepository:
                 where_parts.append("account_id = ?")
             if not include_spam:
                 where_parts.append("is_spam = 0")
+            if not include_all and not include_spam:
+                where_parts.append("relevant_for_user = 1")
             where = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
             if normalized_account_id:
                 params = (normalized_account_id, safe_limit)
@@ -842,7 +868,8 @@ class MsMailMessageRepository:
                 f"""
                 SELECT
                     id, account_id, account_username, message_id, provider_message_id,
-                    sender, subject, received_at, snippet, processed, suggestion_created, is_spam
+                    sender, subject, received_at, snippet, processed, suggestion_created,
+                    is_spam, recipients_json, relevant_for_user, relevance_reason
                 FROM ms_mail_messages
                 {where}
                 ORDER BY received_at DESC, id DESC
@@ -858,7 +885,7 @@ class MsMailMessageRepository:
         normalized_account_id = self._clean(account_id)
         with get_connection(self.db_path) as connection:
             params: tuple[object, ...]
-            where = "WHERE processed = 0 AND is_spam = 0"
+            where = "WHERE processed = 0 AND is_spam = 0 AND relevant_for_user = 1"
             if normalized_account_id:
                 where += " AND account_id = ?"
                 params = (normalized_account_id, safe_limit)
@@ -868,7 +895,8 @@ class MsMailMessageRepository:
                 f"""
                 SELECT
                     id, account_id, account_username, message_id, provider_message_id,
-                    sender, subject, received_at, snippet, processed, suggestion_created, is_spam
+                    sender, subject, received_at, snippet, processed, suggestion_created,
+                    is_spam, recipients_json, relevant_for_user, relevance_reason
                 FROM ms_mail_messages
                 {where}
                 ORDER BY received_at DESC, id DESC
@@ -1232,6 +1260,10 @@ class ContactRepository:
     def find_contact_for_sender(self, sender: str | None) -> dict | None:
         """Find a contact by displayed sender, email address, or WhatsApp target."""
         normalized_sender = self._normalize_lookup_value(sender)
+        email_match = re.search(r"[\w.!#$%&'*+/=?^`{|}~-]+@[\w.-]+", str(sender or ""))
+        normalized_sender_values = {normalized_sender}
+        if email_match:
+            normalized_sender_values.add(self._normalize_lookup_value(email_match.group(0)))
         phone_sender = self._normalize_phone_value(sender)
         if not normalized_sender and not phone_sender:
             return None
@@ -1252,7 +1284,7 @@ class ContactRepository:
                 self._normalize_phone_value(contact.get("email_address")),
                 self._normalize_phone_value(contact.get("whatsapp_target")),
             }
-            if normalized_sender in lookup_values:
+            if lookup_values.intersection(normalized_sender_values):
                 return contact
             if phone_sender and phone_sender in phone_values:
                 return contact

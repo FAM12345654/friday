@@ -227,7 +227,10 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 snippet TEXT,
                 processed INTEGER NOT NULL DEFAULT 0,
                 suggestion_created INTEGER NOT NULL DEFAULT 0,
-                is_spam INTEGER NOT NULL DEFAULT 0
+                is_spam INTEGER NOT NULL DEFAULT 0,
+                recipients_json TEXT,
+                relevant_for_user INTEGER NOT NULL DEFAULT 1,
+                relevance_reason TEXT
             );
 
             CREATE TABLE IF NOT EXISTS blocked_senders (
@@ -312,6 +315,14 @@ def _ensure_ms_mail_message_account_columns(connection: sqlite3.Connection) -> N
             WHERE provider_message_id IS NULL OR provider_message_id = ''
             """
         )
+    if "recipients_json" not in existing:
+        connection.execute("ALTER TABLE ms_mail_messages ADD COLUMN recipients_json TEXT")
+    if "relevant_for_user" not in existing:
+        connection.execute(
+            "ALTER TABLE ms_mail_messages ADD COLUMN relevant_for_user INTEGER NOT NULL DEFAULT 1"
+        )
+    if "relevance_reason" not in existing:
+        connection.execute("ALTER TABLE ms_mail_messages ADD COLUMN relevance_reason TEXT")
 
 
 def _read_json(file_name: str) -> List[Dict[str, Any]]:

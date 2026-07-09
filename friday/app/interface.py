@@ -309,6 +309,29 @@ class FridayInterface:
             print(f"  Nummer: {item.get('sender_number_masked')}")
             print(f"  {item.get('body')}")
 
+    def _show_all_ms_mail_messages(self) -> None:
+        """Show all locally synced Microsoft mail previews, including hidden office mail."""
+        self._section_title("Microsoft-Mails (alle lokalen Vorschauen)")
+        print("Hinweis: Diese Ansicht liest nur die lokale SQLite-Kopie.")
+        print("Office@ wird in der normalen Nachrichtenansicht nach Relevanz gefiltert.")
+        repository = getattr(self.message_agent, "ms_mail_repository", None)
+        if repository is None:
+            print("Microsoft-Mail-Speicher ist nicht verfügbar.")
+            return
+        items = repository.list_messages(limit=50, include_all=True)
+        if not items:
+            print("Keine lokal synchronisierten Microsoft-Mails vorhanden.")
+            return
+        for item in items:
+            visible = "ja" if int(item.get("relevant_for_user") or 0) == 1 else "nein"
+            reason = item.get("relevance_reason") or "-"
+            print(f"- [{item['id']}] {item.get('subject') or '(ohne Betreff)'}")
+            print(f"  Von: {item.get('sender') or '-'}")
+            print(f"  Postfach: {item.get('account_username') or item.get('account_id') or '-'}")
+            print(f"  Im Standardfilter sichtbar: {visible} ({reason})")
+            if item.get("snippet"):
+                print(f"  {item.get('snippet')}")
+
     def _show_spam_and_blocked_senders(self) -> None:
         """Show local spam previews and allow local sender unblock."""
         self._section_title("Spam / Blockiert")
@@ -2815,6 +2838,7 @@ class FridayInterface:
         print(" - Obsidian Brain Preview: lokale Notiz-Vorschau mit deaktiviertem Write-Gate")
         print(" - Backup / Restore: lokale Backup-Vorschau und Restore-Dry-Run")
         print(" - E-Mail-Entwurf Preview: lokaler Entwurf, kein Provider, kein Versand")
+        print(" - Alle Microsoft-Mails anzeigen: lokale Vorschauen inklusive Office-Filter-Ausnahmen")
         print(" - Beenden: beendet den Lauf sauber")
         print(" - Zurück: Untermenüs bieten eine eigene Zurück-Option oder Enter/z im Review.")
         print("Lokale Safety-Hinweise:")
@@ -3172,6 +3196,9 @@ class FridayInterface:
             return True
         if choice == "15":
             self._show_spam_and_blocked_senders()
+            return True
+        if choice == "16":
+            self._show_all_ms_mail_messages()
             return True
         if choice == "7":
             print("Friday wird beendet.")

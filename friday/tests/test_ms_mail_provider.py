@@ -110,6 +110,113 @@ def test_list_messages_maps_only_preview_fields() -> None:
     assert "body" not in result.messages[0]
 
 
+def test_list_messages_formats_sender_with_display_name_and_address() -> None:
+    def _urlopen(_request, timeout=20):
+        return _Response(
+            {
+                "value": [
+                    {
+                        "id": "graph-1",
+                        "from": {
+                            "emailAddress": {
+                                "name": "Kunde Eins",
+                                "address": "kunde@example.test",
+                            }
+                        },
+                        "subject": "Hallo",
+                    }
+                ]
+            }
+        )
+
+    result = list_messages(token_bundle={"access_token": "token"}, urlopen=_urlopen)
+
+    assert result.ok is True
+    assert result.messages[0]["sender"] == "Kunde Eins <kunde@example.test>"
+
+
+def test_list_messages_uses_display_name_for_internal_x500_sender() -> None:
+    def _urlopen(_request, timeout=20):
+        return _Response(
+            {
+                "value": [
+                    {
+                        "id": "graph-1",
+                        "from": {
+                            "emailAddress": {
+                                "name": "Alex Intern",
+                                "address": "/O=EXCHANGELABS/OU=EXCHANGE ADMINISTRATIVE GROUP",
+                            }
+                        },
+                    }
+                ]
+            }
+        )
+
+    result = list_messages(token_bundle={"access_token": "token"}, urlopen=_urlopen)
+
+    assert result.ok is True
+    assert result.messages[0]["sender"] == "Alex Intern"
+
+
+def test_list_messages_shortens_internal_x500_sender_without_name() -> None:
+    def _urlopen(_request, timeout=20):
+        return _Response(
+            {
+                "value": [
+                    {
+                        "id": "graph-1",
+                        "from": {
+                            "emailAddress": {
+                                "address": "/O=EXCHANGELABS/OU=EXCHANGE ADMINISTRATIVE GROUP",
+                            }
+                        },
+                    }
+                ]
+            }
+        )
+
+    result = list_messages(token_bundle={"access_token": "token"}, urlopen=_urlopen)
+
+    assert result.ok is True
+    assert result.messages[0]["sender"].startswith("Intern ")
+    assert result.messages[0]["sender"] != "?"
+
+
+def test_list_messages_falls_back_to_sender_field_and_maps_recipients() -> None:
+    def _urlopen(_request, timeout=20):
+        return _Response(
+            {
+                "value": [
+                    {
+                        "id": "graph-1",
+                        "sender": {
+                            "emailAddress": {
+                                "name": "Fallback Sender",
+                                "address": "fallback@example.test",
+                            }
+                        },
+                        "toRecipients": [
+                            {"emailAddress": {"name": "Philip", "address": "philip@example.test"}}
+                        ],
+                        "ccRecipients": [
+                            {"emailAddress": {"name": "Alex", "address": "alex@example.test"}}
+                        ],
+                    }
+                ]
+            }
+        )
+
+    result = list_messages(token_bundle={"access_token": "token"}, urlopen=_urlopen)
+
+    assert result.ok is True
+    assert result.messages[0]["sender"] == "Fallback Sender <fallback@example.test>"
+    assert result.messages[0]["recipients"] == [
+        {"type": "to", "name": "Philip", "address": "philip@example.test", "label": "Philip <philip@example.test>"},
+        {"type": "cc", "name": "Alex", "address": "alex@example.test", "label": "Alex <alex@example.test>"},
+    ]
+
+
 def test_list_messages_blocks_missing_access_token() -> None:
     result = list_messages(token_bundle={}, top=25, urlopen=lambda *_args, **_kwargs: None)
 

@@ -9,7 +9,7 @@ from friday.app import menu
 def test_menu_options_and_exit_behavior() -> None:
     """MENU_OPTIONS should define the exact local German main flow."""
     assert isinstance(menu.MENU_OPTIONS, list)
-    assert len(menu.MENU_OPTIONS) == 15
+    assert len(menu.MENU_OPTIONS) == 16
 
     assert menu.MENU_OPTIONS == [
         ("1", "Aufgaben verwalten"),
@@ -27,6 +27,7 @@ def test_menu_options_and_exit_behavior() -> None:
         ("13", "E-Mail-Entwurf Preview"),
         ("14", "Konten"),
         ("15", "Spam / Blockiert"),
+        ("16", "Alle Microsoft-Mails anzeigen"),
     ]
 
     assert menu.is_exit("7") is True
@@ -38,6 +39,7 @@ def test_menu_options_and_exit_behavior() -> None:
     assert menu.is_exit("13") is False
     assert menu.is_exit("14") is False
     assert menu.is_exit("15") is False
+    assert menu.is_exit("16") is False
     assert menu.is_exit("1") is False
 
 
