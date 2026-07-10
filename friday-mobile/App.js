@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import * as Updates from "expo-updates";
 import {
   ActivityIndicator,
+  AppState,
   Linking,
   Modal,
   Platform,
@@ -740,6 +741,8 @@ export default function App() {
   };
 
 
+  const updateCheckInFlight = useRef(false);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -748,6 +751,12 @@ export default function App() {
         setUpdateStatus("Update: Entwicklung");
         return;
       }
+
+      // Doppelte Checks vermeiden (Kaltstart + Vordergrund gleichzeitig).
+      if (updateCheckInFlight.current) {
+        return;
+      }
+      updateCheckInFlight.current = true;
 
       try {
         const update = await Updates.checkForUpdateAsync();
@@ -763,18 +772,31 @@ export default function App() {
         setUpdateStatus("Update: wird installiert…");
         await Updates.fetchUpdateAsync();
         if (isMounted) {
+          // reloadAsync startet die App mit dem neuen Bundle neu.
           await Updates.reloadAsync();
         }
       } catch (err) {
         if (isMounted) {
           setUpdateStatus("Update: später erneut");
         }
+      } finally {
+        updateCheckInFlight.current = false;
       }
     };
 
+    // 1. Kaltstart: sofort prüfen.
     applyAvailableUpdate();
+
+    // 2. Warmstart: jedes Mal prüfen, wenn die App in den Vordergrund kommt.
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        applyAvailableUpdate();
+      }
+    });
+
     return () => {
       isMounted = false;
+      subscription.remove();
     };
   }, []);
 
