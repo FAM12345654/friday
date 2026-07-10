@@ -21,7 +21,7 @@ VALID_RECURRENCES = {"taeglich", "woechentlich", "monatlich"}
 VALID_SUGGESTION_STATUSES = {"pending", "approved", "rejected", "edited"}
 VALID_TASK_SUGGESTION_STATUSES = {"pending", "approved", "rejected", "edited", "converted"}
 VALID_CALENDAR_SUGGESTION_STATUSES = {"pending", "selected", "rejected"}
-VALID_BLOCKED_SENDER_SOURCES = {"message", "ms_mail", "whatsapp"}
+VALID_BLOCKED_SENDER_SOURCES = {"message", "ms_mail", "imap_mail", "whatsapp"}
 
 
 def row_to_dict(row: sqlite3.Row) -> dict:
@@ -149,7 +149,7 @@ def normalize_blocked_sender_key(source: str | None, sender: str | None) -> str:
             return cleaned[5:]
         return hashlib.sha256((cleaned or "unknown").encode("utf-8")).hexdigest()
 
-    if normalized_source == "ms_mail":
+    if normalized_source in {"ms_mail", "imap_mail"}:
         match = re.search(r"[\w.!#$%&'*+/=?^`{|}~-]+@[\w.-]+", raw_sender)
         if match:
             return match.group(0).strip().lower()
@@ -603,6 +603,18 @@ class BlockedSenderRepository:
                 )
                 return {"message": row_to_dict(row), "blocked_sender": blocked}
 
+            if normalized_source == "imap_mail":
+                row = self._find_ms_mail_row(connection, message_id)
+                if row is None:
+                    return None
+                sender = str(row["sender"] or "")
+                blocked = self.block_sender(source=normalized_source, sender=sender, label=sender)
+                connection.execute(
+                    "UPDATE ms_mail_messages SET is_spam = 1 WHERE id = ?",
+                    (int(row["id"]),),
+                )
+                return {"message": row_to_dict(row), "blocked_sender": blocked}
+
             if normalized_source == "whatsapp":
                 row = self._find_whatsapp_row(connection, message_id)
                 if row is None:
@@ -644,12 +656,12 @@ class BlockedSenderRepository:
             )
             return
 
-        if source == "ms_mail":
+        if source in {"ms_mail", "imap_mail"}:
             rows = connection.execute("SELECT id, sender FROM ms_mail_messages").fetchall()
             matching_ids = [
                 int(row["id"])
                 for row in rows
-                if normalize_blocked_sender_key("ms_mail", row["sender"]) == sender_key
+                if normalize_blocked_sender_key(source, row["sender"]) == sender_key
             ]
             for local_id in matching_ids:
                 connection.execute("UPDATE ms_mail_messages SET is_spam = 0 WHERE id = ?", (local_id,))
@@ -670,7 +682,7 @@ class BlockedSenderRepository:
         if text.isdigit():
             row = connection.execute(
                 """
-                SELECT id, account_id, account_username, message_id, provider_message_id,
+                SELECT id, source, account_id, account_username, message_id, provider_message_id,
                        sender, subject, received_at, snippet, processed, suggestion_created, is_spam
                 FROM ms_mail_messages
                 WHERE id = ?
@@ -682,7 +694,7 @@ class BlockedSenderRepository:
                 return row
         return connection.execute(
             """
-            SELECT id, account_id, account_username, message_id, provider_message_id,
+            SELECT id, source, account_id, account_username, message_id, provider_message_id,
                    sender, subject, received_at, snippet, processed, suggestion_created, is_spam
             FROM ms_mail_messages
             WHERE message_id = ? OR provider_message_id = ?
@@ -761,6 +773,7 @@ class MsMailMessageRepository:
         blocked_senders = BlockedSenderRepository(self.db_path)
         contacts = ContactRepository(self.db_path)
         for item in messages:
+            item_source = _normalize_blocked_sender_source(item.get("source") or "ms_mail")
             provider_message_id = self._clean(item.get("provider_message_id") or item.get("message_id"))
             if not provider_message_id:
                 continue
@@ -788,6 +801,7 @@ class MsMailMessageRepository:
             normalized.append(
                 {
                     "account_id": item_account_id,
+                    "source": item_source,
                     "account_username": item_account_username,
                     "message_id": self._stored_message_id(item_account_id, provider_message_id),
                     "provider_message_id": provider_message_id,
@@ -797,7 +811,7 @@ class MsMailMessageRepository:
                     "snippet": snippet,
                     "body_full": body_full,
                     "body_fetched_at": _now_iso_timestamp() if body_full else None,
-                    "is_spam": 1 if blocked_senders.is_sender_blocked(source="ms_mail", sender=sender) else 0,
+                    "is_spam": 1 if blocked_senders.is_sender_blocked(source=item_source, sender=sender) else 0,
                     "recipients": recipients_json,
                     "recipients_json": recipients_json,
                     "relevant_for_user": 1 if relevance["relevant"] else 0,
@@ -813,18 +827,19 @@ class MsMailMessageRepository:
             connection.executemany(
                 """
                 INSERT INTO ms_mail_messages (
-                    account_id, account_username, message_id, provider_message_id,
+                    source, account_id, account_username, message_id, provider_message_id,
                     sender, subject, received_at, snippet, processed, suggestion_created,
                     is_spam, recipients, recipients_json, body_full, body_fetched_at,
                     relevant_for_user, relevance_reason, relevance_method
                 )
                 VALUES (
-                    :account_id, :account_username, :message_id, :provider_message_id,
+                    :source, :account_id, :account_username, :message_id, :provider_message_id,
                     :sender, :subject, :received_at, :snippet, 0, 0,
                     :is_spam, :recipients, :recipients_json, :body_full, :body_fetched_at,
                     :relevant_for_user, :relevance_reason, :relevance_method
                 )
                 ON CONFLICT(message_id) DO UPDATE SET
+                    source = excluded.source,
                     account_id = excluded.account_id,
                     account_username = excluded.account_username,
                     provider_message_id = excluded.provider_message_id,
@@ -851,7 +866,7 @@ class MsMailMessageRepository:
             rows = connection.execute(
                 f"""
                 SELECT
-                    id, account_id, account_username, message_id, provider_message_id,
+                    id, source, account_id, account_username, message_id, provider_message_id,
                     sender, subject, received_at, snippet, processed, suggestion_created,
                     is_spam, recipients, recipients_json, body_fetched_at,
                     relevant_for_user, relevance_reason, relevance_method
@@ -891,7 +906,7 @@ class MsMailMessageRepository:
             rows = connection.execute(
                 f"""
                 SELECT
-                    id, account_id, account_username, message_id, provider_message_id,
+                    id, source, account_id, account_username, message_id, provider_message_id,
                     sender, subject, received_at, snippet, processed, suggestion_created,
                     is_spam, recipients, recipients_json, body_fetched_at,
                     relevant_for_user, relevance_reason, relevance_method
@@ -910,7 +925,7 @@ class MsMailMessageRepository:
             row = connection.execute(
                 """
                 SELECT
-                    id, account_id, account_username, message_id, provider_message_id,
+                    id, source, account_id, account_username, message_id, provider_message_id,
                     sender, subject, received_at, snippet, body_full, body_fetched_at,
                     processed, suggestion_created, is_spam, recipients, recipients_json,
                     relevant_for_user, relevance_reason, relevance_method
@@ -937,7 +952,7 @@ class MsMailMessageRepository:
             rows = connection.execute(
                 f"""
                 SELECT
-                    id, account_id, account_username, message_id, provider_message_id,
+                    id, source, account_id, account_username, message_id, provider_message_id,
                     sender, subject, received_at, snippet, body_full, processed, suggestion_created,
                     is_spam, recipients, recipients_json, relevant_for_user, relevance_reason, relevance_method
                 FROM ms_mail_messages

@@ -314,3 +314,5 @@ Safety:
 | Microsoft-Mail KI-Relevanz | erlaubt lokal | deterministisch zuerst; bei unklaren Office-Mails lokale KI/Ollama auf vollem Body; Fallback sichtbar |
 | Microsoft-Mail Detailansicht | erlaubt read-only | zeigt lokal gespeicherten Volltext, keine Provider-Schreibaktion |
 | Lernen-Reiter | erlaubt lokal | erkennt Routinen aus lokalen Daten, speichert `learned_rules`, kein Modell-Nachtraining, keine externen Aktionen |
+
+| Gmail IMAP Reader | Ja, read-only ueber `imap.gmail.com:993` | Nein | IMAP erlaubt nur in `friday/app/imap_mail_reader.py` | `MAIL LESEN AKTIVIEREN`; kein SMTP, kein Versand |

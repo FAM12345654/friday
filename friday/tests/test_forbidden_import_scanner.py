@@ -112,6 +112,21 @@ def test_forbidden_import_scanner_allows_imap_only_in_reader_module() -> None:
     assert blocked.findings[0].module == "imaplib"
 
 
+def test_forbidden_import_scanner_allows_imap_only_in_imap_mail_reader_module() -> None:
+    allowed = scan_python_source_for_forbidden_imports(
+        "import imaplib\n",
+        path="friday/app/imap_mail_reader.py",
+    )
+    blocked = scan_python_source_for_forbidden_imports(
+        "import imaplib\n",
+        path="friday/app/other_module.py",
+    )
+
+    assert allowed.passed is True
+    assert blocked.passed is False
+    assert blocked.findings[0].module == "imaplib"
+
+
 def test_forbidden_import_scanner_allows_google_only_in_calendar_provider() -> None:
     allowed = scan_python_source_for_forbidden_imports(
         "import googleapiclient.discovery\n",

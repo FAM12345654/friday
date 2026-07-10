@@ -150,6 +150,7 @@ class MessageAgent:
             limit=limit,
             include_spam=include_spam,
         ):
+            source = item.get("source") or "ms_mail"
             subject = str(item.get("subject") or "").strip()
             snippet = str(item.get("snippet") or "").strip()
             text = "\n".join(part for part in (subject, snippet) if part)
@@ -160,7 +161,7 @@ class MessageAgent:
                     "text": text,
                     "received_at": item.get("received_at"),
                     "contact_type": "email",
-                    "source": "ms_mail",
+                    "source": source,
                     "ms_mail_local_id": item.get("id"),
                     "ms_mail_message_id": item.get("message_id"),
                     "ms_mail_provider_message_id": item.get("provider_message_id"),
@@ -387,6 +388,7 @@ class MessageAgent:
         learned_rules = self.get_active_learned_rules()
 
         for item in self.ms_mail_repository.get_unprocessed_messages():
+            source = item.get("source") or "ms_mail"
             synthetic_message = {
                 "id": MS_MAIL_MESSAGE_ID_OFFSET + int(item["id"]),
                 "sender": item.get("sender") or "Microsoft Mail",
@@ -401,7 +403,7 @@ class MessageAgent:
                 ),
                 "received_at": item.get("received_at"),
                 "contact_type": "email",
-                "source": "ms_mail",
+                "source": source,
                 "ms_mail_local_id": item.get("id"),
                 "ms_mail_message_id": item.get("message_id"),
                 "ms_mail_provider_message_id": item.get("provider_message_id"),
@@ -416,8 +418,12 @@ class MessageAgent:
                 reply = self.suggestion_repository.create_suggestion(
                     message_id=int(synthetic_message["id"]),
                     draft_text=self.create_reply_suggestion(synthetic_message),
-                    suggestion_type="ms_mail_reply",
-                    notes="Lokaler Microsoft-Mail-Read-Only-Entwurf. Kein Versand.",
+                    suggestion_type="imap_mail_reply" if source == "imap_mail" else "ms_mail_reply",
+                    notes=(
+                        "Lokaler Gmail/IMAP-Read-Only-Entwurf. Kein Versand."
+                        if source == "imap_mail"
+                        else "Lokaler Microsoft-Mail-Read-Only-Entwurf. Kein Versand."
+                    ),
                 )
                 if reply:
                     message_suggestions_created += 1

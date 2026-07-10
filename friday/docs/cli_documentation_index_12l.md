@@ -142,3 +142,7 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 ## Lernen-Reiter Gate
 
 - `FRIDAY_LEARNING_TAB_GATE.md` dokumentiert lokale Routine-Erkennung, Lernfragen, `learned_rules`, Mobile/CLI-Anbindung und Safety-Grenzen ohne Modell-Nachtraining.
+
+## Gmail IMAP Read-only Dokumente
+
+- `FRIDAY_IMAP_MAIL_READ_GATE.md`: Gmail/IMAP Read-only Gate, Setup, Safety und Tests.

@@ -26,12 +26,14 @@ import {
   checkHealth,
   completeTask,
   connectEmailAccount,
+  connectImapMailAccount,
   connectMsMailAccount,
   createAccountPolicy,
   createCalendarEventFromMessage,
   createContact,
   createTask,
   deleteCalendarEvent,
+  deleteImapMailAccount,
   deleteMsMailAccount,
   deleteTask,
   dismissLearningQuestion,
@@ -39,6 +41,7 @@ import {
   getCalendarAccountStatus,
   getEmailAccountStatus,
   getEmailInbox,
+  getImapMailStatus,
   generateCalendarEventSuggestionForMessage,
   getWhatsAppMessages,
   getWhatsAppAgentNotes,
@@ -55,14 +58,16 @@ import {
   getMessageSuggestion,
   getMessageSuggestions,
   getMessages,
-  getMsMailMessage,
-  getMsMailMessages,
   getMsMailStatus,
   getPrivacy,
   getSetupStatus,
   getTasks,
+  getUnifiedMailMessage,
+  getUnifiedMailMessages,
   checkCalendarActivationGate,
+  activateImapMailRead,
   activateMsMailRead,
+  syncImapMailMessages,
   syncMsMailMessages,
   markMessageSpam,
   sendTaskForwardEmail,
@@ -305,6 +310,9 @@ const hasForwardTarget = (contact, channel) =>
 
 const spamMessageRef = (message) => {
   if (message?.source === "ms_mail") {
+    return message.ms_mail_local_id || Math.max(0, Number(message.id || 0) - 3000000);
+  }
+  if (message?.source === "imap_mail") {
     return message.ms_mail_local_id || Math.max(0, Number(message.id || 0) - 3000000);
   }
   if (message?.source === "whatsapp") {
@@ -637,6 +645,7 @@ export default function App() {
   const [msMailInbox, setMsMailInbox] = useState(null);
   const [msMailIncludeAll, setMsMailIncludeAll] = useState(false);
   const [selectedMsMailDetail, setSelectedMsMailDetail] = useState(null);
+  const [imapMailStatus, setImapMailStatus] = useState(null);
   const [whatsappStatus, setWhatsappStatus] = useState(null);
   const [whatsappInbox, setWhatsappInbox] = useState(null);
   const [blockedSenders, setBlockedSenders] = useState([]);
@@ -657,6 +666,12 @@ export default function App() {
   const [msMailDeleteToken, setMsMailDeleteToken] = useState("");
   const [msMailActivationToken, setMsMailActivationToken] = useState("");
   const [msMailResult, setMsMailResult] = useState("");
+  const [imapMailUsername, setImapMailUsername] = useState("philip07102000@gmail.com");
+  const [imapMailAppPassword, setImapMailAppPassword] = useState("");
+  const [imapMailAccountToken, setImapMailAccountToken] = useState("");
+  const [imapMailDeleteToken, setImapMailDeleteToken] = useState("");
+  const [imapMailActivationToken, setImapMailActivationToken] = useState("");
+  const [imapMailResult, setImapMailResult] = useState("");
   const [whatsappAgentNotes, setWhatsappAgentNotes] = useState("");
   const [whatsappAgentNotesResult, setWhatsappAgentNotesResult] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
@@ -808,7 +823,7 @@ export default function App() {
         getTasks().catch(() => []),
         getCalendar(resolveCalendarViewQuery(homePrefs)).catch(() => null),
         getLearning().catch(() => null),
-        getMsMailMessages(5).catch(() => ({ items: [] })),
+        getUnifiedMailMessages(5).catch(() => ({ items: [] })),
       ]);
       setDashboard(dashboardPayload);
       setTasks(isArray(taskPayload));
@@ -844,7 +859,7 @@ export default function App() {
         items: [],
         message: normalizeApiError(err),
       }));
-      const msInbox = await getMsMailMessages(10, null, false, msMailIncludeAll).catch((err) => ({
+      const msInbox = await getUnifiedMailMessages(10, null, false, msMailIncludeAll).catch((err) => ({
         items: [],
         status: { connected: false, read_enabled: false },
         message: normalizeApiError(err),
@@ -870,7 +885,7 @@ export default function App() {
     if (screenName === "Spam") {
       const blocked = await getBlockedSenders().catch(() => ({ items: [] }));
       const messagePayload = await getMessages(true).catch(() => ({ items: [] }));
-      const msInbox = await getMsMailMessages(50, null, true).catch(() => ({ items: [] }));
+      const msInbox = await getUnifiedMailMessages(50, null, true).catch(() => ({ items: [] }));
       const whatsapp = await getWhatsAppMessages(50, true).catch(() => ({ items: [] }));
       setBlockedSenders(isArray(blocked?.items));
       setSpamMessages({
@@ -927,10 +942,12 @@ export default function App() {
       const payload = await getPrivacy();
       const emailStatus = await getEmailAccountStatus().catch(() => null);
       const microsoftStatus = await getMsMailStatus().catch(() => null);
+      const imapStatus = await getImapMailStatus().catch(() => null);
       const waStatus = await getWhatsAppStatus().catch(() => null);
       setPrivacy(payload);
       setEmailAccountStatus(emailStatus);
       setMsMailStatus(microsoftStatus);
+      setImapMailStatus(imapStatus);
       setWhatsappStatus(waStatus);
       return;
     }
@@ -941,13 +958,15 @@ export default function App() {
       const calendarStatus = await getCalendarAccountStatus().catch(() => null);
       const emailStatus = await getEmailAccountStatus().catch(() => null);
       const microsoftStatus = await getMsMailStatus().catch(() => null);
-      const microsoftInbox = await getMsMailMessages(10, null, false, msMailIncludeAll).catch(() => null);
+      const imapStatus = await getImapMailStatus().catch(() => null);
+      const microsoftInbox = await getUnifiedMailMessages(10, null, false, msMailIncludeAll).catch(() => null);
       const whatsappNotesPayload = await getWhatsAppAgentNotes().catch(() => null);
       setSetupStatus(payload);
       setAccountPolicies(policies);
       setCalendarAccountStatus(calendarStatus);
       setEmailAccountStatus(emailStatus);
       setMsMailStatus(microsoftStatus);
+      setImapMailStatus(imapStatus);
       setMsMailInbox(microsoftInbox);
       setEmailAgentNotes(emailStatus?.agent_notes || "");
       setWhatsappAgentNotes(whatsappNotesPayload?.agent_notes || "");
@@ -1467,7 +1486,7 @@ export default function App() {
     setActionBusy(true);
     setMsMailResult("");
     try {
-      setMsMailInbox(await getMsMailMessages(10, null, false, nextIncludeAll));
+      setMsMailInbox(await getUnifiedMailMessages(10, null, false, nextIncludeAll));
     } catch (err) {
       setMsMailResult(`Microsoft-Mail-Ansicht konnte nicht geladen werden: ${normalizeApiError(err)}`);
     } finally {
@@ -1482,7 +1501,7 @@ export default function App() {
     setActionBusy(true);
     setMsMailResult("");
     try {
-      setSelectedMsMailDetail(await getMsMailMessage(item.id));
+      setSelectedMsMailDetail(await getUnifiedMailMessage(item.id));
     } catch (err) {
       setMsMailResult(`Mail-Detail konnte nicht geladen werden: ${normalizeApiError(err)}`);
     } finally {
@@ -1501,7 +1520,7 @@ export default function App() {
       });
       const label = selectedAccountId ? ` fuer ${selectedAccountId}` : "";
       setMsMailResult(`Sync${label} fertig: ${result?.stored_count || 0} Mail-Vorschauen lokal aktualisiert.`);
-      setMsMailInbox(await getMsMailMessages(10, null, false, msMailIncludeAll));
+      setMsMailInbox(await getUnifiedMailMessages(10, null, false, msMailIncludeAll));
       setMsMailStatus(await getMsMailStatus());
       await refreshActive();
     } catch (err) {
@@ -1524,7 +1543,7 @@ export default function App() {
       });
       setMsMailResult(`Postfach ${accountId} wurde lokal getrennt.`);
       setMsMailDeleteToken("");
-      setMsMailInbox(await getMsMailMessages(10));
+      setMsMailInbox(await getUnifiedMailMessages(10));
       setMsMailStatus(await getMsMailStatus());
       await refreshActive();
     } catch (err) {
@@ -1534,6 +1553,102 @@ export default function App() {
     }
   };
 
+  const handleConnectImapMailAccount = async (tokenOverride) => {
+    if (!imapMailUsername.trim() || !imapMailAppPassword.trim()) {
+      setImapMailResult("Gmail-Adresse und App-Passwort sind erforderlich.");
+      return;
+    }
+    setActionBusy(true);
+    setImapMailResult("Gmail wird read-only verbunden...");
+    try {
+      const result = await connectImapMailAccount({
+        provider: "gmail",
+        host: "imap.gmail.com",
+        port: 993,
+        username: imapMailUsername.trim(),
+        app_password: imapMailAppPassword,
+        approval_token: (tokenOverride || imapMailAccountToken).trim(),
+      });
+      setImapMailAppPassword("");
+      setImapMailAccountToken("");
+      setImapMailResult(
+        result?.saved
+          ? "Gmail-Konto lokal verschluesselt gespeichert. Es bleibt nur lesend."
+          : result?.message || "Gmail-Konto wurde nicht gespeichert.",
+      );
+      setImapMailStatus(await getImapMailStatus());
+    } catch (err) {
+      setImapMailResult(`Gmail konnte nicht verbunden werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleActivateImapMailRead = async (tokenOverride) => {
+    setActionBusy(true);
+    setImapMailResult("");
+    try {
+      const result = await activateImapMailRead({
+        approval_token: (tokenOverride || imapMailActivationToken).trim(),
+        scanner_smoke_passed: true,
+        execute_write: true,
+      });
+      setImapMailResult(
+        result?.config_write_performed
+          ? "Gmail-Lesen wurde in der Config aktiviert. Bitte Friday API neu starten."
+          : `Gmail-Lesen noch blockiert: ${(result?.blocked_reasons || []).join(" / ") || "Gate nicht erfuellt"}`,
+      );
+      setImapMailStatus(await getImapMailStatus());
+    } catch (err) {
+      setImapMailResult(`Gmail-Aktivierung blockiert: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleSyncImapMail = async (accountId = null) => {
+    const selectedAccountId = typeof accountId === "string" ? accountId : null;
+    setActionBusy(true);
+    setImapMailResult("");
+    try {
+      const result = await syncImapMailMessages({
+        top: 25,
+        ...(selectedAccountId ? { account_id: selectedAccountId } : {}),
+      });
+      const label = selectedAccountId ? ` fuer ${selectedAccountId}` : "";
+      setImapMailResult(`Gmail-Sync${label} fertig: ${result?.stored_count || 0} Mail-Vorschauen lokal aktualisiert.`);
+      setMsMailInbox(await getUnifiedMailMessages(10, null, false, msMailIncludeAll));
+      setImapMailStatus(await getImapMailStatus());
+      await refreshActive();
+    } catch (err) {
+      setImapMailResult(`Gmail-Sync blockiert: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleDeleteImapMailAccount = async (accountId, tokenOverride) => {
+    if (!accountId) {
+      setImapMailResult("Gmail-Konto-ID fehlt.");
+      return;
+    }
+    setActionBusy(true);
+    setImapMailResult("");
+    try {
+      await deleteImapMailAccount(accountId, {
+        approval_token: (tokenOverride || imapMailDeleteToken).trim(),
+      });
+      setImapMailResult(`Gmail-Konto ${accountId} wurde lokal getrennt.`);
+      setImapMailDeleteToken("");
+      setMsMailInbox(await getUnifiedMailMessages(10));
+      setImapMailStatus(await getImapMailStatus());
+      await refreshActive();
+    } catch (err) {
+      setImapMailResult(`Gmail-Trennen blockiert: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
   const handleMarkMessageSpam = async (source, messageId, label = "Absender") => {
     setActionBusy(true);
     setSpamResult("");
@@ -2348,7 +2463,7 @@ export default function App() {
             >
               <Text style={styles.cardTitle}>{item.subject || "(ohne Betreff)"}</Text>
               <Text style={styles.cardMeta}>Von: {item.sender || "-"}</Text>
-              <Text style={styles.cardMeta}>Postfach: {item.account_username || item.account_id || "-"}</Text>
+              <Text style={styles.cardMeta}>Quelle: {item.source === "imap_mail" ? "Gmail" : "Microsoft"} / Postfach: {item.account_username || item.account_id || "-"}</Text>
               <Text style={styles.cardMeta}>
                 Relevanz: {msMailRelevanceLabel(item.relevance_reason)}
                 {Number(item.relevant_for_user || 0) === 0 ? " (nur in Alle anzeigen)" : ""}
@@ -2360,7 +2475,7 @@ export default function App() {
                   small
                   variant="danger"
                   label="Spam / Absender blockieren"
-                  onPress={() => handleMarkMessageSpam("ms_mail", item.id, item.sender)}
+                  onPress={() => handleMarkMessageSpam(item.source || "ms_mail", spamMessageRef(item), item.sender)}
                   disabled={actionBusy}
                 />
               </View>
@@ -2526,7 +2641,7 @@ export default function App() {
             <View key={`ms-${item.message_id || item.id}`} style={styles.card}>
               <Text style={styles.cardTitle}>{item.subject || "(ohne Betreff)"}</Text>
               <Text style={styles.cardMeta}>Von: {item.sender || "-"}</Text>
-              <Text style={styles.cardMeta}>Postfach: {item.account_username || item.account_id || "-"}</Text>
+              <Text style={styles.cardMeta}>Quelle: {item.source === "imap_mail" ? "Gmail" : "Microsoft"} / Postfach: {item.account_username || item.account_id || "-"}</Text>
               <Text style={styles.cardBody}>{item.snippet || ""}</Text>
             </View>
           ))}
@@ -3290,6 +3405,116 @@ export default function App() {
             ))}
           </View>
           <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Gmail (nur lesen)</Text>
+              <Chip
+                label={imapMailStatus?.connected ? "verbunden" : "nicht verbunden"}
+                color={imapMailStatus?.connected ? colors.sage : colors.textSoft}
+              />
+            </View>
+            <Text style={styles.cardMeta}>
+              Lesen aktiv: {imapMailStatus?.read_enabled ? "ja" : "nein"} / Real-Versand: {imapMailStatus?.real_email_enabled ? "aktiv" : "aus"}
+            </Text>
+            <Text style={styles.cardMeta}>
+              Konten: {imapMailStatus?.account_count || 0} / IMAP: imap.gmail.com:993 / SMTP: aus
+            </Text>
+            <Text style={styles.forwardSafety}>
+              Gmail nutzt nur IMAP read-only mit App-Passwort. Friday liest lokal, speichert Vorschauen in SQLite und sendet keine Mail.
+            </Text>
+            {isArray(imapMailStatus?.accounts).map((account) => (
+              <View key={account.account_id || account.id} style={styles.cardCompact}>
+                <Text style={styles.cardTitle}>{account.username_masked || account.account_id}</Text>
+                <Text style={styles.cardMeta}>
+                  ID: {account.account_id || account.id} / Test OK: {account.last_test_ok ? "ja" : "nein"}
+                </Text>
+                <View style={styles.row}>
+                  <ActionButton
+                    small
+                    variant="ghost"
+                    label="Dieses Gmail-Konto synchronisieren"
+                    onPress={() => handleSyncImapMail(account.account_id || account.id)}
+                    disabled={actionBusy}
+                  />
+                  <ActionButton
+                    small
+                    variant="danger"
+                    label="Gmail trennen"
+                    onPress={() => handleDeleteImapMailAccount(account.account_id || account.id)}
+                    disabled={actionBusy}
+                  />
+                </View>
+              </View>
+            ))}
+            {isArray(imapMailStatus?.accounts).length === 0 && (
+              <Text style={styles.cardBody}>Noch kein Gmail-Konto verbunden.</Text>
+            )}
+            <TextInput
+              value={imapMailUsername}
+              onChangeText={setImapMailUsername}
+              style={styles.input}
+              placeholder="Gmail-Adresse"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+              keyboardType="email-address"
+            />
+            <TextInput
+              value={imapMailAppPassword}
+              onChangeText={setImapMailAppPassword}
+              style={styles.input}
+              placeholder="Gmail App-Passwort"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+              secureTextEntry
+            />
+            <TextInput
+              value={imapMailAccountToken}
+              onChangeText={setImapMailAccountToken}
+              style={styles.input}
+              placeholder="KONTO SPEICHERN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <View style={styles.row}>
+              <ActionButton
+                small
+                variant="success"
+                label="Gmail verbinden"
+                onPress={() => openTokenModal({ title: "Gmail-Konto speichern", explanation: "Das App-Passwort wird lokal verschluesselt gespeichert. Gmail bleibt read-only.", expectedToken: "KONTO SPEICHERN", onConfirm: handleConnectImapMailAccount })}
+                disabled={actionBusy || imapMailAccountToken.trim() !== "KONTO SPEICHERN"}
+              />
+              <ActionButton
+                small
+                variant="success"
+                label="Gmail-Sync starten"
+                onPress={handleSyncImapMail}
+                disabled={actionBusy}
+              />
+            </View>
+            <TextInput
+              value={imapMailDeleteToken}
+              onChangeText={setImapMailDeleteToken}
+              style={styles.input}
+              placeholder="KONTO LOESCHEN zum Trennen"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <TextInput
+              value={imapMailActivationToken}
+              onChangeText={setImapMailActivationToken}
+              style={styles.input}
+              placeholder="MAIL LESEN AKTIVIEREN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <ActionButton
+              small
+              variant="success"
+              label="Gmail-Read-Gate aktivieren"
+              onPress={handleActivateImapMailRead}
+              disabled={actionBusy}
+            />
+            {!!imapMailResult && <Text style={styles.approvalResultText}>{imapMailResult}</Text>}
+          </View>          <View style={styles.card}>
             <Text style={styles.cardTitle}>WhatsApp</Text>
             <View style={styles.privacyRow}>
               <Text style={styles.privacyLabel}>Read-Bridge</Text>
@@ -3546,6 +3771,12 @@ export default function App() {
               />
             </View>
             <View style={styles.privacyRow}>
+              <Text style={styles.privacyLabel}>Gmail nur lesen ({setupStatus?.imap_mail?.account_count || 0})</Text>
+              <Chip
+                label={setupStatus?.imap_mail?.read_enabled ? "read-only aktiv" : "read-only aus"}
+                color={setupStatus?.imap_mail?.read_enabled ? colors.warn : colors.textSoft}
+              />
+            </View>            <View style={styles.privacyRow}>
               <Text style={styles.privacyLabel}>WhatsApp Read-Bridge</Text>
               <Chip label={setupStatus?.whatsapp?.read_enabled ? "aktiv" : "aus"} color={setupStatus?.whatsapp?.read_enabled ? colors.warn : colors.textSoft} />
             </View>

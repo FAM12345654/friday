@@ -521,3 +521,25 @@ Das Designsystem bleibt Creme/Moos, ist aber konsistenter:
 Fuer harte Freigaben gibt es jetzt einen wiederverwendbaren `ConfirmTokenModal`. Die vorhandenen Tokens bleiben unveraendert und werden nicht abgeschwaecht; Buttons fuer harte Aktionen bleiben bis zum exakten Token gesperrt.
 
 Wichtig: UI-Aenderungen kommen per OTA. Das neue App-Icon ist ein natives Asset und erscheint erst nach einem neuen Android-Build / neuer APK-Installation.
+
+## Gmail IMAP read-only
+
+Friday kann ein Gmail-Konto ueber IMAP nur lesend verbinden. Das ist getrennt vom E-Mail-Versand: `ENABLE_REAL_EMAIL` bleibt aus, es gibt kein SMTP und keine Gmail API.
+
+Ablauf in der Mobile-App:
+
+1. In Google ein App-Passwort fuer Mail erstellen.
+2. In Friday `Mehr > Einrichten > Gmail (nur lesen)` oeffnen.
+3. Gmail-Adresse und App-Passwort eintragen.
+4. Mit `KONTO SPEICHERN` lokal verschluesselt speichern.
+5. Mit `MAIL LESEN AKTIVIEREN` das Read-Gate aktivieren.
+6. Friday API neu starten, falls die App darauf hinweist.
+7. `Gmail-Sync starten` ausfuehren.
+
+Sicherheitsgrenzen:
+
+- Friday nutzt nur `imap.gmail.com:993`.
+- Der Reader nutzt `BODY.PEEK[]` und `readonly=True`.
+- Es wird nichts gesendet, geloescht, verschoben oder serverseitig markiert.
+- Gmail- und Microsoft-Mails erscheinen gemeinsam im lokalen Posteingang.
+- Details: `FRIDAY_IMAP_MAIL_READ_GATE.md`.

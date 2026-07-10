@@ -282,3 +282,13 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 - `ConfirmTokenModal` zentralisiert harte Token-Freigaben; Tokens bleiben exakt und unveraendert.
 - Keine neuen nativen Pakete, keine Safety-Flag-Aenderungen, keine Backend-Sende-Logik.
 - Mobile Android Export ist OTA-faehig.
+
+## Gmail IMAP Read-only
+
+- Neuer Gmail/IMAP Read-only Account Store: `friday/app/imap_mail_account_store.py`.
+- Neuer Gmail/IMAP Reader: `friday/app/imap_mail_reader.py`.
+- Neues Aktivierungs-Gate: `friday/app/imap_mail_read_activation_gate.py`.
+- `ms_mail_messages` speichert additiv `source`, damit Microsoft (`ms_mail`) und Gmail (`imap_mail`) im vereinten lokalen Posteingang unterscheidbar bleiben.
+- Neue API-Endpunkte unter `/api/accounts/imap-mail` und `/api/messages/mail`.
+- Mobile App zeigt `Gmail (nur lesen)` im Setup-Bereich.
+- Safety: IMAP `BODY.PEEK[]`, `readonly=True`, kein SMTP, keine Gmail API, kein Versand; `ENABLE_REAL_EMAIL` bleibt `False`.

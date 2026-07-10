@@ -82,6 +82,15 @@ def test_no_network_scanner_allows_imap_reader_allowlist() -> None:
     assert findings == ()
 
 
+def test_no_network_scanner_allows_imap_mail_reader_allowlist() -> None:
+    findings = scan_python_source_for_network_usage(
+        "import imaplib\nimaplib.IMAP4_SSL('imap.gmail.com', 993)\n",
+        file_path="friday/app/imap_mail_reader.py",
+    )
+
+    assert findings == ()
+
+
 def test_no_network_scanner_allows_google_provider_allowlist() -> None:
     findings = scan_python_source_for_network_usage(
         "import socket\nsocket.socket()\n",

@@ -6,6 +6,7 @@ from friday import config
 from friday.app.account_policy_store import list_account_policies
 from friday.app.calendar_google_account_store import google_calendar_account_status
 from friday.app.email_account_store import email_account_status
+from friday.app.imap_mail_account_store import imap_mail_account_status
 from friday.app.local_model_provider import get_local_model_fallback_count
 from friday.app.ms_mail_account_store import ms_mail_account_status
 from friday.app.whatsapp_inbox_store import get_whatsapp_bridge_status
@@ -14,6 +15,7 @@ from friday.app.whatsapp_inbox_store import get_whatsapp_bridge_status
 def build_setup_status() -> dict:
     """Return a read-only setup summary for mobile and API clients."""
     email_status = email_account_status()
+    imap_mail_status = imap_mail_account_status()
     ms_mail_status = ms_mail_account_status()
     whatsapp_status = get_whatsapp_bridge_status()
     google_calendar_status = google_calendar_account_status()
@@ -47,6 +49,15 @@ def build_setup_status() -> dict:
             "read_only": True,
             "real_email_enabled": config.ENABLE_REAL_EMAIL,
         },
+        "imap_mail": {
+            "connected": imap_mail_status["connected"],
+            "account_count": imap_mail_status.get("account_count", 0),
+            "accounts": imap_mail_status.get("accounts", []),
+            "read_enabled": config.ENABLE_IMAP_MAIL_READ,
+            "last_test_ok": imap_mail_status["last_test_ok"],
+            "read_only": True,
+            "real_email_enabled": config.ENABLE_REAL_EMAIL,
+        },
         "whatsapp": {
             "read_bridge_enabled": whatsapp_status["read_enabled"],
             "real_enabled": config.ENABLE_REAL_WHATSAPP,
@@ -69,6 +80,7 @@ def build_setup_status() -> dict:
             "ENABLE_REAL_WEATHER": config.ENABLE_REAL_WEATHER,
             "ENABLE_REAL_MUSIC": config.ENABLE_REAL_MUSIC,
             "ENABLE_MS_MAIL_READ": config.ENABLE_MS_MAIL_READ,
+            "ENABLE_IMAP_MAIL_READ": config.ENABLE_IMAP_MAIL_READ,
             "REQUIRE_USER_APPROVAL": config.REQUIRE_USER_APPROVAL,
             "USE_SQLITE_STORAGE": config.USE_SQLITE_STORAGE,
         },
@@ -108,6 +120,12 @@ def build_setup_status() -> dict:
                 "title": "Familienhelden-Postfach",
                 "status": "read-only aktiv" if config.ENABLE_MS_MAIL_READ else "read-only aus",
                 "hint": "Microsoft Graph Mail.Read; Senden bleibt deaktiviert.",
+            },
+            {
+                "key": "imap_mail",
+                "title": "Gmail nur lesen",
+                "status": "read-only aktiv" if config.ENABLE_IMAP_MAIL_READ else "read-only aus",
+                "hint": "Gmail via IMAP-App-Passwort; Senden bleibt deaktiviert.",
             },
             {
                 "key": "whatsapp",

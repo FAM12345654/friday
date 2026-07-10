@@ -217,6 +217,7 @@ def initialize_database(db_path: Path | str | None = None) -> None:
 
             CREATE TABLE IF NOT EXISTS ms_mail_messages (
                 id INTEGER PRIMARY KEY,
+                source TEXT NOT NULL DEFAULT 'ms_mail',
                 account_id TEXT NOT NULL DEFAULT 'default',
                 account_username TEXT,
                 message_id TEXT NOT NULL UNIQUE,
@@ -329,6 +330,8 @@ def _ensure_ms_mail_message_account_columns(connection: sqlite3.Connection) -> N
     """Add mailbox metadata for older Microsoft mail preview databases."""
     columns = connection.execute("PRAGMA table_info(ms_mail_messages)").fetchall()
     existing = {column[1] for column in columns}
+    if "source" not in existing:
+        connection.execute("ALTER TABLE ms_mail_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'ms_mail'")
     if "account_id" not in existing:
         connection.execute("ALTER TABLE ms_mail_messages ADD COLUMN account_id TEXT NOT NULL DEFAULT 'default'")
     if "account_username" not in existing:

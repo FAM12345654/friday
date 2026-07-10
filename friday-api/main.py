@@ -83,6 +83,20 @@ from friday.app.email_account_store import (
 )
 from friday.app.email_activation_gate import EMAIL_ACTIVATION_TOKEN, build_email_activation_gate
 from friday.app.email_imap_reader import check_imap_login, read_recent_inbox_emails
+from friday.app.imap_mail_account_store import (
+    build_imap_mail_account,
+    decrypt_imap_mail_app_password,
+    delete_imap_mail_account,
+    imap_mail_account_status,
+    list_imap_mail_accounts,
+    load_imap_mail_account,
+    save_imap_mail_account,
+)
+from friday.app.imap_mail_read_activation_gate import (
+    apply_imap_mail_read_activation_to_config,
+    build_imap_mail_read_activation_gate,
+)
+from friday.app.imap_mail_reader import check_imap_mail_login, read_imap_mail_messages
 from friday.app.ms_mail_account_store import (
     MS_MAIL_ACCOUNT_DELETE_TOKEN,
     MS_MAIL_ACCOUNT_SAVE_TOKEN,
@@ -262,6 +276,26 @@ class MsMailActivationGateRequest(BaseModel):
 
 
 class MsMailSyncRequest(BaseModel):
+    top: int = 25
+    account_id: str | None = None
+
+
+class ImapMailConnectRequest(BaseModel):
+    provider: str = "gmail"
+    host: str = "imap.gmail.com"
+    port: int = 993
+    username: str = "philip07102000@gmail.com"
+    app_password: str
+    approval_token: str
+
+
+class ImapMailActivationGateRequest(BaseModel):
+    approval_token: str
+    scanner_smoke_passed: bool = False
+    execute_write: bool = False
+
+
+class ImapMailSyncRequest(BaseModel):
     top: int = 25
     account_id: str | None = None
 
@@ -816,7 +850,7 @@ def _collect_learning_messages() -> list[dict[str, Any]]:
                         if part
                     ),
                     "received_at": item.get("received_at"),
-                    "source": "ms_mail",
+                    "source": item.get("source") or "ms_mail",
                 }
             )
     return messages
@@ -2173,6 +2207,207 @@ def delete_ms_mail_account_endpoint(payload: EmailAccountDeleteRequest) -> dict[
     return _envelope({"deleted": True, "status": ms_mail_account_status()})
 
 
+@app.get("/api/accounts/imap-mail/status")
+def get_imap_mail_status() -> dict[str, Any]:
+    return _envelope(imap_mail_account_status())
+
+
+@app.post("/api/accounts/imap-mail/connect")
+def connect_imap_mail_account(payload: ImapMailConnectRequest) -> dict[str, Any]:
+    try:
+        account = build_imap_mail_account(
+            provider=payload.provider,
+            host=payload.host,
+            port=payload.port,
+            username=payload.username,
+            app_password=payload.app_password,
+            last_test_ok=False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    login_test = check_imap_mail_login(account=account, app_password=payload.app_password)
+    if not login_test.ok:
+        return _envelope(
+            {
+                "saved": False,
+                "connected": False,
+                "message": login_test.message,
+                "blocked_reasons": login_test.blocked_reasons,
+                "read_only": True,
+                "real_email_enabled": config.ENABLE_REAL_EMAIL,
+            }
+        )
+
+    tested_account = build_imap_mail_account(
+        provider=account.provider,
+        host=account.host,
+        port=account.port,
+        username=account.username,
+        app_password=payload.app_password,
+        account_id=account.account_id,
+        last_test_ok=True,
+    )
+    result = save_imap_mail_account(tested_account, approval_token=payload.approval_token)
+    if not result.persisted:
+        raise HTTPException(status_code=403, detail=result.message)
+    return _envelope(
+        {
+            "saved": True,
+            "account_id": tested_account.account_id,
+            "message": result.message,
+            "status": imap_mail_account_status(),
+            "read_only": True,
+            "real_email_enabled": config.ENABLE_REAL_EMAIL,
+        }
+    )
+
+
+@app.post("/api/accounts/imap-mail/activation-gate")
+def get_imap_mail_activation_gate(payload: ImapMailActivationGateRequest) -> dict[str, Any]:
+    if payload.execute_write:
+        gate = apply_imap_mail_read_activation_to_config(
+            config_path=config.PACKAGE_DIR / "config.py",
+            approval_token=payload.approval_token,
+            scanner_smoke_passed=payload.scanner_smoke_passed,
+            execute_write=True,
+            post_write_validation=lambda path: (
+                "ENABLE_IMAP_MAIL_READ = True" in path.read_text(encoding="utf-8")
+                and "ENABLE_REAL_EMAIL = False" in path.read_text(encoding="utf-8")
+            ),
+        )
+    else:
+        gate = build_imap_mail_read_activation_gate(
+            approval_token=payload.approval_token,
+            scanner_smoke_passed=payload.scanner_smoke_passed,
+        )
+    return _envelope(asdict(gate))
+
+
+@app.post("/api/accounts/imap-mail/sync")
+def sync_imap_mail_messages(payload: ImapMailSyncRequest | None = None) -> dict[str, Any]:
+    if not config.ENABLE_IMAP_MAIL_READ:
+        raise HTTPException(status_code=403, detail="IMAP-Mail-Lesen ist deaktiviert.")
+    requested_account_id = payload.account_id if payload is not None else None
+    if requested_account_id:
+        account = load_imap_mail_account(account_id=requested_account_id)
+        accounts = (account,) if account is not None else ()
+    else:
+        accounts = list_imap_mail_accounts()
+    if not accounts:
+        raise HTTPException(status_code=404, detail="Kein IMAP-Mail-Konto verbunden.")
+
+    top = payload.top if payload is not None else 25
+    repository = MsMailMessageRepository(message_agent.db_path)
+    stored_count = 0
+    provider_count = 0
+    account_results: list[dict[str, Any]] = []
+    for account in accounts:
+        app_password = decrypt_imap_mail_app_password(account)
+        result = read_imap_mail_messages(account=account, app_password=app_password, limit=top)
+        if not result.ok:
+            account_results.append(
+                {
+                    "account_id": account.account_id,
+                    "username": account.username,
+                    "ok": False,
+                    "message": result.message,
+                    "blocked_reasons": result.blocked_reasons,
+                    "stored_count": 0,
+                    "provider_count": 0,
+                }
+            )
+            continue
+        stored = repository.upsert_messages(
+            [message.to_repository_item() for message in result.messages],
+            account_id=account.account_id,
+            account_username=account.username,
+        )
+        stored_count += len(stored)
+        provider_count += len(result.messages)
+        account_results.append(
+            {
+                "account_id": account.account_id,
+                "username": account.username,
+                "ok": True,
+                "message": result.message,
+                "stored_count": len(stored),
+                "provider_count": len(result.messages),
+            }
+        )
+
+    process_result = message_agent.process_unprocessed_ms_mail_messages()
+    return _envelope(
+        {
+            "synced": True,
+            "accounts_synced": len([item for item in account_results if item["ok"]]),
+            "accounts": account_results,
+            "stored_count": stored_count,
+            "provider_count": provider_count,
+            "process_result": process_result,
+            "read_only": True,
+            "real_email_enabled": config.ENABLE_REAL_EMAIL,
+        }
+    )
+
+
+@app.delete("/api/accounts/imap-mail/{account_id}")
+def delete_imap_mail_account_endpoint(account_id: str, payload: EmailAccountDeleteRequest) -> dict[str, Any]:
+    result = delete_imap_mail_account(
+        approval_token=payload.approval_token,
+        account_id=account_id,
+    )
+    if not result.allowed:
+        raise HTTPException(status_code=403, detail=result.message)
+    return _envelope({"deleted": True, "account_id": account_id, "status": imap_mail_account_status()})
+
+
+@app.get("/api/messages/mail")
+def get_unified_mail_messages(
+    limit: int = Query(default=10),
+    account_id: str | None = Query(default=None),
+    include_spam: bool = Query(default=False),
+    include_all: bool = Query(default=False),
+) -> dict[str, Any]:
+    repository = MsMailMessageRepository(message_agent.db_path)
+    items = repository.list_messages(
+        limit=limit,
+        account_id=account_id,
+        include_spam=include_spam,
+        include_all=include_all,
+    )
+    return _envelope(
+        {
+            "items": items,
+            "count": len(items),
+            "include_spam": include_spam,
+            "include_all": include_all,
+            "status": {
+                "ms_mail": ms_mail_account_status(),
+                "imap_mail": imap_mail_account_status(),
+            },
+            "read_only": True,
+            "real_email_enabled": config.ENABLE_REAL_EMAIL,
+        }
+    )
+
+
+@app.get("/api/messages/mail/{message_id}")
+def get_unified_mail_message_detail(message_id: int) -> dict[str, Any]:
+    repository = MsMailMessageRepository(message_agent.db_path)
+    item = repository.get_message_by_id(message_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Mail wurde nicht gefunden.")
+    item["recipients_list"] = _parse_ms_mail_recipients(item)
+    return _envelope(
+        {
+            **item,
+            "read_only": True,
+            "real_email_enabled": config.ENABLE_REAL_EMAIL,
+        }
+    )
+
+
 @app.get("/api/messages/email-inbox")
 def get_email_inbox_preview(limit: int = Query(default=10)) -> dict[str, Any]:
     account = load_email_account()
@@ -2394,6 +2629,7 @@ def get_privacy() -> dict[str, Any]:
                 "whatsapp": False,
                 "whatsapp_bridge_read": config.ENABLE_WHATSAPP_BRIDGE_READ,
                 "ms_mail_read": config.ENABLE_MS_MAIL_READ,
+                "imap_mail_read": config.ENABLE_IMAP_MAIL_READ,
                 "sms": False,
                 "calendar": False,
                 "weather": False,

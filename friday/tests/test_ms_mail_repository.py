@@ -333,3 +333,89 @@ def test_ms_mail_repository_hides_spam_by_default_and_restores_on_unblock(tmp_pa
     restored = mail_repo.list_messages()
     assert len(restored) == 1
     assert restored[0]["is_spam"] == 0
+
+
+def test_ms_mail_repository_stores_imap_mail_source_in_unified_table(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    repo = MsMailMessageRepository(db_path)
+
+    stored = repo.upsert_messages(
+        [
+            {
+                "message_id": "gmail-1",
+                "source": "imap_mail",
+                "sender": "Kollegin <kollegin@example.test>",
+                "subject": "Bitte Philip Rechnung pruefen",
+                "received_at": "2026-07-09T10:00:00Z",
+                "snippet": "Bitte pruefen.",
+            }
+        ],
+        account_id="gmail_philip07102000_gmail_com",
+        account_username="philip07102000@gmail.com",
+    )[0]
+
+    item = repo.get_message_by_id(stored["id"])
+    assert item is not None
+    assert item["source"] == "imap_mail"
+    assert item["account_username"] == "philip07102000@gmail.com"
+    assert item["relevance_reason"] == "personal_mailbox"
+
+
+def test_blocked_imap_mail_sender_syncs_as_spam(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    mail_repo = MsMailMessageRepository(db_path)
+    block_repo = BlockedSenderRepository(db_path)
+
+    block_repo.block_sender(source="imap_mail", sender="Spam <spam@example.test>", label="Spam")
+    stored = mail_repo.upsert_messages(
+        [
+            {
+                "message_id": "gmail-spam",
+                "source": "imap_mail",
+                "sender": "Spam <spam@example.test>",
+                "subject": "Werbung",
+                "received_at": "2026-07-09T10:00:00Z",
+                "snippet": "Nicht relevant.",
+            }
+        ],
+        account_id="gmail_philip07102000_gmail_com",
+        account_username="philip07102000@gmail.com",
+    )[0]
+
+    assert stored["is_spam"] == 1
+    assert mail_repo.list_messages() == []
+    spam_view = mail_repo.list_messages(include_spam=True)
+    assert len(spam_view) == 1
+    assert spam_view[0]["source"] == "imap_mail"
+
+
+def test_unblocking_imap_mail_sender_restores_local_messages(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    mail_repo = MsMailMessageRepository(db_path)
+    block_repo = BlockedSenderRepository(db_path)
+
+    blocked = block_repo.block_sender(source="imap_mail", sender="spam@example.test", label="Spam")
+    mail_repo.upsert_messages(
+        [
+            {
+                "message_id": "gmail-spam-restore",
+                "source": "imap_mail",
+                "sender": "spam@example.test",
+                "subject": "Bitte Philip pruefen",
+                "received_at": "2026-07-09T10:00:00Z",
+                "snippet": "Bitte erledigen.",
+            }
+        ],
+        account_id="gmail_philip07102000_gmail_com",
+        account_username="philip07102000@gmail.com",
+    )
+
+    block_repo.unblock_sender(blocked["id"])
+
+    restored = mail_repo.list_messages()
+    assert len(restored) == 1
+    assert restored[0]["is_spam"] == 0
+    assert restored[0]["source"] == "imap_mail"

@@ -30,6 +30,7 @@ FORBIDDEN_IMPORT_ROOTS: tuple[str, ...] = (
 ALLOWED_FORBIDDEN_IMPORT_FILES: dict[str, tuple[str, ...]] = {
     "email_smtp_sender.py": ("smtplib",),
     "email_imap_reader.py": ("imaplib",),
+    "imap_mail_reader.py": ("imaplib",),
     "calendar_provider_google.py": ("googleapiclient",),
     "ms_mail_provider.py": ("msal",),
 }

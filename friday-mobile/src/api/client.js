@@ -341,8 +341,63 @@ export async function getMsMailMessage(messageId) {
   return callApi(`/api/messages/ms-mail/${encodeURIComponent(String(messageId))}`);
 }
 
+export async function getUnifiedMailMessages(
+  limit = 10,
+  accountId = null,
+  includeSpam = false,
+  includeAll = false,
+) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (accountId) {
+    params.set("account_id", String(accountId));
+  }
+  if (includeSpam) {
+    params.set("include_spam", "true");
+  }
+  if (includeAll) {
+    params.set("include_all", "true");
+  }
+  return callApi(`/api/messages/mail?${params.toString()}`);
+}
+
+export async function getUnifiedMailMessage(messageId) {
+  return callApi(`/api/messages/mail/${encodeURIComponent(String(messageId))}`);
+}
+
 export async function deleteMsMailAccount(accountId, payload) {
   return callApi(`/api/accounts/ms-mail/${encodeURIComponent(String(accountId))}`, {
+    method: "DELETE",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getImapMailStatus() {
+  return callApi("/api/accounts/imap-mail/status");
+}
+
+export async function connectImapMailAccount(payload) {
+  return callApi("/api/accounts/imap-mail/connect", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function activateImapMailRead(payload) {
+  return callApi("/api/accounts/imap-mail/activation-gate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function syncImapMailMessages(payload = { top: 25 }) {
+  return callApi("/api/accounts/imap-mail/sync", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteImapMailAccount(accountId, payload) {
+  return callApi(`/api/accounts/imap-mail/${encodeURIComponent(String(accountId))}`, {
     method: "DELETE",
     body: JSON.stringify(payload),
   });
