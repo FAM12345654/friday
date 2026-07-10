@@ -123,12 +123,28 @@ class TTLCache:
             flight.done.set()
         return value
 
+    def invalidate(self, key: Any) -> None:
+        """Drop one cached entry by exact key."""
+        with self._lock:
+            self._items.pop(key, None)
+
     def invalidate_prefix(self, prefix: Any) -> None:
-        """Drop cached entries whose tuple key starts with prefix."""
+        """Drop cached entries whose key starts with prefix.
+
+        Friday currently uses tuple keys, while some call sites and tests may use
+        plain string keys. Support both forms without mutating the key iterator.
+        """
         with self._lock:
             for key in tuple(self._items):
                 if isinstance(key, tuple) and isinstance(prefix, tuple):
                     if key[: len(prefix)] == prefix:
+                        self._items.pop(key, None)
+                elif isinstance(key, str) and isinstance(prefix, str):
+                    if key.startswith(prefix):
+                        self._items.pop(key, None)
+                elif isinstance(key, tuple) and isinstance(prefix, str):
+                    first = key[0] if key else None
+                    if isinstance(first, str) and first.startswith(prefix):
                         self._items.pop(key, None)
                 elif key == prefix:
                     self._items.pop(key, None)
