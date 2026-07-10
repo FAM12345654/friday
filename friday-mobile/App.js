@@ -144,6 +144,7 @@ const lightColors = {
   gold: "#b8924a",
   cream: "#f6f1e4",
   white: "#fdfaf1",
+  buttonSolidText: "#f6f1e4",
 };
 
 const darkColors = {
@@ -171,6 +172,7 @@ const darkColors = {
   gold: "#d1ab62",
   cream: "#f1ede0",
   white: "#273322",
+  buttonSolidText: "#111111",
 };
 
 let colors = lightColors;
@@ -5069,7 +5071,7 @@ function createStyles(themeColors) {
     opacity: 0.5,
   },
   buttonText: {
-    color: "#f8f5ec",
+    color: colors.buttonSolidText,
     fontSize: 14,
     fontWeight: "700",
   },
@@ -5548,7 +5550,7 @@ function createStyles(themeColors) {
     elevation: 0,
   },
   buttonText: {
-    color: colors.cream,
+    color: colors.buttonSolidText,
     fontSize: 14,
     fontWeight: "900",
   },
@@ -6001,7 +6003,7 @@ function createStyles(themeColors) {
     ...softShadow,
   },
   buttonText: {
-    color: colors.cream,
+    color: colors.buttonSolidText,
     fontSize: 14,
     fontWeight: "800",
   },
