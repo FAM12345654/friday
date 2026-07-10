@@ -20,6 +20,16 @@ import {
   View,
 } from "react-native";
 import Svg, { Circle, Line, Path, Polyline } from "react-native-svg";
+import {
+  cacheTypes,
+  enqueueOfflineWrite,
+  flushWriteQueue,
+  formatSyncTime,
+  getSyncStatus,
+  readThroughCache,
+  setSyncStatus as persistSyncStatus,
+  writeLocalCacheEntry,
+} from "./src/data/sync";
 
 import {
   approveMessageSuggestion,
@@ -915,6 +925,12 @@ export default function App() {
   const [error, setError] = useState("");
   const [updateStatus, setUpdateStatus] = useState("Update: prüfe…");
   const [online, setOnline] = useState(null);
+  const [syncStatus, setSyncStatus] = useState({
+    online: false,
+    lastSyncedAt: null,
+    lastError: "",
+    queueSize: 0,
+  });
   const [dashboard, setDashboard] = useState(null);
   const [tasks, setTasks] = useState([]);
   const [messages, setMessages] = useState([]);
@@ -1040,6 +1056,10 @@ export default function App() {
     return priority === "urgent" || priority === "high" || priority === "hoch";
   });
   const headerSummary = `${homeCalendarItems.length} Termine · ${urgentHomeTasks.length} dringende Aufgaben`;
+  const syncTime = formatSyncTime(syncStatus.lastSyncedAt);
+  const syncLabel = syncStatus.online
+    ? `Zuletzt synchronisiert ${syncTime || "--:--"}${syncStatus.queueSize ? ` | ${syncStatus.queueSize} offen` : ""}`
+    : `Offline - lokaler Stand${syncTime ? ` von ${syncTime}` : ""}${syncStatus.queueSize ? ` | ${syncStatus.queueSize} offen` : ""}`;
 
   const navigateTo = (screenName, nestedScreen = "") => {
     setError("");
@@ -1080,6 +1100,71 @@ export default function App() {
         done: Math.min(current.done + 1, progressTotalRef.current),
       }));
     });
+
+  const refreshSyncStatusState = async () => {
+    const status = await getSyncStatus();
+    setSyncStatus(status);
+    return status;
+  };
+
+  const applyCached = (setter, normalize = (value) => value) => (value, meta) => {
+    setter(normalize(value));
+    if (meta?.source === "cache") {
+      setLoading(false);
+    }
+  };
+
+  const cachedRequest = (key, fetcher, setter, options = {}) => {
+    const requestOptions = {
+      normalize: options.normalize,
+      apply: applyCached(setter, options.normalize),
+    };
+    if (Object.prototype.hasOwnProperty.call(options, "fallback")) {
+      requestOptions.fallback = options.fallback;
+    }
+    return tracked(
+      readThroughCache(key, fetcher, requestOptions).then(async (result) => {
+        if (result?.status) {
+          setSyncStatus(result.status);
+        } else {
+          await refreshSyncStatusState();
+        }
+        return result?.value;
+      }),
+    );
+  };
+
+  const rememberOnlineState = async (ok) => {
+    setOnline(ok);
+    const status = await persistSyncStatus({
+      online: Boolean(ok),
+      lastError: ok ? "" : "Offline - lokaler Stand",
+    });
+    setSyncStatus(status);
+  };
+
+  const mutateTasksCache = async (updater) => {
+    const nextTasks = updater(isArray(tasks));
+    setTasks(nextTasks);
+    await writeLocalCacheEntry(cacheTypes.tasks, nextTasks);
+    await refreshSyncStatusState().catch(() => null);
+    return nextTasks;
+  };
+
+  const mutateContactsCache = async (updater) => {
+    const nextContacts = updater(isArray(contacts));
+    setContacts(nextContacts);
+    await writeLocalCacheEntry(cacheTypes.contacts, nextContacts);
+    setContactNotesDrafts(
+      Object.fromEntries(nextContacts.map((contact) => [contact.id, contact.notes || ""])),
+    );
+    await refreshSyncStatusState().catch(() => null);
+    return nextContacts;
+  };
+
+  useEffect(() => {
+    refreshSyncStatusState().catch(() => null);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -1144,7 +1229,11 @@ export default function App() {
     const ping = async () => {
       const ok = await checkHealth();
       if (isMounted) {
-        setOnline(ok);
+        await rememberOnlineState(ok);
+        if (ok) {
+          await flushWriteQueue().catch(() => null);
+          await refreshSyncStatusState();
+        }
       }
     };
 
@@ -1189,11 +1278,21 @@ export default function App() {
       const homePrefs = { ...defaultCalendarViewPrefs, range_preset: "heute", day_start: "06:00", day_end: "22:00" };
       beginProgress(5);
       const [dashboardPayload, taskPayload, calendarPayload, learningPayload, msMailPayload] = await Promise.all([
-        tracked(getDashboard().catch(() => null)),
-        tracked(getTasks().catch(() => [])),
-        tracked(getCalendar(resolveCalendarViewQuery(homePrefs)).catch(() => null)),
-        tracked(getLearning().catch(() => null)),
-        tracked(getUnifiedMailMessages(5).catch(() => ({ items: [] }))),
+        cachedRequest(cacheTypes.dashboard, getDashboard, setDashboard, { fallback: null }),
+        cachedRequest(cacheTypes.tasks, getTasks, setTasks, { fallback: [], normalize: isArray }),
+        cachedRequest(
+          `${cacheTypes.calendar}:home`,
+          () => getCalendar(resolveCalendarViewQuery(homePrefs)),
+          setCalendar,
+          { fallback: null },
+        ),
+        cachedRequest(cacheTypes.learning, getLearning, setLearning, { fallback: null }),
+        cachedRequest(
+          `${cacheTypes.unifiedMailInbox}:home`,
+          () => getUnifiedMailMessages(5),
+          setMsMailInbox,
+          { fallback: { items: [] } },
+        ),
       ]);
       setDashboard(dashboardPayload);
       setTasks(isArray(taskPayload));
@@ -1205,21 +1304,21 @@ export default function App() {
 
     if (screenName === "Mehr") {
       beginProgress(1);
-      const payload = await tracked(getLearning().catch(() => null));
+      const payload = await cachedRequest(cacheTypes.learning, getLearning, setLearning, { fallback: null });
       setLearning(payload);
       return;
     }
 
     if (screenName === "Dashboard") {
       beginProgress(1);
-      const payload = await tracked(getDashboard());
+      const payload = await cachedRequest(cacheTypes.dashboard, getDashboard, setDashboard, { fallback: null });
       setDashboard(payload);
       return;
     }
 
     if (screenName === "Tasks") {
       beginProgress(1);
-      const payload = await tracked(getTasks());
+      const payload = await cachedRequest(cacheTypes.tasks, getTasks, setTasks, { fallback: [], normalize: isArray });
       setTasks(isArray(payload));
       return;
     }
@@ -1227,30 +1326,43 @@ export default function App() {
     if (screenName === "Nachrichten") {
       beginProgress(6);
       const [messagePayload, suggestions, inbox, msInbox, whatsapp, contactPayload] = await Promise.all([
-        tracked(getMessages()),
-        tracked(getMessageSuggestions()),
-        tracked(
-          getEmailInbox(10).catch((err) => ({
-            connected: false,
-            items: [],
-            message: normalizeApiError(err),
-          })),
+        cachedRequest(
+          cacheTypes.messages,
+          getMessages,
+          (payload) => setMessages(isArray(payload?.items || [])),
+          { fallback: { items: [] } },
         ),
-        tracked(
-          getUnifiedMailMessages(10, null, false, msMailIncludeAll).catch((err) => ({
-            items: [],
-            status: { connected: false, read_enabled: false },
-            message: normalizeApiError(err),
-          })),
+        cachedRequest(
+          cacheTypes.messageSuggestions,
+          getMessageSuggestions,
+          (payload) => {
+            setMessageSuggestions(isArray(payload?.message_suggestions));
+            setTaskSuggestions(isArray(payload?.task_suggestions));
+          },
+          { fallback: { message_suggestions: [], task_suggestions: [] } },
         ),
-        tracked(
-          getWhatsAppMessages(10).catch((err) => ({
-            items: [],
-            status: { read_enabled: false, connected: false },
-            message: normalizeApiError(err),
-          })),
+        cachedRequest(
+          cacheTypes.emailInbox,
+          () => getEmailInbox(10),
+          setEmailInbox,
+          { fallback: { connected: false, items: [] } },
         ),
-        tracked(getContacts().catch(() => [])),
+        cachedRequest(
+          `${cacheTypes.unifiedMailInbox}:includeAll:${msMailIncludeAll}`,
+          () => getUnifiedMailMessages(10, null, false, msMailIncludeAll),
+          (payload) => {
+            setMsMailInbox(payload);
+            setMsMailStatus(payload?.status || null);
+          },
+          { fallback: { items: [], status: { connected: false, read_enabled: false } } },
+        ),
+        cachedRequest(
+          cacheTypes.whatsappInbox,
+          () => getWhatsAppMessages(10),
+          setWhatsappInbox,
+          { fallback: { items: [], status: { read_enabled: false, connected: false } } },
+        ),
+        cachedRequest(cacheTypes.contacts, getContacts, setContacts, { fallback: [], normalize: isArray }),
       ]);
       const list = messagePayload?.items || [];
       setMessages(isArray(list));
@@ -1267,10 +1379,19 @@ export default function App() {
     if (screenName === "Spam") {
       beginProgress(4);
       const [blocked, messagePayload, msInbox, whatsapp] = await Promise.all([
-        tracked(getBlockedSenders().catch(() => ({ items: [] }))),
-        tracked(getMessages(true).catch(() => ({ items: [] }))),
-        tracked(getUnifiedMailMessages(50, null, true).catch(() => ({ items: [] }))),
-        tracked(getWhatsAppMessages(50, true).catch(() => ({ items: [] }))),
+        cachedRequest(cacheTypes.blockedSenders, getBlockedSenders, (payload) => setBlockedSenders(isArray(payload?.items)), {
+          fallback: { items: [] },
+        }),
+        cachedRequest(`${cacheTypes.messages}:spam`, () => getMessages(true), () => {}, { fallback: { items: [] } }),
+        cachedRequest(
+          `${cacheTypes.unifiedMailInbox}:spam`,
+          () => getUnifiedMailMessages(50, null, true),
+          () => {},
+          { fallback: { items: [] } },
+        ),
+        cachedRequest(`${cacheTypes.whatsappInbox}:spam`, () => getWhatsAppMessages(50, true), () => {}, {
+          fallback: { items: [] },
+        }),
       ]);
       setBlockedSenders(isArray(blocked?.items));
       setSpamMessages({
@@ -1283,28 +1404,44 @@ export default function App() {
 
     if (screenName === "Kalender") {
       beginProgress(5);
-      const prefs = await tracked(getCalendarViewPrefs().catch(() => defaultCalendarViewPrefs));
+      const prefs = await cachedRequest(cacheTypes.calendarViewPrefs, getCalendarViewPrefs, setCalendarViewPrefs, {
+        fallback: defaultCalendarViewPrefs,
+        normalize: (payload) => ({ ...defaultCalendarViewPrefs, ...(payload || {}) }),
+      });
       const normalizedPrefs = { ...defaultCalendarViewPrefs, ...(prefs || {}) };
       // Wochenkalender: immer heute + 7 Tage, unabhängig von der gespeicherten Ansicht.
       const weekToday = new Date();
       const weekStart = new Date(weekToday.getFullYear(), weekToday.getMonth(), weekToday.getDate());
       const [payload, weekPayload, calendarStatus] = await Promise.all([
-        tracked(getCalendar(resolveCalendarViewQuery(normalizedPrefs))),
-        tracked(
-          getCalendar({
+        cachedRequest(
+          `${cacheTypes.calendar}:view:${JSON.stringify(resolveCalendarViewQuery(normalizedPrefs))}`,
+          () => getCalendar(resolveCalendarViewQuery(normalizedPrefs)),
+          setCalendar,
+          { fallback: null },
+        ),
+        cachedRequest(
+          `${cacheTypes.weekCalendar}:rolling8`,
+          () =>
+            getCalendar({
             range_start: formatDateOnly(weekStart),
             range_end: formatDateOnly(addDays(weekStart, 7)),
             day_start: "00:00",
             day_end: "23:59",
-          }).catch(() => null),
+            }),
+          setWeekCalendar,
+          { fallback: null },
         ),
-        tracked(getCalendarAccountStatus().catch(() => null)),
+        cachedRequest(cacheTypes.calendarAccountStatus, getCalendarAccountStatus, setCalendarAccountStatus, {
+          fallback: null,
+        }),
       ]);
       let googlePreview = null;
       if (calendarStatus?.google?.connected) {
         const { rangeStart, rangeEnd } = buildGoogleCalendarRange(30);
-        googlePreview = await tracked(
-          getGoogleCalendarReadPreview(rangeStart, rangeEnd).catch((err) => ({
+        googlePreview = await cachedRequest(
+          cacheTypes.googleCalendarPreview,
+          () =>
+            getGoogleCalendarReadPreview(rangeStart, rangeEnd).catch((err) => ({
             ok: false,
             read_only: true,
             write_enabled: false,
@@ -1313,7 +1450,9 @@ export default function App() {
             message: normalizeApiError(err),
             blocked_reasons: ["google_calendar_read_failed"],
             external_call_used: true,
-          })),
+            })),
+          setGoogleCalendarPreview,
+          { fallback: { events: [], read_only: true, write_enabled: false } },
         );
       } else {
         await tracked(Promise.resolve());
@@ -1328,7 +1467,10 @@ export default function App() {
 
     if (screenName === "Kontakte") {
       beginProgress(1);
-      const payload = await tracked(getContacts());
+      const payload = await cachedRequest(cacheTypes.contacts, getContacts, setContacts, {
+        fallback: [],
+        normalize: isArray,
+      });
       setContacts(isArray(payload));
       setContactNotesDrafts(
         Object.fromEntries(isArray(payload).map((contact) => [contact.id, contact.notes || ""]))
@@ -1338,7 +1480,7 @@ export default function App() {
 
     if (screenName === "Lernen") {
       beginProgress(1);
-      const payload = await tracked(getLearning());
+      const payload = await cachedRequest(cacheTypes.learning, getLearning, setLearning, { fallback: null });
       setLearning(payload);
       setLearningResult("");
       return;
@@ -1347,12 +1489,12 @@ export default function App() {
     if (screenName === "Datenschutz") {
       beginProgress(6);
       const [payload, emailStatus, microsoftStatus, imapStatus, cleanupLog, waStatus] = await Promise.all([
-        tracked(getPrivacy()),
-        tracked(getEmailAccountStatus().catch(() => null)),
-        tracked(getMsMailStatus().catch(() => null)),
-        tracked(getImapMailStatus().catch(() => null)),
-        tracked(getMailOrganizeLog().catch(() => null)),
-        tracked(getWhatsAppStatus().catch(() => null)),
+        cachedRequest(cacheTypes.privacy, getPrivacy, setPrivacy, { fallback: null }),
+        cachedRequest(cacheTypes.emailAccountStatus, getEmailAccountStatus, setEmailAccountStatus, { fallback: null }),
+        cachedRequest(cacheTypes.msMailStatus, getMsMailStatus, setMsMailStatus, { fallback: null }),
+        cachedRequest(cacheTypes.imapMailStatus, getImapMailStatus, setImapMailStatus, { fallback: null }),
+        cachedRequest(cacheTypes.mailOrganizeLog, getMailOrganizeLog, setMailOrganizeLog, { fallback: null }),
+        cachedRequest(cacheTypes.whatsappStatus, getWhatsAppStatus, setWhatsappStatus, { fallback: null }),
       ]);
       setPrivacy(payload);
       setEmailAccountStatus(emailStatus);
@@ -1377,16 +1519,23 @@ export default function App() {
         microsoftInbox,
         whatsappNotesPayload,
       ] = await Promise.all([
-        tracked(getSetupStatus()),
-        tracked(getPrivacy().catch(() => null)),
-        tracked(getAccountPolicies().catch(() => null)),
-        tracked(getCalendarAccountStatus().catch(() => null)),
-        tracked(getEmailAccountStatus().catch(() => null)),
-        tracked(getMsMailStatus().catch(() => null)),
-        tracked(getImapMailStatus().catch(() => null)),
-        tracked(getMailOrganizeLog().catch(() => null)),
-        tracked(getUnifiedMailMessages(10, null, false, msMailIncludeAll).catch(() => null)),
-        tracked(getWhatsAppAgentNotes().catch(() => null)),
+        cachedRequest(cacheTypes.setupStatus, getSetupStatus, setSetupStatus, { fallback: null }),
+        cachedRequest(cacheTypes.privacy, getPrivacy, setPrivacy, { fallback: null }),
+        cachedRequest(cacheTypes.accountPolicies, getAccountPolicies, setAccountPolicies, { fallback: null }),
+        cachedRequest(cacheTypes.calendarAccountStatus, getCalendarAccountStatus, setCalendarAccountStatus, {
+          fallback: null,
+        }),
+        cachedRequest(cacheTypes.emailAccountStatus, getEmailAccountStatus, setEmailAccountStatus, { fallback: null }),
+        cachedRequest(cacheTypes.msMailStatus, getMsMailStatus, setMsMailStatus, { fallback: null }),
+        cachedRequest(cacheTypes.imapMailStatus, getImapMailStatus, setImapMailStatus, { fallback: null }),
+        cachedRequest(cacheTypes.mailOrganizeLog, getMailOrganizeLog, setMailOrganizeLog, { fallback: null }),
+        cachedRequest(
+          `${cacheTypes.unifiedMailInbox}:setup:${msMailIncludeAll}`,
+          () => getUnifiedMailMessages(10, null, false, msMailIncludeAll),
+          setMsMailInbox,
+          { fallback: null },
+        ),
+        cachedRequest(cacheTypes.whatsappAgentNotes, getWhatsAppAgentNotes, (payload) => {}, { fallback: null }),
       ]);
       setSetupStatus(payload);
       setPrivacy(privacyPayload);
@@ -1405,9 +1554,12 @@ export default function App() {
   const refreshActive = async () => {
     try {
       setError("");
+      await flushWriteQueue().catch(() => null);
       await loadScreenData(currentScreen);
+      await refreshSyncStatusState();
     } catch (err) {
-      setError(normalizeApiError(err));
+      await persistSyncStatus({ online: false, lastError: normalizeApiError(err) }).catch(() => null);
+      await refreshSyncStatusState().catch(() => null);
     }
   };
 
@@ -1415,28 +1567,57 @@ export default function App() {
     setRefreshing(true);
     try {
       await refreshActive();
-      setOnline(await checkHealth());
+      const ok = await checkHealth();
+      await rememberOnlineState(ok);
+      await refreshSyncStatusState();
     } finally {
       setRefreshing(false);
     }
   };
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        flushWriteQueue()
+          .then(() => loadScreenData(currentScreen))
+          .then(() => checkHealth())
+          .then((ok) => rememberOnlineState(ok))
+          .then(() => refreshSyncStatusState())
+          .catch(() => refreshSyncStatusState().catch(() => null));
+      }
+    });
+    return () => subscription.remove();
+  }, [currentScreen]);
 
   const handleCreateTask = async () => {
     if (!newTaskTitle.trim()) {
       return;
     }
     setActionBusy(true);
+    const forwardTo = newTaskForwardTo.trim();
+    const payload = {
+      title: newTaskTitle.trim(),
+      notes: forwardTo ? `Weiterleiten an: ${forwardTo}` : undefined,
+    };
+    const tempTask = {
+      id: `local-${Date.now()}`,
+      title: payload.title,
+      notes: payload.notes || "",
+      status: "open",
+      category: "lokal",
+      priority: "normal",
+      local_pending: true,
+    };
+    await mutateTasksCache((current) => [tempTask, ...current]);
+    setNewTaskTitle("");
+    setNewTaskForwardTo("");
     try {
-      const forwardTo = newTaskForwardTo.trim();
-      await createTask({
-        title: newTaskTitle,
-        notes: forwardTo ? `Weiterleiten an: ${forwardTo}` : undefined,
-      });
-      setNewTaskTitle("");
-      setNewTaskForwardTo("");
+      await createTask(payload);
       await refreshActive();
     } catch (err) {
-      setError(normalizeApiError(err));
+      await enqueueOfflineWrite("createTask", { payload });
+      await persistSyncStatus({ online: false, lastError: normalizeApiError(err) });
+      await refreshSyncStatusState();
     } finally {
       setActionBusy(false);
     }
@@ -1447,28 +1628,37 @@ export default function App() {
       return;
     }
     setActionBusy(true);
+    const payload = {
+      name: newContactName.trim(),
+      contact_type: newContactType,
+      notes: newContactNotes.trim(),
+      email_address: newContactEmail.trim(),
+      whatsapp_target: newContactWhatsapp.trim(),
+      betreuer: newContactType === "kunde" ? newContactBetreuer : undefined,
+    };
+    const tempContact = {
+      id: `local-${Date.now()}`,
+      ...payload,
+      local_pending: true,
+    };
+    await mutateContactsCache((current) => [tempContact, ...current]);
+    setNewContactName("");
+    setNewContactEmail("");
+    setNewContactWhatsapp("");
+    setNewContactNotes("");
+    setNewContactType("arbeit");
+    setNewContactBetreuer("philip");
     try {
-      await createContact({
-        name: newContactName.trim(),
-        contact_type: newContactType,
-        notes: newContactNotes.trim(),
-        email_address: newContactEmail.trim(),
-        whatsapp_target: newContactWhatsapp.trim(),
-        betreuer: newContactType === "kunde" ? newContactBetreuer : undefined,
-      });
-      setNewContactName("");
-      setNewContactEmail("");
-      setNewContactWhatsapp("");
-      setNewContactNotes("");
-      setNewContactType("arbeit");
-      setNewContactBetreuer("philip");
+      await createContact(payload);
       const payload = await getContacts();
       setContacts(isArray(payload));
       setContactNotesDrafts(
         Object.fromEntries(isArray(payload).map((contact) => [contact.id, contact.notes || ""]))
       );
     } catch (err) {
-      setError(normalizeApiError(err));
+      await enqueueOfflineWrite("createContact", { payload });
+      await persistSyncStatus({ online: false, lastError: normalizeApiError(err) });
+      await refreshSyncStatusState();
     } finally {
       setActionBusy(false);
     }
@@ -1477,10 +1667,12 @@ export default function App() {
   const handleSaveContactNotes = async (contact) => {
     setActionBusy(true);
     setContactNotesResult("");
+    const notes = contactNotesDrafts[contact.id] ?? contact.notes ?? "";
+    await mutateContactsCache((current) =>
+      current.map((item) => (item.id === contact.id ? { ...item, notes, local_pending: true } : item)),
+    );
     try {
-      await updateContact(contact.id, {
-        notes: contactNotesDrafts[contact.id] ?? contact.notes ?? "",
-      });
+      await updateContact(contact.id, { notes });
       const payload = await getContacts();
       setContacts(isArray(payload));
       setContactNotesDrafts(
@@ -1488,7 +1680,10 @@ export default function App() {
       );
       setContactNotesResult("Kontakt-Notiz wurde lokal gespeichert.");
     } catch (err) {
-      setContactNotesResult(`Kontakt-Notiz konnte nicht gespeichert werden: ${normalizeApiError(err)}`);
+      await enqueueOfflineWrite("updateContactNotes", { contactId: contact.id, notes });
+      await persistSyncStatus({ online: false, lastError: normalizeApiError(err) });
+      await refreshSyncStatusState();
+      setContactNotesResult("Kontakt-Notiz ist lokal gespeichert und wird später synchronisiert.");
     } finally {
       setActionBusy(false);
     }
@@ -2341,11 +2536,16 @@ export default function App() {
 
   const handleCompleteTask = async (taskId) => {
     setActionBusy(true);
+    await mutateTasksCache((current) =>
+      current.map((task) => (task.id === taskId ? { ...task, status: "done", local_pending: true } : task)),
+    );
     try {
       await completeTask(taskId);
       await refreshActive();
     } catch (err) {
-      setError(normalizeApiError(err));
+      await enqueueOfflineWrite("completeTask", { taskId });
+      await persistSyncStatus({ online: false, lastError: normalizeApiError(err) });
+      await refreshSyncStatusState();
     } finally {
       setActionBusy(false);
     }
@@ -2353,11 +2553,16 @@ export default function App() {
 
   const handleArchiveTask = async (taskId) => {
     setActionBusy(true);
+    await mutateTasksCache((current) =>
+      current.map((task) => (task.id === taskId ? { ...task, status: "archived", local_pending: true } : task)),
+    );
     try {
       await archiveTask(taskId);
       await refreshActive();
     } catch (err) {
-      setError(normalizeApiError(err));
+      await enqueueOfflineWrite("archiveTask", { taskId });
+      await persistSyncStatus({ online: false, lastError: normalizeApiError(err) });
+      await refreshSyncStatusState();
     } finally {
       setActionBusy(false);
     }
@@ -2365,11 +2570,14 @@ export default function App() {
 
   const handleDeleteTask = async (taskId) => {
     setActionBusy(true);
+    await mutateTasksCache((current) => current.filter((task) => task.id !== taskId));
     try {
       await deleteTask(taskId);
       await refreshActive();
     } catch (err) {
-      setError(normalizeApiError(err));
+      await enqueueOfflineWrite("deleteTask", { taskId });
+      await persistSyncStatus({ online: false, lastError: normalizeApiError(err) });
+      await refreshSyncStatusState();
     } finally {
       setActionBusy(false);
     }
@@ -4541,6 +4749,9 @@ export default function App() {
             </Text>
           </View>
         </View>
+        <Text style={[styles.syncStatusText, !syncStatus.online && styles.syncStatusTextOffline]}>
+          {syncLabel}
+        </Text>
 
         {loading && (
           <View style={styles.loadingBox}>
@@ -5684,6 +5895,17 @@ function createStyles(themeColors) {
     color: colors.accentStrong,
     fontSize: 11,
     fontWeight: "800",
+  },
+  syncStatusText: {
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: -4,
+    marginBottom: 12,
+    textAlign: "right",
+  },
+  syncStatusTextOffline: {
+    color: colors.warn,
   },
   card: {
     backgroundColor: colors.surface,
