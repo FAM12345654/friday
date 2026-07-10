@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Friday logo mark">
+  <rect width="256" height="256" rx="58" fill="#31402d"/>
+  <circle cx="128" cy="128" r="78" fill="none" stroke="#d9e4c8" stroke-width="7" opacity="0.8"/>
+  <rect x="146" y="45" width="57" height="132" rx="29" fill="#9aaa7f" transform="rotate(32 174.5 111)"/>
+  <path d="M118 176 149 68l18 17-31 107z" fill="#fbf4e6"/>
+  <path d="M61 163 93 129l33 34v34H61z" fill="#c69a46"/>
+  <circle cx="128" cy="128" r="15" fill="#fbf4e6"/>
+</svg>

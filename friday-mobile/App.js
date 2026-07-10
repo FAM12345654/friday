@@ -3,6 +3,7 @@ import * as Updates from "expo-updates";
 import {
   ActivityIndicator,
   Linking,
+  Modal,
   Platform,
   RefreshControl,
   SafeAreaView,
@@ -12,6 +13,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useColorScheme,
   View,
 } from "react-native";
 
@@ -75,32 +77,74 @@ import {
   updateWhatsAppAgentNotes,
 } from "./src/api/client";
 
-const screens = [
-  { key: "Dashboard", icon: "◈" },
-  { key: "Tasks", icon: "✓" },
-  { key: "Nachrichten", icon: "✉" },
-  { key: "Spam", icon: "!" },
-  { key: "Kalender", icon: "▦" },
-  { key: "Kontakte", icon: "☺" },
-  { key: "Lernen", icon: "?" },
-  { key: "Datenschutz", icon: "🛡" },
-  { key: "Setup", icon: "⚙" },
+const bottomTabs = [
+  { key: "Home", label: "Home", icon: "⌂" },
+  { key: "Kalender", label: "Kalender", icon: "▦" },
+  { key: "Tasks", label: "Aufgaben", icon: "✓" },
+  { key: "Nachrichten", label: "Posteingang", icon: "✉" },
+  { key: "Mehr", label: "Mehr", icon: "•••" },
+];
+
+const moreScreens = [
+  { key: "Kontakte", label: "Kontakte", description: "Personen, Kunden und Notizen", icon: "☺" },
+  { key: "Lernen", label: "Lernen", description: "Offene Fragen und gelernte Regeln", icon: "?" },
+  { key: "Setup", label: "Einrichten", description: "Konten, lokale KI und Verbindungen", icon: "⚙" },
+  { key: "Datenschutz", label: "Datenschutz", description: "Safety-Status und lokale Grenzen", icon: "◉" },
+  { key: "Spam", label: "Spam / Blockiert", description: "Lokal blockierte Absender", icon: "!" },
 ];
 
 const colors = {
   bg: "#f6f1e4",
+  bgWash: "#efe3ce",
   surface: "#fdfaf1",
   card: "#fbf7ec",
+  cardStrong: "#fdfaf1",
+  line: "#e7dfca",
   border: "#e7dfca",
   accent: "#5c7150",
+  accentStrong: "#36442e",
   accentSoft: "#e9eddd",
   sage: "#7d9270",
+  moss: "#5c7150",
+  leaf: "#9aaa7f",
   deep: "#36442e",
   text: "#2e3627",
   textSoft: "#84907b",
+  muted: "#9a927f",
   success: "#5f7f52",
   warn: "#b8924a",
   danger: "#bb6b58",
+  clay: "#bb6b58",
+  gold: "#b8924a",
+  cream: "#f6f1e4",
+  white: "#fdfaf1",
+};
+
+const darkColors = {
+  bg: "#1c241a",
+  bgWash: "#182017",
+  surface: "#232c1f",
+  card: "#273322",
+  cardStrong: "#2f3a29",
+  line: "#3a4633",
+  border: "#3a4633",
+  accent: "#9aaa7f",
+  accentStrong: "#d9e4c8",
+  accentSoft: "#34412f",
+  sage: "#b6c99f",
+  moss: "#9aaa7f",
+  leaf: "#b6c99f",
+  deep: "#f1ede0",
+  text: "#f1ede0",
+  textSoft: "#b9c4ae",
+  muted: "#9ca894",
+  success: "#9dbd86",
+  warn: "#d1ab62",
+  danger: "#d98973",
+  clay: "#d98973",
+  gold: "#d1ab62",
+  cream: "#f1ede0",
+  white: "#273322",
 };
 
 const softShadow = {
@@ -272,14 +316,21 @@ const spamMessageRef = (message) => {
 const msMailRelevanceLabel = (reason) => {
   const labels = {
     personal_mailbox: "persoenliches Postfach",
+    recipient: "an dich",
+    name: "Philip erwaehnt",
+    team: "Team",
+    betreuer: "Kunde: Philip",
+    noise: "Rauschen",
+    unsicher: "unsicher",
+    not_relevant: "nicht relevant",
     philip_trigger: "Philip erwaehnt",
     team_all_partners: "Team",
-    customer_betreuer_philip: "Betreuer Philip",
-    ai_unavailable_conservative_include: "KI-Fallback: anzeigen",
+    customer_betreuer_philip: "Kunde: Philip",
+    ai_unavailable_conservative_include: "unsicher",
     office_not_relevant: "nicht relevant",
   };
   if (reason && !labels[reason]) {
-    return `KI: ${reason}`;
+    return `lokal: ${reason}`;
   }
   return labels[reason] || "Relevanz lokal";
 };
@@ -378,6 +429,20 @@ const todayLabel = () =>
     month: "long",
   });
 
+
+function LogoMark({ size = 48 }) {
+  const scale = size / 48;
+  return (
+    <View style={[styles.logoMark, { width: size, height: size, borderRadius: 17 * scale }]}>
+      <View style={[styles.logoHalo, { width: 30 * scale, height: 30 * scale, borderRadius: 15 * scale }]} />
+      <View style={[styles.logoLeaf, { width: 17 * scale, height: 27 * scale, borderRadius: 10 * scale }]} />
+      <View style={[styles.logoNeedle, { width: 5 * scale, height: 24 * scale, borderRadius: 3 * scale }]} />
+      <View style={[styles.logoHome, { width: 15 * scale, height: 12 * scale, borderRadius: 5 * scale }]} />
+      <View style={[styles.logoCore, { width: 7 * scale, height: 7 * scale, borderRadius: 4 * scale }]} />
+    </View>
+  );
+}
+
 function ActionButton({ label, onPress, disabled, variant = "primary", small }) {
   const variantStyle =
     variant === "danger"
@@ -410,6 +475,92 @@ function Chip({ label, color }) {
   );
 }
 
+function Badge({ value }) {
+  if (!value) {
+    return null;
+  }
+  return (
+    <View style={styles.badge}>
+      <Text style={styles.badgeText}>{value}</Text>
+    </View>
+  );
+}
+
+function Card({ children, onPress, style }) {
+  const content = <View style={[styles.card, style]}>{children}</View>;
+  if (!onPress) {
+    return content;
+  }
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.76}>
+      {content}
+    </TouchableOpacity>
+  );
+}
+
+function ReadOnlyChip({ label }) {
+  return <Chip label={`● ${label}`} color={colors.textSoft} />;
+}
+
+function RelevanceFilterBar({ includeAll, onToggle }) {
+  return (
+    <View style={styles.filterBar}>
+      <TouchableOpacity
+        style={[styles.filterOption, !includeAll && styles.filterOptionActive]}
+        onPress={() => includeAll && onToggle()}
+        activeOpacity={0.75}
+      >
+        <Text style={[styles.filterText, !includeAll && styles.filterTextActive]}>Nur relevante</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.filterOption, includeAll && styles.filterOptionActive]}
+        onPress={() => !includeAll && onToggle()}
+        activeOpacity={0.75}
+      >
+        <Text style={[styles.filterText, includeAll && styles.filterTextActive]}>Alle anzeigen</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function ConfirmTokenModal({ visible, title, explanation, expectedToken, onCancel, onConfirm }) {
+  const [value, setValue] = useState("");
+  const valid = value === expectedToken;
+  useEffect(() => {
+    if (visible) {
+      setValue("");
+    }
+  }, [visible, expectedToken]);
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalCard}>
+          <Text style={styles.cardTitle}>{title}</Text>
+          <Text style={styles.cardBody}>{explanation}</Text>
+          <Text style={styles.forwardSafety}>Erwarteter Token: {expectedToken}</Text>
+          <TextInput
+            value={value}
+            onChangeText={setValue}
+            style={styles.input}
+            placeholder={expectedToken}
+            placeholderTextColor={colors.textSoft}
+            autoCapitalize="characters"
+          />
+          <View style={styles.row}>
+            <ActionButton small variant="ghost" label="Abbrechen" onPress={onCancel} />
+            <ActionButton
+              small
+              label="Bestätigen"
+              onPress={() => onConfirm(value)}
+              disabled={!valid}
+            />
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function SectionTitle({ children }) {
   return <Text style={styles.sectionTitle}>{children}</Text>;
 }
@@ -433,7 +584,9 @@ function StatCard({ label, value, tint }) {
 }
 
 export default function App() {
-  const [active, setActive] = useState("Dashboard");
+  const [active, setActive] = useState("Home");
+  const [moreScreen, setMoreScreen] = useState("");
+  const [tokenModal, setTokenModal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -531,6 +684,39 @@ export default function App() {
   const [calendarDeleteTokens, setCalendarDeleteTokens] = useState({});
   const [calendarDeleteResult, setCalendarDeleteResult] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === "dark";
+  const currentScreen = active === "Mehr" && moreScreen ? moreScreen : active;
+  const openLearningCount = Number(learning?.open_count || isArray(learning?.open_questions).length || 0);
+  const connectionKind = getApiUrl().includes("100.") ? "Tailscale" : "LAN";
+  const homeCalendarItems = isArray(calendar?.merged_items || calendar?.items || calendar?.calendar_items || []);
+  const homeRelevantMails = isArray(msMailInbox?.items || []);
+  const todayIso = formatDateOnly(new Date());
+  const dueHomeTasks = isArray(tasks).filter((task) => {
+    const due = String(task?.due_date || "").slice(0, 10);
+    return due && due <= todayIso;
+  });
+  const urgentHomeTasks = isArray(tasks).filter((task) => {
+    const priority = String(task?.priority || "").toLowerCase();
+    return priority === "urgent" || priority === "high" || priority === "hoch";
+  });
+  const headerSummary = `${homeCalendarItems.length} Termine · ${urgentHomeTasks.length} dringende Aufgaben`;
+
+  const navigateTo = (screenName, nestedScreen = "") => {
+    setError("");
+    if (screenName === "Mehr") {
+      setActive("Mehr");
+      setMoreScreen(nestedScreen);
+      return;
+    }
+    setActive(screenName);
+    setMoreScreen("");
+  };
+
+  const openTokenModal = ({ title, explanation, expectedToken, onConfirm }) => {
+    setTokenModal({ title, explanation, expectedToken, onConfirm });
+  };
+
 
   useEffect(() => {
     let isMounted = true;
@@ -596,7 +782,7 @@ export default function App() {
       setError("");
 
       try {
-        await loadScreenData(active, { silentErrors: false });
+        await loadScreenData(currentScreen, { silentErrors: false });
       } catch (err) {
         if (isMounted) {
           setError(normalizeApiError(err));
@@ -612,9 +798,32 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, [active]);
+  }, [active, moreScreen]);
 
   const loadScreenData = async (screenName) => {
+    if (screenName === "Home") {
+      const homePrefs = { ...defaultCalendarViewPrefs, range_preset: "heute", day_start: "06:00", day_end: "22:00" };
+      const [dashboardPayload, taskPayload, calendarPayload, learningPayload, msMailPayload] = await Promise.all([
+        getDashboard().catch(() => null),
+        getTasks().catch(() => []),
+        getCalendar(resolveCalendarViewQuery(homePrefs)).catch(() => null),
+        getLearning().catch(() => null),
+        getMsMailMessages(5).catch(() => ({ items: [] })),
+      ]);
+      setDashboard(dashboardPayload);
+      setTasks(isArray(taskPayload));
+      setCalendar(calendarPayload);
+      setLearning(learningPayload);
+      setMsMailInbox(msMailPayload);
+      return;
+    }
+
+    if (screenName === "Mehr") {
+      const payload = await getLearning().catch(() => null);
+      setLearning(payload);
+      return;
+    }
+
     if (screenName === "Dashboard") {
       const payload = await getDashboard();
       setDashboard(payload);
@@ -748,7 +957,7 @@ export default function App() {
   const refreshActive = async () => {
     try {
       setError("");
-      await loadScreenData(active);
+      await loadScreenData(currentScreen);
     } catch (err) {
       setError(normalizeApiError(err));
     }
@@ -1023,9 +1232,10 @@ export default function App() {
     await requestAiForwardDraft(forwardTask, forwardContact, channel);
   };
 
-  const checkForwardApprovalToken = () => {
+  const checkForwardApprovalToken = (tokenOverride) => {
     const expected = approvalTokenFor(forwardChannel);
-    if (forwardApprovalToken.trim() !== expected) {
+    const providedToken = (tokenOverride || forwardApprovalToken).trim();
+    if (providedToken !== expected) {
       setForwardApprovalResult(
         `Freigabe abgelehnt. Erwarteter Token: ${expected}. Es wurde nichts gesendet.`,
       );
@@ -1086,7 +1296,7 @@ export default function App() {
         contact_id: forwardContact.id,
         subject: `Aufgabe: ${forwardTask.title || ""}`,
         body: forwardDraft,
-        approval_token: forwardApprovalToken.trim(),
+        approval_token: (tokenOverride || forwardApprovalToken).trim(),
       });
       setForwardExternalOpenResult(
         result?.sent
@@ -1100,7 +1310,7 @@ export default function App() {
     }
   };
 
-  const handleConnectEmailAccount = async () => {
+  const handleConnectEmailAccount = async (tokenOverride) => {
     if (!emailAddress.trim() || !emailAppPassword.trim()) {
       setEmailAccountResult("E-Mail-Adresse und App-Passwort sind erforderlich.");
       return;
@@ -1113,7 +1323,7 @@ export default function App() {
         email_address: emailAddress.trim(),
         username: emailUsername.trim() || emailAddress.trim(),
         app_password: emailAppPassword,
-        approval_token: emailAccountToken.trim(),
+        approval_token: (tokenOverride || emailAccountToken).trim(),
         agent_notes: emailAgentNotes.trim(),
       });
       setEmailAppPassword("");
@@ -1201,7 +1411,7 @@ export default function App() {
     }
   };
 
-  const handleCompleteMsMailConnect = async () => {
+  const handleCompleteMsMailConnect = async (tokenOverride) => {
     if (!msMailClientId.trim() || !msMailAuthResponse.trim()) {
       setMsMailResult("Client-ID und OAuth-Rückgabe-URL sind erforderlich.");
       return;
@@ -1213,7 +1423,7 @@ export default function App() {
         client_id: msMailClientId.trim(),
         tenant: msMailTenant.trim() || "common",
         authorization_response: msMailAuthResponse.trim(),
-        approval_token: msMailAccountToken.trim(),
+        approval_token: (tokenOverride || msMailAccountToken).trim(),
       });
       setMsMailAuthResponse("");
       setMsMailResult(
@@ -1229,12 +1439,12 @@ export default function App() {
     }
   };
 
-  const handleActivateMsMailRead = async () => {
+  const handleActivateMsMailRead = async (tokenOverride) => {
     setActionBusy(true);
     setMsMailResult("");
     try {
       const result = await activateMsMailRead({
-        approval_token: msMailActivationToken.trim(),
+        approval_token: (tokenOverride || msMailActivationToken).trim(),
         scanner_smoke_passed: true,
         execute_write: true,
       });
@@ -1301,7 +1511,7 @@ export default function App() {
     }
   };
 
-  const handleDeleteMsMailAccount = async (accountId) => {
+  const handleDeleteMsMailAccount = async (accountId, tokenOverride) => {
     if (!accountId) {
       setMsMailResult("Konto-ID fehlt.");
       return;
@@ -1310,7 +1520,7 @@ export default function App() {
     setMsMailResult("");
     try {
       await deleteMsMailAccount(accountId, {
-        approval_token: msMailDeleteToken.trim(),
+        approval_token: (tokenOverride || msMailDeleteToken).trim(),
       });
       setMsMailResult(`Postfach ${accountId} wurde lokal getrennt.`);
       setMsMailDeleteToken("");
@@ -1353,7 +1563,7 @@ export default function App() {
     }
   };
 
-  const handleCreateAccountPolicy = async () => {
+  const handleCreateAccountPolicy = async (tokenOverride) => {
     setActionBusy(true);
     setPolicyResult("");
     try {
@@ -1382,7 +1592,7 @@ export default function App() {
         transform: fixedWindow,
         notes: policyNotes,
         enabled: true,
-        approval_token: policyToken.trim(),
+        approval_token: (tokenOverride || policyToken).trim(),
         ics_url: policyProvider.trim() === "outlook_ics" ? policyIcsUrl.trim() : undefined,
       });
       setPolicyResult(result?.message || "Policy wurde gespeichert.");
@@ -1441,12 +1651,12 @@ export default function App() {
     }
   };
 
-  const handleCreateCalendarEventFromMessage = async () => {
+  const handleCreateCalendarEventFromMessage = async (tokenOverride) => {
     setActionBusy(true);
     setCalendarWriteResult("");
     try {
       const result = await createCalendarEventFromMessage({
-        approval_token: calendarWriteToken.trim(),
+        approval_token: (tokenOverride || calendarWriteToken).trim(),
         text: calendarMessageText.trim(),
         title: calendarDraftTitle.trim() || undefined,
         date: calendarDraftDate.trim() || undefined,
@@ -1469,7 +1679,7 @@ export default function App() {
     }
   };
 
-  const handleDeleteCalendarEvent = async (entry) => {
+  const handleDeleteCalendarEvent = async (entry, tokenOverride) => {
     const eventId = entry?.id || entry?.provider_event_id;
     if (!eventId) {
       setCalendarDeleteResult("Termin konnte nicht geloescht werden: Event-ID fehlt.");
@@ -1479,7 +1689,7 @@ export default function App() {
     setCalendarDeleteResult("");
     try {
       const result = await deleteCalendarEvent({
-        approval_token: (calendarDeleteTokens[eventId] || "").trim(),
+        approval_token: (tokenOverride || calendarDeleteTokens[eventId] || "").trim(),
         provider_event_id: eventId,
         calendar_id: entry?.calendar_id || calendarAccountStatus?.google?.calendar_id || "primary",
       });
@@ -1615,8 +1825,114 @@ export default function App() {
     }
   };
 
+  const renderHomeScreen = () => {
+    const nextEvents = homeCalendarItems.slice(0, 3);
+    const relevantMails = homeRelevantMails.slice(0, 3);
+    const dueTasks = dueHomeTasks.slice(0, 3);
+    const learningCount = openLearningCount;
+    return (
+      <View>
+        <View style={styles.homeHero}>
+          <View style={styles.cardHeader}>
+            <View>
+              <Text style={styles.homeEyebrow}>Tagesüberblick</Text>
+              <Text style={styles.homeTitle}>Was heute wichtig ist</Text>
+            </View>
+            <Chip label={connectionKind} color={online ? colors.success : colors.danger} />
+          </View>
+          <Text style={styles.cardBody}>{headerSummary}</Text>
+        </View>
+
+        <Card onPress={() => navigateTo("Kalender")}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Heute im Kalender</Text>
+            <Badge value={nextEvents.length} />
+          </View>
+          {nextEvents.map((item, index) => (
+            <View key={`${item.id || item.title || index}-home-cal`} style={styles.homeListRow}>
+              <Text style={styles.homeListTime}>{String(item.start || item.start_time || "").slice(0, 5) || "--:--"}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardBody}>{item.title || item.summary || "Termin"}</Text>
+                <ReadOnlyChip label={item.policy_label || item.provider || item.item_type || "Quelle"} />
+              </View>
+            </View>
+          ))}
+          {nextEvents.length === 0 && <EmptyState icon="▦" text="Heute ist kein Termin im Filter sichtbar." />}
+        </Card>
+
+        <Card onPress={() => navigateTo("Nachrichten")}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Relevante Mails</Text>
+            <Badge value={relevantMails.length} />
+          </View>
+          {relevantMails.map((mail) => (
+            <View key={mail.id || mail.message_id} style={styles.homeListRow}>
+              <Avatar name={mail.sender || "Mail"} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>{mail.sender || "Unbekannter Absender"}</Text>
+                <Text style={styles.cardMeta}>{mail.subject || "Ohne Betreff"}</Text>
+              </View>
+            </View>
+          ))}
+          {relevantMails.length === 0 && <EmptyState icon="✉" text="Keine relevanten Mails geladen." />}
+        </Card>
+
+        <Card onPress={() => navigateTo("Tasks")}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Fällige Aufgaben</Text>
+            <Badge value={dueTasks.length} />
+          </View>
+          {dueTasks.map((task) => (
+            <View key={task.id} style={styles.homeListRow}>
+              <Chip label={task.due_date < todayIso ? "überfällig" : "heute"} color={task.due_date < todayIso ? colors.danger : colors.warn} />
+              <Text style={[styles.cardBody, { flex: 1 }]}>{task.title}</Text>
+            </View>
+          ))}
+          {dueTasks.length === 0 && <EmptyState icon="✓" text="Keine fälligen Aufgaben für heute." />}
+        </Card>
+
+        <Card onPress={() => navigateTo("Mehr", "Lernen")}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Friday lernt gerade</Text>
+            <Badge value={learningCount} />
+          </View>
+          <Text style={styles.cardBody}>
+            {learningCount ? `${learningCount} offene Frage(n) — jetzt beantworten.` : "Keine offenen Lernfragen. Friday bleibt bereit."}
+          </Text>
+        </Card>
+      </View>
+    );
+  };
+
+  const renderMoreScreen = () => (
+    <View>
+      <SectionTitle>Mehr</SectionTitle>
+      {moreScreens.map((item) => (
+        <TouchableOpacity
+          key={item.key}
+          style={styles.moreItem}
+          onPress={() => navigateTo("Mehr", item.key)}
+          activeOpacity={0.75}
+        >
+          <View style={styles.moreIcon}><Text style={styles.moreIconText}>{item.icon}</Text></View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle}>{item.label}</Text>
+            <Text style={styles.cardMeta}>{item.description}</Text>
+          </View>
+          {item.key === "Lernen" && <Badge value={openLearningCount} />}
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+
   const renderScreenContent = () => {
-    if (active === "Dashboard") {
+    if (currentScreen === "Home") {
+      return renderHomeScreen();
+    }
+    if (currentScreen === "Mehr") {
+      return renderMoreScreen();
+    }
+    if (currentScreen === "Dashboard") {
       const summary = dashboard?.summary || {};
       return (
         <View>
@@ -1631,7 +1947,7 @@ export default function App() {
       );
     }
 
-    if (active === "Tasks") {
+    if (currentScreen === "Tasks") {
       return (
         <View>
           <View style={styles.inputRow}>
@@ -1731,8 +2047,8 @@ export default function App() {
                     small
                     variant="ghost"
                     label="Freigabe prüfen"
-                    onPress={checkForwardApprovalToken}
-                    disabled={!forwardApprovalToken.trim()}
+                    onPress={() => openTokenModal({ title: "Versandfreigabe", explanation: "Friday öffnet nur die externe App. Es wird nicht automatisch gesendet.", expectedToken: approvalTokenFor(forwardChannel), onConfirm: checkForwardApprovalToken })}
+                    disabled={forwardApprovalToken.trim() !== approvalTokenFor(forwardChannel)}
                   />
                   {!!forwardApprovalResult && (
                     <Text style={styles.approvalResultText}>{forwardApprovalResult}</Text>
@@ -1827,7 +2143,7 @@ export default function App() {
       );
     }
 
-    if (active === "Nachrichten") {
+    if (currentScreen === "Nachrichten") {
       return (
         <View>
           <SectionTitle>Nachrichten ({messages.length})</SectionTitle>
@@ -2161,7 +2477,7 @@ export default function App() {
       );
     }
 
-    if (active === "Spam") {
+    if (currentScreen === "Spam") {
       const totalSpam =
         spamMessages.messages.length + spamMessages.msMail.length + spamMessages.whatsapp.length;
       return (
@@ -2228,7 +2544,7 @@ export default function App() {
       );
     }
 
-    if (active === "Kalender") {
+    if (currentScreen === "Kalender") {
       const items = isArray(calendar?.merged_items || calendar?.items || calendar?.calendar_items || []);
       const slots = isArray(calendar?.free_slots || []);
       const googleEvents = isArray(googleCalendarPreview?.events);
@@ -2376,8 +2692,8 @@ export default function App() {
             />
             <ActionButton
               label="Termin übernehmen"
-              onPress={handleCreateCalendarEventFromMessage}
-              disabled={actionBusy || !calendarMessageText.trim()}
+              onPress={() => openTokenModal({ title: "Termin speichern", explanation: "Erst nach exaktem Token wird ein Google-Termin geschrieben.", expectedToken: "TERMIN SPEICHERN", onConfirm: handleCreateCalendarEventFromMessage })}
+              disabled={actionBusy || !calendarMessageText.trim() || calendarWriteToken.trim() !== "TERMIN SPEICHERN"}
             />
             {!!calendarWriteResult && <Text style={styles.approvalResultText}>{calendarWriteResult}</Text>}
           </View>
@@ -2425,8 +2741,8 @@ export default function App() {
               />
               <ActionButton
                 label="Termin löschen"
-                onPress={() => handleDeleteCalendarEvent(entry)}
-                disabled={actionBusy || !entry.id}
+                onPress={() => openTokenModal({ title: "Termin löschen", explanation: "Dieser Termin wird nur nach hartem Token gelöscht.", expectedToken: "TERMIN LOESCHEN", onConfirm: (token) => handleDeleteCalendarEvent(entry, token) })}
+                disabled={actionBusy || !entry.id || (calendarDeleteTokens[entry.id] || "").trim() !== "TERMIN LOESCHEN"}
                 tone="danger"
               />
             </View>
@@ -2484,7 +2800,7 @@ export default function App() {
       );
     }
 
-    if (active === "Kontakte") {
+    if (currentScreen === "Kontakte") {
       return (
         <View>
           <View style={styles.card}>
@@ -2607,7 +2923,7 @@ export default function App() {
       );
     }
 
-    if (active === "Lernen") {
+    if (currentScreen === "Lernen") {
       const questions = isArray(learning?.open_questions);
       const rules = isArray(learning?.learned_rules);
       return (
@@ -2688,7 +3004,7 @@ export default function App() {
       );
     }
 
-    if (active === "Datenschutz") {
+    if (currentScreen === "Datenschutz") {
       const external = privacy?.external_services || {};
       const writes = privacy?.writes || {};
       const note = privacy?.notes || "";
@@ -2815,8 +3131,8 @@ export default function App() {
                 small
                 variant="success"
                 label="Konto verbinden"
-                onPress={handleConnectEmailAccount}
-                disabled={actionBusy}
+                onPress={() => openTokenModal({ title: "E-Mail-Konto speichern", explanation: "Das Konto wird lokal am PC gespeichert. Real-Versand bleibt aus.", expectedToken: "KONTO SPEICHERN", onConfirm: handleConnectEmailAccount })}
+                disabled={actionBusy || emailAccountToken.trim() !== "KONTO SPEICHERN"}
               />
               <ActionButton
                 small
@@ -2938,8 +3254,8 @@ export default function App() {
               small
               variant="success"
               label="Microsoft-Mail verbinden"
-              onPress={handleCompleteMsMailConnect}
-              disabled={actionBusy}
+              onPress={() => openTokenModal({ title: "Microsoft-Mail-Konto speichern", explanation: "Das Token-Bundle wird lokal verschlüsselt gespeichert. Mail bleibt read-only.", expectedToken: "KONTO SPEICHERN", onConfirm: handleCompleteMsMailConnect })}
+              disabled={actionBusy || msMailAccountToken.trim() !== "KONTO SPEICHERN"}
             />
             <TextInput
               value={msMailDeleteToken}
@@ -3021,7 +3337,7 @@ export default function App() {
       );
     }
 
-    if (active === "Setup") {
+    if (currentScreen === "Setup") {
       const safetyFlags = setupStatus?.safety_flags || {};
       const setupSteps = Array.isArray(setupStatus?.setup_steps) ? setupStatus.setup_steps : [];
       return (
@@ -3164,8 +3480,8 @@ export default function App() {
             />
             <ActionButton
               label="Policy lokal speichern"
-              onPress={handleCreateAccountPolicy}
-              disabled={actionBusy || !policyLabel.trim()}
+              onPress={() => openTokenModal({ title: "Policy speichern", explanation: "Die Account-Policy wird lokal gespeichert.", expectedToken: "POLICY SPEICHERN", onConfirm: handleCreateAccountPolicy })}
+              disabled={actionBusy || !policyLabel.trim() || policyToken.trim() !== "POLICY SPEICHERN"}
             />
             {!!policyResult && <Text style={styles.approvalResultText}>{policyResult}</Text>}
           </View>
@@ -3284,12 +3600,11 @@ export default function App() {
       >
         <View style={styles.header}>
           <View style={styles.brandRow}>
-            <View style={styles.logo}>
-              <Text style={styles.logoText}>F</Text>
-            </View>
-            <View>
-              <Text style={styles.heading}>{greeting()}!</Text>
-              <Text style={styles.subheading}>{todayLabel()}</Text>
+            <LogoMark />
+            <View style={styles.brandTextBlock}>
+              <Text style={styles.brandKicker}>FRIDAY</Text>
+              <Text style={styles.heading}>{greeting()}, Philip</Text>
+              <Text style={styles.subheading}>{todayLabel()} • {headerSummary}</Text>
             </View>
           </View>
           <View style={styles.statusPill}>
@@ -3300,29 +3615,10 @@ export default function App() {
               ]}
             />
             <Text style={styles.statusText}>
-              {online === null ? "Prüfe…" : online ? "Verbunden" : "Offline"}
+              {online === null ? "Prüfe…" : online ? `Verbunden · ${connectionKind}` : "Offline"}
             </Text>
           </View>
         </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll}>
-          <View style={styles.tabs}>
-            {screens.map(({ key, icon }) => {
-              const label = key === "Lernen" && learning?.open_count ? `${key} (${learning.open_count})` : key;
-              return (
-                <TouchableOpacity
-                  key={key}
-                  onPress={() => setActive(key)}
-                  style={[styles.tab, active === key && styles.tabActive]}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.tabIcon, active === key && styles.tabTextActive]}>{icon}</Text>
-                  <Text style={[styles.tabText, active === key && styles.tabTextActive]}>{label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </ScrollView>
 
         {loading && (
           <View style={styles.loadingBox}>
@@ -3335,10 +3631,45 @@ export default function App() {
             <ActionButton small variant="ghost" label="Erneut versuchen" onPress={refreshActive} />
           </View>
         )}
+        {active === "Mehr" && moreScreen && (
+          <TouchableOpacity style={styles.backToMore} onPress={() => setMoreScreen("")} activeOpacity={0.75}>
+            <Text style={styles.backToMoreText}>← Zurück zu Mehr</Text>
+          </TouchableOpacity>
+        )}
         {!loading && !error && renderScreenContent()}
         {actionBusy && <Text style={styles.busyHint}>Aktion läuft…</Text>}
         <Text style={styles.footer}>Friday 1.0 • lokal & privat • {updateStatus} • {getApiUrl()}</Text>
       </ScrollView>
+      <View style={styles.bottomTabBar}>
+        {bottomTabs.map((tab) => {
+          const selected = active === tab.key;
+          const badgeValue = tab.key === "Mehr" ? openLearningCount : 0;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              style={[styles.bottomTabItem, selected && styles.bottomTabItemActive]}
+              onPress={() => navigateTo(tab.key)}
+              activeOpacity={0.76}
+            >
+              <Text style={[styles.bottomTabIcon, selected && styles.bottomTabTextActive]}>{tab.icon}</Text>
+              <Text style={[styles.bottomTabLabel, selected && styles.bottomTabTextActive]}>{tab.label}</Text>
+              <Badge value={badgeValue} />
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+      <ConfirmTokenModal
+        visible={Boolean(tokenModal)}
+        title={tokenModal?.title || "Freigabe"}
+        explanation={tokenModal?.explanation || "Bitte bestätige die Aktion mit dem exakten Token."}
+        expectedToken={tokenModal?.expectedToken || ""}
+        onCancel={() => setTokenModal(null)}
+        onConfirm={(value) => {
+          const current = tokenModal;
+          setTokenModal(null);
+          current?.onConfirm?.(value);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -3820,4 +4151,456 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 26,
   },
+
+  container: {
+    backgroundColor: colors.bg,
+    flex: 1,
+    paddingTop: Platform.OS === "android" ? StatusBar.currentHeight : 0,
+  },
+  scroll: {
+    padding: 18,
+    paddingBottom: 48,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+    backgroundColor: colors.surface,
+    borderColor: "rgba(83,106,72,0.10)",
+    borderWidth: 1,
+    borderRadius: 28,
+    padding: 14,
+    ...softShadow,
+  },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  brandTextBlock: {
+    flexShrink: 1,
+  },
+  brandKicker: {
+    color: colors.sage,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 2.4,
+    marginBottom: 2,
+  },
+  logoMark: {
+    backgroundColor: colors.accentStrong,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderColor: "rgba(255,250,240,0.42)",
+    borderWidth: 1,
+    ...softShadow,
+  },
+  logoHalo: {
+    position: "absolute",
+    borderColor: "rgba(247,241,227,0.48)",
+    borderWidth: 1.5,
+    transform: [{ rotate: "-18deg" }],
+  },
+  logoLeaf: {
+    position: "absolute",
+    right: 11,
+    top: 8,
+    backgroundColor: colors.leaf,
+    transform: [{ rotate: "36deg" }],
+    opacity: 0.95,
+  },
+  logoNeedle: {
+    position: "absolute",
+    backgroundColor: colors.cream,
+    transform: [{ rotate: "36deg" }],
+  },
+  logoHome: {
+    position: "absolute",
+    left: 13,
+    bottom: 13,
+    backgroundColor: colors.gold,
+    transform: [{ rotate: "-18deg" }],
+  },
+  logoCore: {
+    position: "absolute",
+    backgroundColor: colors.cream,
+  },
+  heading: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+    letterSpacing: -0.3,
+  },
+  subheading: {
+    color: colors.textSoft,
+    fontSize: 12,
+    marginTop: 3,
+    fontWeight: "600",
+  },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.accentSoft,
+    borderRadius: 999,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderColor: "rgba(83,106,72,0.12)",
+    borderWidth: 1,
+  },
+  statusText: {
+    color: colors.accentStrong,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  tabScroll: {
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  tabs: {
+    flexDirection: "row",
+    gap: 9,
+  },
+  tab: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,250,240,0.88)",
+    borderColor: "rgba(83,106,72,0.10)",
+    borderWidth: 1,
+  },
+  tabActive: {
+    backgroundColor: colors.accentStrong,
+    borderColor: colors.accentStrong,
+  },
+  tabIcon: {
+    color: colors.textSoft,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  tabText: {
+    color: colors.textSoft,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  tabTextActive: {
+    color: colors.cream,
+  },
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: 24,
+    padding: 17,
+    marginBottom: 13,
+    borderColor: "rgba(83,106,72,0.10)",
+    borderWidth: 1,
+    ...softShadow,
+  },
+  cardCompact: {
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
+    paddingTop: 11,
+    marginTop: 11,
+  },
+  cardTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+    flexShrink: 1,
+    letterSpacing: -0.1,
+  },
+  cardBody: {
+    color: "#46513f",
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 4,
+  },
+  cardMeta: {
+    color: colors.textSoft,
+    fontSize: 12,
+    marginBottom: 4,
+    fontWeight: "600",
+  },
+  statCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    borderTopWidth: 0,
+    borderLeftWidth: 4,
+    padding: 17,
+    width: "48%",
+    flexGrow: 1,
+    borderColor: "rgba(83,106,72,0.10)",
+    ...softShadow,
+  },
+  statValue: {
+    fontSize: 33,
+    fontWeight: "900",
+    letterSpacing: -1.0,
+  },
+  statLabel: {
+    color: colors.textSoft,
+    fontSize: 12,
+    marginTop: 5,
+    fontWeight: "800",
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 20,
+    marginBottom: 10,
+    letterSpacing: -0.2,
+  },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  chipText: {
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  button: {
+    minHeight: 44,
+    borderRadius: 16,
+    paddingHorizontal: 17,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    ...softShadow,
+  },
+  buttonPrimary: {
+    backgroundColor: colors.accentStrong,
+  },
+  buttonSuccess: {
+    backgroundColor: colors.success,
+  },
+  buttonDanger: {
+    backgroundColor: colors.clay,
+  },
+  buttonGhost: {
+    backgroundColor: colors.accentSoft,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  buttonText: {
+    color: colors.cream,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  buttonGhostText: {
+    color: colors.accentStrong,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  input: {
+    flex: 1,
+    minHeight: 46,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderColor: "rgba(83,106,72,0.12)",
+    borderWidth: 1,
+    color: colors.text,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 14,
+  },
+  empty: {
+    alignItems: "center",
+    paddingVertical: 30,
+    backgroundColor: "rgba(255,250,240,0.58)",
+    borderRadius: 22,
+    borderColor: "rgba(83,106,72,0.08)",
+    borderWidth: 1,
+  },
+  errorBanner: {
+    backgroundColor: "#f7e6dc",
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 14,
+    gap: 10,
+    borderColor: "rgba(184,106,85,0.18)",
+    borderWidth: 1,
+  },
+  footer: {
+    color: colors.muted,
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 26,
+    lineHeight: 17,
+  },
+  homeHero: {
+    backgroundColor: colors.accentStrong,
+    borderRadius: 24,
+    padding: 18,
+    marginBottom: 14,
+    ...softShadow,
+  },
+  homeEyebrow: {
+    color: colors.accentSoft,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+  },
+  homeTitle: {
+    color: colors.cream,
+    fontSize: 26,
+    lineHeight: 34,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  homeListRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 8,
+  },
+  homeListTime: {
+    color: colors.accentStrong,
+    fontSize: 13,
+    fontWeight: "900",
+    width: 48,
+  },
+  bottomTabBar: {
+    minHeight: 74,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    backgroundColor: colors.surface,
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === "ios" ? 20 : 10,
+  },
+  bottomTabItem: {
+    minWidth: 58,
+    minHeight: 50,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    position: "relative",
+  },
+  bottomTabItemActive: {
+    backgroundColor: colors.accentSoft,
+  },
+  bottomTabIcon: {
+    color: colors.textSoft,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  bottomTabLabel: {
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 2,
+  },
+  bottomTabTextActive: {
+    color: colors.accentStrong,
+  },
+  badge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.danger,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  badgeText: {
+    color: colors.cream,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  moreItem: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 10,
+    ...softShadow,
+  },
+  moreIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    backgroundColor: colors.accentSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  moreIconText: {
+    color: colors.accentStrong,
+    fontWeight: "900",
+  },
+  backToMore: {
+    alignSelf: "flex-start",
+    minHeight: 44,
+    borderRadius: 999,
+    backgroundColor: colors.accentSoft,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    marginBottom: 12,
+  },
+  backToMoreText: {
+    color: colors.accentStrong,
+    fontWeight: "900",
+  },
+  filterBar: {
+    flexDirection: "row",
+    backgroundColor: colors.accentSoft,
+    borderRadius: 999,
+    padding: 4,
+    marginBottom: 12,
+  },
+  filterOption: {
+    minHeight: 38,
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 999,
+  },
+  filterOptionActive: {
+    backgroundColor: colors.accentStrong,
+  },
+  filterText: {
+    color: colors.accentStrong,
+    fontWeight: "900",
+    fontSize: 12,
+  },
+  filterTextActive: {
+    color: colors.cream,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(28,36,26,0.52)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 390,
+    backgroundColor: colors.card,
+    borderRadius: 24,
+    padding: 18,
+    gap: 10,
+    ...softShadow,
+  },
+
 });

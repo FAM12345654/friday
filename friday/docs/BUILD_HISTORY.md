@@ -272,3 +272,13 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 - Unsichere Office-Mails bleiben sichtbar mit Grund `unsicher`.
 - Der normale Sync blockiert nicht mehr pro Mail auf lokale KI; KI-Relevanz bleibt nur fuer explizit injizierte zweite Meinung aktiv.
 - Safety: `Mail.Read` bleibt read-only, kein `Mail.Send`, keine Cloud-KI, keine neuen Scopes.
+
+## Mobile-Redesign: 5-Tab-IA, Home-Screen und Designsystem
+
+- Mobile-App nutzt jetzt fuenf Haupttabs: Home, Kalender, Aufgaben, Posteingang, Mehr.
+- `Mehr` enthaelt Kontakte, Lernen, Einrichten, Datenschutz und Spam/Blockiert mit eigener Zurueck-Navigation.
+- Home-Screen zeigt lokale Tageskarten fuer Kalender, relevante Mails, faellige Aufgaben und Lernfragen.
+- Designsystem wurde auf die verbindliche Creme/Moos-Palette zurueckgefuehrt und fuer Light/Dark vorbereitet.
+- `ConfirmTokenModal` zentralisiert harte Token-Freigaben; Tokens bleiben exakt und unveraendert.
+- Keine neuen nativen Pakete, keine Safety-Flag-Aenderungen, keine Backend-Sende-Logik.
+- Mobile Android Export ist OTA-faehig.

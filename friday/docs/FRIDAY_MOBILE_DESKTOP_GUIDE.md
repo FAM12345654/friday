@@ -490,3 +490,34 @@ Friday aktualisiert Microsoft-Mail-Token beim Sync automatisch mit dem lokal ges
 Das geteilte Office-Postfach bleibt schneller: Friday entscheidet die Standardansicht zuerst mit lokalen Regeln. Instagram, LinkedIn, Newsletter, `noreply`, Mailer-Daemon und Marketing-Mails werden nicht versehentlich als relevant markiert.
 
 Unsichere Mails werden nicht verloren, sondern mit `unsicher` sichtbar gehalten. Der volle Mailtext bleibt lokal in SQLite und wird in der Detailansicht angezeigt.
+
+## Mobile-Redesign: 5-Tab-IA, Home-Screen und Token-Dialog
+
+Friday Mobile nutzt jetzt eine klare 5-Tab-Struktur fuer die Hauptnutzung am Handy:
+
+- `Home` fuer den Tagesueberblick.
+- `Kalender` fuer gemischte Kalenderquellen und Zeitfenster.
+- `Aufgaben` fuer Aufgaben, Quick-Add und Weiterleiten.
+- `Posteingang` fuer relevante Nachrichten und Microsoft-Mails.
+- `Mehr` fuer Kontakte, Lernen, Einrichten, Datenschutz und Spam/Blockiert.
+
+Der neue Home-Screen buendelt lokale Tagesdaten aus vorhandenen read-only Endpunkten:
+
+- heutige Kalendertermine,
+- relevante Microsoft-Mails,
+- faellige Aufgaben,
+- offene Lernfragen.
+
+Der `Mehr`-Tab zeigt einen Badge mit offenen Lernfragen. Innerhalb von `Mehr` gibt es eine einfache Unterebene mit Zurueck-Navigation, ohne neue native Navigation-Pakete.
+
+Das Designsystem bleibt Creme/Moos, ist aber konsistenter:
+
+- zentrale Light/Dark-Farben,
+- weichere Karten,
+- klare Chips und Badges,
+- Bottom-Tab-Bar mit 44px+ Touch-Zielen,
+- ruhiger Home-Header mit Kompass-Logo.
+
+Fuer harte Freigaben gibt es jetzt einen wiederverwendbaren `ConfirmTokenModal`. Die vorhandenen Tokens bleiben unveraendert und werden nicht abgeschwaecht; Buttons fuer harte Aktionen bleiben bis zum exakten Token gesperrt.
+
+Wichtig: UI-Aenderungen kommen per OTA. Das neue App-Icon ist ein natives Asset und erscheint erst nach einem neuen Android-Build / neuer APK-Installation.
