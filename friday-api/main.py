@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from dataclasses import asdict
@@ -10,13 +11,17 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+API_DIR = Path(__file__).resolve().parent
+ROOT_DIR = API_DIR.parent
+for _path in (str(API_DIR), str(ROOT_DIR)):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
+
+from perf import TTLCache, etag_response, register_timing
 
 from friday import config
 from friday.agents import (
@@ -175,6 +180,9 @@ app = FastAPI(
     version="1.0.0",
     description="Local REST API for Friday task, message, calendar, contact and privacy views.",
 )
+
+register_timing(app)
+cache = TTLCache(ttl=120)
 
 app.add_middleware(
     CORSMiddleware,
@@ -474,6 +482,39 @@ def _envelope(data: Any) -> dict[str, Any]:
     return {"ok": True, "data": data}
 
 
+def _invalidate_google_calendar_read_cache() -> None:
+    cache.invalidate_prefix(("google-calendar",))
+    _invalidate_calendar_cache()
+
+
+def _invalidate_mail_read_cache() -> None:
+    cache.invalidate_prefix(("mail",))
+
+
+def _invalidate_calendar_cache() -> None:
+    cache.invalidate_prefix(("calendar",))
+
+
+def _invalidate_dashboard_cache() -> None:
+    cache.invalidate_prefix(("dashboard",))
+
+
+def _coerce_int(value: Any, default: int, *, minimum: int = 1, maximum: int = 100) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(minimum, min(number, maximum))
+
+
+def _mail_account_cache_identity(account: Any) -> str:
+    for name in ("account_id", "email_address", "username", "display_name"):
+        value = getattr(account, name, None)
+        if value:
+            return str(value)
+    return account.__class__.__name__
+
+
 def _parse_ms_mail_recipients(item: dict[str, Any]) -> list[dict[str, Any]]:
     raw = item.get("recipients") or item.get("recipients_json")
     if not raw:
@@ -660,6 +701,42 @@ def _merge_calendar_items(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]
     return sorted(merged, key=_calendar_sort_key)
 
 
+def _google_calendar_read_cache_key(
+    *,
+    range_start: str,
+    range_end: str,
+    account_status: dict[str, Any] | None = None,
+) -> tuple[Any, ...]:
+    status = account_status if account_status is not None else google_calendar_account_status()
+    return (
+        "google-calendar",
+        str(status.get("connected")),
+        str(status.get("calendar_id") or "primary"),
+        range_start,
+        range_end,
+    )
+
+
+async def _list_google_calendar_events_cached(
+    *,
+    range_start: str,
+    range_end: str,
+    account_status: dict[str, Any] | None = None,
+) -> Any:
+    return await cache.get_or_set(
+        _google_calendar_read_cache_key(
+            range_start=range_start,
+            range_end=range_end,
+            account_status=account_status,
+        ),
+        lambda: asyncio.to_thread(
+            GoogleCalendarProvider().list_events,
+            range_start=range_start,
+            range_end=range_end,
+        ),
+    )
+
+
 def _collect_local_calendar_items(
     *,
     range_start: str,
@@ -704,53 +781,52 @@ def _collect_free_slots(
     )
 
 
-def _collect_source_calendar_events(
+async def _collect_source_calendar_events(
     policies: list[Any],
     *,
     range_start: str,
     range_end: str,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    events: list[dict[str, Any]] = []
-    errors: list[dict[str, Any]] = []
-    for policy in policies:
+    async def _collect_policy(policy: Any) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         if (
             not policy.enabled
             or policy.role not in {"main", "source"}
             or policy.access not in {"read", "read_write"}
         ):
-            continue
+            return [], []
         if policy.provider not in {"google_calendar", "outlook_ics"}:
-            continue
+            return [], []
         try:
             if policy.provider == "outlook_ics":
-                result = OutlookIcsCalendarProvider(policy_id=policy.id).list_events(
-                    range_start=range_start,
-                    range_end=range_end,
+                result = await asyncio.to_thread(
+                    lambda: OutlookIcsCalendarProvider(policy_id=policy.id).list_events(
+                        range_start=range_start,
+                        range_end=range_end,
+                    )
                 )
             else:
-                result = GoogleCalendarProvider().list_events(
+                result = await _list_google_calendar_events_cached(
                     range_start=range_start,
                     range_end=range_end,
                 )
             if not result.ok:
-                errors.append(
+                return [], [
                     {
                         "policy_id": policy.id,
                         "provider": policy.provider,
                         "message": result.message,
                         "blocked_reasons": result.blocked_reasons,
                     }
-                )
-                continue
+                ]
             provider_events = [event.to_dict() for event in result.events]
             filtered = filter_events(provider_events, policy)
             transformed = apply_transforms(filtered, policy)
             for event in transformed:
                 event["policy_id"] = policy.id
                 event["policy_label"] = policy.label
-            events.extend(transformed)
+            return transformed, []
         except Exception as exc:  # pragma: no cover - provider boundary
-            errors.append(
+            return [], [
                 {
                     "policy_id": policy.id,
                     "provider": policy.provider,
@@ -758,7 +834,14 @@ def _collect_source_calendar_events(
                     "blocked_reasons": ("source_calendar_read_failed",),
                     "detail": str(exc),
                 }
-            )
+            ]
+
+    collected = await asyncio.gather(*(_collect_policy(policy) for policy in policies))
+    events: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for policy_events, policy_errors in collected:
+        events.extend(policy_events)
+        errors.extend(policy_errors)
     return events, errors
 
 
@@ -800,6 +883,8 @@ def _write_google_calendar_event_after_guard(
         provider_result_payload = _calendar_provider_result_payload(provider_result)
         if provider_result.ok and provider_result.event is not None:
             provider_event_created = True
+            _invalidate_google_calendar_read_cache()
+            _invalidate_dashboard_cache()
             repository = calendar_agent.calendar_repository
             if repository is not None:
                 local_calendar_entry = repository.record_calendar_entry(
@@ -1043,11 +1128,19 @@ def health() -> dict[str, Any]:
 
 
 @app.get("/api/dashboard")
-def get_dashboard() -> dict[str, Any]:
+async def get_dashboard(
+    if_none_match: str | None = Header(default=None),
+    response: Response = None,
+) -> dict[str, Any]:
     today = _today()
+    payload = await cache.get_or_set(("dashboard", today), lambda: _build_dashboard_payload(today))
+    return etag_response(payload, if_none_match=if_none_match, response=response)
+
+
+async def _build_dashboard_payload(today: str) -> dict[str, Any]:
     open_tasks = task_agent.get_open_tasks()
     policies = list_account_policies()
-    source_events, _source_errors = _collect_source_calendar_events(
+    source_events, _source_errors = await _collect_source_calendar_events(
         policies,
         range_start=today,
         range_end=today,
@@ -1068,7 +1161,7 @@ def get_dashboard() -> dict[str, Any]:
     calendar_items = _merge_calendar_items(local_items, source_events)
     messages = message_agent.get_messages()
     contacts = contact_agent.load_contacts()
-    return _envelope(
+    payload = _envelope(
         {
             "date": today,
             "summary": {
@@ -1087,6 +1180,7 @@ def get_dashboard() -> dict[str, Any]:
             ),
         },
     )
+    return payload
 
 
 @app.get("/api/setup/status")
@@ -1184,6 +1278,8 @@ def create_policy(payload: AccountPolicyCreateRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not result.persisted:
         raise HTTPException(status_code=403, detail=result.message)
+    _invalidate_calendar_cache()
+    _invalidate_dashboard_cache()
     ics_status: dict[str, Any] | None = None
     ics_save_result: dict[str, Any] | None = None
     if result.policy is not None and result.policy.provider == "outlook_ics" and payload.ics_url:
@@ -1221,6 +1317,8 @@ def update_policy(policy_id: int, payload: AccountPolicyUpdateRequest) -> dict[s
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not result.persisted:
         raise HTTPException(status_code=403, detail=result.message)
+    _invalidate_calendar_cache()
+    _invalidate_dashboard_cache()
     ics_status: dict[str, Any] | None = None
     ics_save_result: dict[str, Any] | None = None
     if payload.ics_url and result.policy is not None and result.policy.provider == "outlook_ics":
@@ -1253,6 +1351,8 @@ def delete_policy(policy_id: int, payload: PolicyDeleteRequest) -> dict[str, Any
     )
     if not result.persisted:
         raise HTTPException(status_code=403, detail=result.message)
+    _invalidate_calendar_cache()
+    _invalidate_dashboard_cache()
     return _envelope(
         {
             **result.__dict__,
@@ -1335,6 +1435,9 @@ def connect_google_calendar_account(payload: GoogleOAuthConnectRequest) -> dict[
         account,
         approval_token=payload.approval_token,
     )
+    if save_result["persisted"]:
+        _invalidate_google_calendar_read_cache()
+        _invalidate_dashboard_cache()
     return _envelope(
         {
             "allowed": bool(save_result["allowed"]),
@@ -1351,13 +1454,15 @@ def connect_google_calendar_account(payload: GoogleOAuthConnectRequest) -> dict[
 
 
 @app.get("/api/accounts/calendar/google/read-preview")
-def get_google_calendar_read_preview(
+async def get_google_calendar_read_preview(
     range_start: str = Query(...),
     range_end: str = Query(...),
+    if_none_match: str | None = Header(default=None),
+    response: Response = None,
 ) -> dict[str, Any]:
     account_status = google_calendar_account_status()
     if not account_status["connected"]:
-        return _envelope(
+        payload = _envelope(
             {
                 "ok": False,
                 "read_only": True,
@@ -1369,11 +1474,13 @@ def get_google_calendar_read_preview(
                 "external_call_used": False,
             }
         )
-    result = GoogleCalendarProvider().list_events(
+        return etag_response(payload, if_none_match=if_none_match, response=response)
+    result = await _list_google_calendar_events_cached(
         range_start=range_start,
         range_end=range_end,
+        account_status=account_status,
     )
-    return _envelope(
+    payload = _envelope(
         {
             "ok": result.ok,
             "read_only": True,
@@ -1385,6 +1492,7 @@ def get_google_calendar_read_preview(
             "external_call_used": result.external_call_used,
         }
     )
+    return etag_response(payload, if_none_match=if_none_match, response=response)
 
 
 @app.post("/api/accounts/calendar/activation-gate")
@@ -1405,6 +1513,8 @@ def list_tasks(
     status: Optional[str] = Query(default=None),
     category: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
+    if_none_match: str | None = Header(default=None),
+    response: Response = None,
 ) -> dict[str, Any]:
     if search:
         tasks = task_agent.search_tasks(query=search, status=status, category=category)
@@ -1412,7 +1522,7 @@ def list_tasks(
         tasks = task_agent.filter_tasks(status=status, category=category, due_date=date)
     else:
         tasks = task_agent.get_open_tasks()
-    return _envelope(tasks)
+    return etag_response(_envelope(tasks), if_none_match=if_none_match, response=response)
 
 
 @app.get("/api/tasks/{task_id}")
@@ -1435,6 +1545,7 @@ def create_task(payload: TaskCreateRequest) -> dict[str, Any]:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_dashboard_cache()
     return _envelope(task)
 
 
@@ -1449,6 +1560,7 @@ def update_task(task_id: int, payload: TaskUpdateRequest) -> dict[str, Any]:
     updated = task_agent.edit_task(task_id=task_id, **values)
     if updated is None:
         raise HTTPException(status_code=404, detail="Task not found.")
+    _invalidate_dashboard_cache()
     return _envelope(updated)
 
 
@@ -1457,6 +1569,7 @@ def delete_task(task_id: int) -> dict[str, Any]:
     deleted = task_agent.delete_task(task_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Task not found.")
+    _invalidate_dashboard_cache()
     return _envelope({"task_id": task_id, "deleted": True})
 
 
@@ -1465,6 +1578,7 @@ def complete_task(task_id: int) -> dict[str, Any]:
     updated = task_agent.mark_task_done(task_id)
     if updated is None:
         raise HTTPException(status_code=404, detail="Task not found.")
+    _invalidate_dashboard_cache()
     return _envelope(updated)
 
 
@@ -1473,6 +1587,7 @@ def archive_task(task_id: int) -> dict[str, Any]:
     updated = task_agent.archive_task(task_id)
     if updated is None:
         raise HTTPException(status_code=404, detail="Task not found.")
+    _invalidate_dashboard_cache()
     return _envelope(updated)
 
 
@@ -1499,6 +1614,8 @@ def mark_message_spam(source: str, message_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="Nachricht wurde nicht gefunden.")
+    _invalidate_mail_read_cache()
+    _invalidate_dashboard_cache()
     return _envelope(
         {
             "marked_spam": True,
@@ -1530,6 +1647,8 @@ def delete_blocked_sender(blocked_sender_id: int) -> dict[str, Any]:
     unblocked = BlockedSenderRepository(message_agent.db_path).unblock_sender(blocked_sender_id)
     if unblocked is None:
         raise HTTPException(status_code=404, detail="Blockierter Absender wurde nicht gefunden.")
+    _invalidate_mail_read_cache()
+    _invalidate_dashboard_cache()
     return _envelope(
         {
             "unblocked": True,
@@ -1658,16 +1777,19 @@ def update_calendar_view_prefs(payload: CalendarViewPrefsRequest) -> dict[str, A
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_calendar_cache()
     return _envelope(prefs.to_dict())
 
 
 @app.get("/api/calendar")
-def get_calendar(
+async def get_calendar(
     date: Optional[str] = Query(default=None),
     range_start: Optional[str] = Query(default=None),
     range_end: Optional[str] = Query(default=None),
     day_start: Optional[str] = Query(default=None),
     day_end: Optional[str] = Query(default=None),
+    if_none_match: str | None = Header(default=None),
+    response: Response = None,
 ) -> dict[str, Any]:
     range_start_value, range_end_value = _normalize_calendar_range(
         date_value=date,
@@ -1676,49 +1798,57 @@ def get_calendar(
     )
     day_start_value = _normalize_day_time(day_start, "00:00", field_name="day_start")
     day_end_value = _normalize_day_time(day_end, "23:59", field_name="day_end")
-    policies = list_account_policies()
-    source_events, source_errors = _collect_source_calendar_events(
-        policies,
-        range_start=range_start_value,
-        range_end=range_end_value,
+
+    async def _load_payload() -> dict[str, Any]:
+        policies = list_account_policies()
+        source_events, source_errors = await _collect_source_calendar_events(
+            policies,
+            range_start=range_start_value,
+            range_end=range_end_value,
+        )
+        source_events = _filter_events_by_date_and_time(
+            source_events,
+            range_start=range_start_value,
+            range_end=range_end_value,
+            day_start=day_start_value,
+            day_end=day_end_value,
+        )
+        local_items = _collect_local_calendar_items(
+            range_start=range_start_value,
+            range_end=range_end_value,
+            day_start=day_start_value,
+            day_end=day_end_value,
+        )
+        merged_items = _merge_calendar_items(local_items, source_events)
+        return _envelope(
+            {
+                "date": range_start_value if range_start_value == range_end_value else None,
+                "range_start": range_start_value,
+                "range_end": range_end_value,
+                "day_start": day_start_value,
+                "day_end": day_end_value,
+                "items": local_items,
+                "source_events": source_events,
+                "source_errors": source_errors,
+                "merged_items": merged_items,
+                "free_slots": _collect_free_slots(
+                    range_start=range_start_value,
+                    range_end=range_end_value,
+                    day_start=day_start_value,
+                    day_end=day_end_value,
+                ),
+                "view_prefs": load_calendar_view_prefs().to_dict(),
+                "account_policies": [policy.to_dict() for policy in policies],
+                "policy_context": build_ai_context(policies),
+                "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,
+            },
+        )
+
+    payload = await cache.get_or_set(
+        ("calendar", range_start_value, range_end_value, day_start_value, day_end_value),
+        _load_payload,
     )
-    source_events = _filter_events_by_date_and_time(
-        source_events,
-        range_start=range_start_value,
-        range_end=range_end_value,
-        day_start=day_start_value,
-        day_end=day_end_value,
-    )
-    local_items = _collect_local_calendar_items(
-        range_start=range_start_value,
-        range_end=range_end_value,
-        day_start=day_start_value,
-        day_end=day_end_value,
-    )
-    merged_items = _merge_calendar_items(local_items, source_events)
-    return _envelope(
-        {
-            "date": range_start_value if range_start_value == range_end_value else None,
-            "range_start": range_start_value,
-            "range_end": range_end_value,
-            "day_start": day_start_value,
-            "day_end": day_end_value,
-            "items": local_items,
-            "source_events": source_events,
-            "source_errors": source_errors,
-            "merged_items": merged_items,
-            "free_slots": _collect_free_slots(
-                range_start=range_start_value,
-                range_end=range_end_value,
-                day_start=day_start_value,
-                day_end=day_end_value,
-            ),
-            "view_prefs": load_calendar_view_prefs().to_dict(),
-            "account_policies": [policy.to_dict() for policy in policies],
-            "policy_context": build_ai_context(policies),
-            "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,
-        },
-    )
+    return etag_response(payload, if_none_match=if_none_match, response=response)
 
 
 @app.post("/api/calendar/extract-event")
@@ -1816,6 +1946,8 @@ def preview_calendar_event_delete(payload: CalendarEventDeleteGuardRequest) -> d
         provider_result_payload = _calendar_provider_result_payload(provider_result)
         if provider_result.ok:
             provider_event_deleted = True
+            _invalidate_google_calendar_read_cache()
+            _invalidate_dashboard_cache()
             repository = calendar_agent.calendar_repository
             if repository is not None:
                 deleted_calendar_entry = repository.delete_calendar_entry_by_provider_event_id(
@@ -1867,6 +1999,7 @@ def create_contact(payload: ContactCreateRequest) -> dict[str, Any]:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _invalidate_dashboard_cache()
     return _envelope(contact)
 
 
@@ -1879,6 +2012,7 @@ def update_contact(contact_id: int, payload: ContactUpdateRequest) -> dict[str, 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if contact is None:
         raise HTTPException(status_code=404, detail="Contact not found.")
+    _invalidate_dashboard_cache()
     return _envelope(contact)
 
 
@@ -2030,6 +2164,7 @@ def connect_email_account(payload: EmailAccountConnectRequest) -> dict[str, Any]
     )
     if not result.persisted:
         raise HTTPException(status_code=403, detail=result.message)
+    _invalidate_mail_read_cache()
     return _envelope(
         {
             "connected": True,
@@ -2064,6 +2199,7 @@ def delete_email_account_endpoint(payload: EmailAccountDeleteRequest) -> dict[st
     result = delete_email_account(approval_token=payload.approval_token)
     if not result.allowed:
         raise HTTPException(status_code=403, detail=result.message)
+    _invalidate_mail_read_cache()
     return _envelope({"deleted": True, "status": email_account_status()})
 
 
@@ -2132,6 +2268,7 @@ def connect_ms_mail_account(payload: MsMailConnectRequest) -> dict[str, Any]:
     )
     if not result.persisted:
         raise HTTPException(status_code=403, detail=result.message)
+    _invalidate_mail_read_cache()
     return _envelope(
         {
             "connected": True,
@@ -2212,7 +2349,7 @@ def get_ms_mail_activation_gate(payload: MsMailActivationGateRequest) -> dict[st
 
 
 @app.post("/api/accounts/ms-mail/sync")
-def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str, Any]:
+async def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str, Any]:
     if not config.ENABLE_MS_MAIL_READ:
         raise HTTPException(status_code=403, detail="Microsoft-Mail-Lesen ist deaktiviert.")
     requested_account_id = payload.account_id if payload is not None else None
@@ -2226,15 +2363,24 @@ def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str,
     top = payload.top if payload is not None else 25
     repository = MsMailMessageRepository(message_agent.db_path)
 
+    async def _read_account(account: Any) -> tuple[Any, Any | None, dict[str, Any] | None]:
+        token_bundle, token_error = await asyncio.to_thread(_prepare_ms_mail_token_bundle, account)
+        if token_error is not None:
+            return account, None, token_error
+        result = await asyncio.to_thread(
+            lambda: list_ms_mail_messages(token_bundle=token_bundle, top=top)
+        )
+        return account, result, None
+
     stored_count = 0
     provider_count = 0
     account_results: list[dict[str, Any]] = []
-    for account in accounts:
-        token_bundle, token_error = _prepare_ms_mail_token_bundle(account)
+    account_reads = await asyncio.gather(*(_read_account(account) for account in accounts))
+    for account, result, token_error in account_reads:
         if token_error is not None:
             account_results.append(token_error)
             continue
-        result = list_ms_mail_messages(token_bundle=token_bundle, top=top)
+        assert result is not None
         if not result.ok:
             account_results.append(
                 {
@@ -2266,6 +2412,8 @@ def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str,
             }
         )
 
+    if stored_count:
+        _invalidate_mail_read_cache()
     process_result = message_agent.process_unprocessed_ms_mail_messages()
     cleanup_result = None
     if config.ENABLE_MAIL_ORGANIZE:
@@ -2292,30 +2440,39 @@ def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str,
 
 
 @app.get("/api/messages/ms-mail")
-def get_ms_mail_messages(
+async def get_ms_mail_messages(
     limit: int = Query(default=10),
     account_id: str | None = Query(default=None),
     include_spam: bool = Query(default=False),
     include_all: bool = Query(default=False),
+    if_none_match: str | None = Header(default=None),
+    response: Response = None,
 ) -> dict[str, Any]:
-    repository = MsMailMessageRepository(message_agent.db_path)
-    items = repository.list_messages(
-        limit=limit,
-        account_id=account_id,
-        include_spam=include_spam,
-        include_all=include_all,
+    def _load_payload() -> dict[str, Any]:
+        repository = MsMailMessageRepository(message_agent.db_path)
+        items = repository.list_messages(
+            limit=limit,
+            account_id=account_id,
+            include_spam=include_spam,
+            include_all=include_all,
+        )
+        return _envelope(
+            {
+                "items": items,
+                "count": len(items),
+                "include_spam": include_spam,
+                "include_all": include_all,
+                "status": ms_mail_account_status(),
+                "read_only": True,
+                "real_email_enabled": config.ENABLE_REAL_EMAIL,
+            }
+        )
+
+    payload = await cache.get_or_set(
+        ("mail", "ms-mail", limit, account_id or "", include_spam, include_all),
+        lambda: asyncio.to_thread(_load_payload),
     )
-    return _envelope(
-        {
-            "items": items,
-            "count": len(items),
-            "include_spam": include_spam,
-            "include_all": include_all,
-            "status": ms_mail_account_status(),
-            "read_only": True,
-            "real_email_enabled": config.ENABLE_REAL_EMAIL,
-        }
-    )
+    return etag_response(payload, if_none_match=if_none_match, response=response)
 
 
 @app.get("/api/messages/ms-mail/{message_id}")
@@ -2342,6 +2499,7 @@ def delete_ms_mail_account_by_id_endpoint(account_id: str, payload: EmailAccount
     )
     if not result.allowed:
         raise HTTPException(status_code=403, detail=result.message)
+    _invalidate_mail_read_cache()
     return _envelope({"deleted": True, "account_id": account_id, "status": ms_mail_account_status()})
 
 
@@ -2350,6 +2508,7 @@ def delete_ms_mail_account_endpoint(payload: EmailAccountDeleteRequest) -> dict[
     result = delete_ms_mail_account(approval_token=payload.approval_token)
     if not result.allowed:
         raise HTTPException(status_code=403, detail=result.message)
+    _invalidate_mail_read_cache()
     return _envelope({"deleted": True, "status": ms_mail_account_status()})
 
 
@@ -2397,6 +2556,7 @@ def connect_imap_mail_account(payload: ImapMailConnectRequest) -> dict[str, Any]
     result = save_imap_mail_account(tested_account, approval_token=payload.approval_token)
     if not result.persisted:
         raise HTTPException(status_code=403, detail=result.message)
+    _invalidate_mail_read_cache()
     return _envelope(
         {
             "saved": True,
@@ -2431,7 +2591,7 @@ def get_imap_mail_activation_gate(payload: ImapMailActivationGateRequest) -> dic
 
 
 @app.post("/api/accounts/imap-mail/sync")
-def sync_imap_mail_messages(payload: ImapMailSyncRequest | None = None) -> dict[str, Any]:
+async def sync_imap_mail_messages(payload: ImapMailSyncRequest | None = None) -> dict[str, Any]:
     if not config.ENABLE_IMAP_MAIL_READ:
         raise HTTPException(status_code=403, detail="IMAP-Mail-Lesen ist deaktiviert.")
     requested_account_id = payload.account_id if payload is not None else None
@@ -2445,12 +2605,19 @@ def sync_imap_mail_messages(payload: ImapMailSyncRequest | None = None) -> dict[
 
     top = payload.top if payload is not None else 25
     repository = MsMailMessageRepository(message_agent.db_path)
+
+    async def _read_account(account: Any) -> tuple[Any, Any]:
+        app_password = await asyncio.to_thread(decrypt_imap_mail_app_password, account)
+        result = await asyncio.to_thread(
+            lambda: read_imap_mail_messages(account=account, app_password=app_password, limit=top)
+        )
+        return account, result
+
     stored_count = 0
     provider_count = 0
     account_results: list[dict[str, Any]] = []
-    for account in accounts:
-        app_password = decrypt_imap_mail_app_password(account)
-        result = read_imap_mail_messages(account=account, app_password=app_password, limit=top)
+    account_reads = await asyncio.gather(*(_read_account(account) for account in accounts))
+    for account, result in account_reads:
         if not result.ok:
             account_results.append(
                 {
@@ -2482,6 +2649,8 @@ def sync_imap_mail_messages(payload: ImapMailSyncRequest | None = None) -> dict[
             }
         )
 
+    if stored_count:
+        _invalidate_mail_read_cache()
     process_result = message_agent.process_unprocessed_ms_mail_messages()
     return _envelope(
         {
@@ -2582,37 +2751,47 @@ def delete_imap_mail_account_endpoint(account_id: str, payload: EmailAccountDele
     )
     if not result.allowed:
         raise HTTPException(status_code=403, detail=result.message)
+    _invalidate_mail_read_cache()
     return _envelope({"deleted": True, "account_id": account_id, "status": imap_mail_account_status()})
 
 
 @app.get("/api/messages/mail")
-def get_unified_mail_messages(
+async def get_unified_mail_messages(
     limit: int = Query(default=10),
     account_id: str | None = Query(default=None),
     include_spam: bool = Query(default=False),
     include_all: bool = Query(default=False),
+    if_none_match: str | None = Header(default=None),
+    response: Response = None,
 ) -> dict[str, Any]:
-    repository = MsMailMessageRepository(message_agent.db_path)
-    items = repository.list_messages(
-        limit=limit,
-        account_id=account_id,
-        include_spam=include_spam,
-        include_all=include_all,
+    def _load_payload() -> dict[str, Any]:
+        repository = MsMailMessageRepository(message_agent.db_path)
+        items = repository.list_messages(
+            limit=limit,
+            account_id=account_id,
+            include_spam=include_spam,
+            include_all=include_all,
+        )
+        return _envelope(
+            {
+                "items": items,
+                "count": len(items),
+                "include_spam": include_spam,
+                "include_all": include_all,
+                "status": {
+                    "ms_mail": ms_mail_account_status(),
+                    "imap_mail": imap_mail_account_status(),
+                },
+                "read_only": True,
+                "real_email_enabled": config.ENABLE_REAL_EMAIL,
+            }
+        )
+
+    payload = await cache.get_or_set(
+        ("mail", "unified", limit, account_id or "", include_spam, include_all),
+        lambda: asyncio.to_thread(_load_payload),
     )
-    return _envelope(
-        {
-            "items": items,
-            "count": len(items),
-            "include_spam": include_spam,
-            "include_all": include_all,
-            "status": {
-                "ms_mail": ms_mail_account_status(),
-                "imap_mail": imap_mail_account_status(),
-            },
-            "read_only": True,
-            "real_email_enabled": config.ENABLE_REAL_EMAIL,
-        }
-    )
+    return etag_response(payload, if_none_match=if_none_match, response=response)
 
 
 @app.get("/api/messages/mail/{message_id}")
@@ -2631,14 +2810,27 @@ def get_unified_mail_message_detail(message_id: int) -> dict[str, Any]:
     )
 
 
-@app.get("/api/messages/email-inbox")
-def get_email_inbox_preview(limit: int = Query(default=10)) -> dict[str, Any]:
+async def _get_email_inbox_preview_response(
+    limit: int,
+    if_none_match: str | None = None,
+    response: Response | None = None,
+) -> dict[str, Any] | Response:
+    safe_limit = _coerce_int(limit, 10, minimum=1, maximum=50)
     account = load_email_account()
     if account is None:
-        return _envelope({"connected": False, "items": [], "message": "Kein E-Mail-Konto verbunden."})
+        payload = _envelope({"connected": False, "items": [], "message": "Kein E-Mail-Konto verbunden."})
+        return etag_response(payload, if_none_match=if_none_match, response=response)
     app_password = decrypt_email_account_password(account)
-    result = read_recent_inbox_emails(account=account, app_password=app_password, limit=limit)
-    return _envelope(
+    result = await cache.get_or_set(
+        ("mail", "email-inbox", _mail_account_cache_identity(account), safe_limit),
+        lambda: asyncio.to_thread(
+            read_recent_inbox_emails,
+            account=account,
+            app_password=app_password,
+            limit=safe_limit,
+        ),
+    )
+    payload = _envelope(
         {
             "connected": True,
             "ok": result.ok,
@@ -2646,6 +2838,34 @@ def get_email_inbox_preview(limit: int = Query(default=10)) -> dict[str, Any]:
             "error": result.error,
             "read_only": result.read_only,
         }
+    )
+    return etag_response(payload, if_none_match=if_none_match, response=response)
+
+
+@app.get("/api/messages/email-inbox")
+async def get_email_inbox_preview_endpoint(
+    limit: int = Query(default=10),
+    if_none_match: str | None = Header(default=None),
+    response: Response = None,
+) -> dict[str, Any]:
+    return await _get_email_inbox_preview_response(
+        limit=limit,
+        if_none_match=if_none_match,
+        response=response,
+    )
+
+
+def get_email_inbox_preview(
+    limit: int = Query(default=10),
+    if_none_match: str | None = Header(default=None),
+    response: Response = None,
+) -> dict[str, Any]:
+    return asyncio.run(
+        _get_email_inbox_preview_response(
+            limit=limit,
+            if_none_match=if_none_match,
+            response=response,
+        )
     )
 
 

@@ -34,3 +34,45 @@ Alle Endpunkte antworten mit:
 - `GET /api/calendar`, `GET /api/calendar/{message_id}/slots`
 - `GET /api/contacts`
 - `GET /api/privacy`
+
+## Performance-Integration
+
+`perf.py` stellt die gemeinsam genutzten Performance-Helfer bereit:
+
+- `register_timing(app)` loggt pro Request Endpoint, Methode, Status und Dauer und setzt `Server-Timing`.
+- `TTLCache(ttl=120)` cached kurzlebige Read-Payloads mit Single-Flight pro Cache-Key.
+- `etag_response(...)` setzt `ETag`, `Cache-Control` und liefert bei `If-None-Match` HTTP `304`.
+
+Geaenderte GET-Endpunkte:
+
+- `GET /api/dashboard`: Dashboard-Payload mit 120s TTL und ETag.
+- `GET /api/tasks`: ETag/304 fuer die Aufgabenliste.
+- `GET /api/calendar`: Gesamtpayload mit 120s TTL und ETag; externe Kalenderquellen werden parallel gelesen.
+- `GET /api/accounts/calendar/google/read-preview`: Google-Calendar-Read mit 120s TTL und ETag.
+- `GET /api/messages/ms-mail`: Mail-Listenpayload mit 120s TTL und ETag.
+- `GET /api/messages/mail`: Unified-Mail-Listenpayload mit 120s TTL und ETag.
+- `GET /api/messages/email-inbox`: IMAP-Inbox-Preview mit 120s TTL und ETag.
+
+Parallelisierte Fetch-Funktionen:
+
+- `_collect_source_calendar_events(...)` liest aktive Google- und Outlook-ICS-Policies parallel.
+- `sync_ms_mail_messages(...)` liest Microsoft-Graph-Konten parallel und schreibt danach sequentiell in SQLite.
+- `sync_imap_mail_messages(...)` liest IMAP-Konten parallel und schreibt danach sequentiell in SQLite.
+
+Gefundene blockierende Datenquellen:
+
+- `GoogleCalendarProvider.list_events(...)`: `google-api-python-client`, blockierend, via `asyncio.to_thread`.
+- `OutlookIcsCalendarProvider.list_events(...)`: `urllib` + ICS-Parsing, blockierend, via `asyncio.to_thread`.
+- `list_ms_mail_messages(...)`: Microsoft Graph ueber `urllib`, blockierend, via `asyncio.to_thread`.
+- `read_imap_mail_messages(...)` und `read_recent_inbox_emails(...)`: `imaplib`, blockierend, via `asyncio.to_thread`.
+
+Gefundene echte Coroutines:
+
+- Die FastAPI-Handler fuer Dashboard, Calendar, Mail-Reads und Mail-Sync sind async.
+- Die externen Provider selbst sind keine echten async-Coroutines.
+
+Erwartete Wirkung:
+
+- Mehrere externe Kalender-Policies oder Mail-Konten warten nicht mehr sequentiell aufeinander.
+- Wiederholte Dashboard-, Google-Calendar- und Mail-Reads innerhalb von 120 Sekunden vermeiden doppelte Provider-/DB-Arbeit.
+- Clients mit ETag-Unterstuetzung sparen Response-Body-Transfer ueber HTTP `304`.
