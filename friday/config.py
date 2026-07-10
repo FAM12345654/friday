@@ -31,6 +31,7 @@ ENABLE_MS_MAIL_READ = True
 # Gmail/IMAP-Mail bleibt read-only und getrennt von echtem E-Mail-Senden.
 # Default: aus. Aktivierung braucht MAIL LESEN AKTIVIEREN.
 ENABLE_IMAP_MAIL_READ = False
+ENABLE_MAIL_ORGANIZE = False
 
 # Jede Aktion braucht eine Nutzerfreigabe im Vorschaumodus.
 REQUIRE_USER_APPROVAL = True

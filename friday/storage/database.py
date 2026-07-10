@@ -247,6 +247,20 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 UNIQUE (source, sender_key)
             );
 
+            CREATE TABLE IF NOT EXISTS mailbox_cleanup_log (
+                id INTEGER PRIMARY KEY,
+                account_id TEXT NOT NULL,
+                provider_message_id TEXT NOT NULL,
+                sender TEXT NOT NULL DEFAULT '',
+                subject TEXT NOT NULL DEFAULT '',
+                from_folder TEXT NOT NULL DEFAULT 'INBOX',
+                to_label TEXT NOT NULL,
+                moved_at TEXT NOT NULL,
+                undone INTEGER NOT NULL DEFAULT 0,
+                undone_at TEXT,
+                source TEXT NOT NULL DEFAULT 'imap_mail'
+            );
+
             CREATE TABLE IF NOT EXISTS learning_questions (
                 id INTEGER PRIMARY KEY,
                 kind TEXT NOT NULL,

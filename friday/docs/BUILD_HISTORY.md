@@ -292,3 +292,8 @@ Externe Aktionen, Cloud-Provider und echte Modellaufrufe sind fuer Friday 1.0 lo
 - Neue API-Endpunkte unter `/api/accounts/imap-mail` und `/api/messages/mail`.
 - Mobile App zeigt `Gmail (nur lesen)` im Setup-Bereich.
 - Safety: IMAP `BODY.PEEK[]`, `readonly=True`, kein SMTP, keine Gmail API, kein Versand; `ENABLE_REAL_EMAIL` bleibt `False`.
+
+
+## Gmail-Aufraeumen Gate
+
+Siehe FRIDAY_GMAIL_CLEANUP_GATE.md: reversibles Gmail-Aufraeumen nur fuer offensichtliche Noise-Mails, gegated mit POSTFACH AUFRAEUMEN, ohne Loeschen und ohne Senden.

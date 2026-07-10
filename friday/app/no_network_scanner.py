@@ -44,6 +44,7 @@ ALLOWED_LOCAL_NETWORK_FILES: tuple[str, ...] = (
     "email_smtp_sender.py",
     "email_imap_reader.py",
     "imap_mail_reader.py",
+    "imap_mail_writer.py",
     "calendar_provider_google.py",
     "calendar_provider_ics.py",
     "ms_mail_provider.py",

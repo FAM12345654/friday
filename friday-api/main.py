@@ -97,6 +97,17 @@ from friday.app.imap_mail_read_activation_gate import (
     build_imap_mail_read_activation_gate,
 )
 from friday.app.imap_mail_reader import check_imap_mail_login, read_imap_mail_messages
+from friday.app.imap_mail_writer import (
+    GMAIL_CLEANUP_LABEL,
+    ImapMailWriteResult,
+    move_back_to_inbox,
+    move_to_cleanup_label,
+)
+from friday.app.mailbox_cleanup import (
+    apply_mailbox_cleanup_activation_to_config,
+    build_mailbox_cleanup_activation_gate,
+    select_obvious_mailbox_cleanup_candidates,
+)
 from friday.app.ms_mail_account_store import (
     MS_MAIL_ACCOUNT_DELETE_TOKEN,
     MS_MAIL_ACCOUNT_SAVE_TOKEN,
@@ -144,7 +155,12 @@ from friday.app.whatsapp_inbox_store import (
 from friday.config import DEMO_DATE, USE_REAL_TODAY
 from friday.storage.database import setup_local_database
 from friday.storage.learning_repository import LearningRepository
-from friday.storage.repositories import BlockedSenderRepository, MsMailMessageRepository
+from friday.storage.repositories import (
+    BlockedSenderRepository,
+    ContactRepository,
+    MailboxCleanupLogRepository,
+    MsMailMessageRepository,
+)
 
 
 def _allowed_origins() -> list[str]:
@@ -298,6 +314,18 @@ class ImapMailActivationGateRequest(BaseModel):
 class ImapMailSyncRequest(BaseModel):
     top: int = 25
     account_id: str | None = None
+
+
+class MailboxCleanupActivationGateRequest(BaseModel):
+    approval_token: str
+    scanner_smoke_passed: bool = False
+    execute_write: bool = False
+
+
+class MailboxCleanupRunRequest(BaseModel):
+    top: int = 25
+    account_id: str | None = None
+    dry_run: bool = False
 
 
 class EmailSendRequest(BaseModel):
@@ -887,6 +915,114 @@ def _learning_payload(repository: LearningRepository, candidates: list[dict[str,
         "local_only": True,
         "model_training": False,
         "external_actions": False,
+    }
+
+
+def _mailbox_cleanup_log_repository() -> MailboxCleanupLogRepository:
+    return MailboxCleanupLogRepository(message_agent.db_path)
+
+
+def _run_mailbox_cleanup(payload: MailboxCleanupRunRequest | None = None) -> dict[str, Any]:
+    if not config.ENABLE_MAIL_ORGANIZE:
+        raise HTTPException(status_code=403, detail="Gmail-Aufraeumen ist deaktiviert.")
+    requested_account_id = payload.account_id if payload is not None else None
+    if requested_account_id:
+        account = load_imap_mail_account(account_id=requested_account_id)
+        accounts = (account,) if account is not None else ()
+    else:
+        accounts = list_imap_mail_accounts()
+    if not accounts:
+        raise HTTPException(status_code=404, detail="Kein Gmail-IMAP-Konto verbunden.")
+
+    top = payload.top if payload is not None else 25
+    dry_run = bool(payload.dry_run) if payload is not None else False
+    message_repository = MsMailMessageRepository(message_agent.db_path)
+    blocked_repository = BlockedSenderRepository(message_agent.db_path)
+    contact_repository = ContactRepository(message_agent.db_path)
+    log_repository = _mailbox_cleanup_log_repository()
+    moved: list[dict[str, Any]] = []
+    candidates_payload: list[dict[str, Any]] = []
+    account_results: list[dict[str, Any]] = []
+
+    for account in accounts:
+        messages = message_repository.list_messages(
+            limit=100,
+            account_id=account.account_id,
+            include_spam=True,
+            include_all=True,
+        )
+        candidates = select_obvious_mailbox_cleanup_candidates(
+            messages,
+            blocked_senders=blocked_repository.list_blocked_senders(),
+            contacts=contact_repository.get_contacts(),
+            limit=top,
+        )
+        account_candidates = [candidate.to_dict() for candidate in candidates]
+        candidates_payload.extend(account_candidates)
+        if dry_run:
+            account_results.append(
+                {
+                    "account_id": account.account_id,
+                    "ok": True,
+                    "dry_run": True,
+                    "candidate_count": len(account_candidates),
+                    "moved_count": 0,
+                    "errors": [],
+                }
+            )
+            continue
+        app_password = decrypt_imap_mail_app_password(account)
+        errors: list[dict[str, Any]] = []
+        moved_count = 0
+        for candidate in candidates:
+            result = move_to_cleanup_label(
+                account=account,
+                app_password=app_password,
+                provider_message_id=candidate.provider_message_id,
+                label=GMAIL_CLEANUP_LABEL,
+            )
+            if not result.ok:
+                errors.append(
+                    {
+                        **candidate.to_dict(),
+                        "message": result.message,
+                        "blocked_reasons": result.blocked_reasons,
+                    }
+                )
+                continue
+            log_entry = log_repository.create_entry(
+                account_id=account.account_id,
+                provider_message_id=candidate.provider_message_id,
+                sender=candidate.sender,
+                subject=candidate.subject,
+                to_label=GMAIL_CLEANUP_LABEL,
+                source="imap_mail",
+            )
+            moved.append({**candidate.to_dict(), "log": log_entry})
+            moved_count += 1
+        account_results.append(
+            {
+                "account_id": account.account_id,
+                "ok": not errors,
+                "dry_run": False,
+                "candidate_count": len(account_candidates),
+                "moved_count": moved_count,
+                "errors": errors,
+            }
+        )
+
+    return {
+        "enabled": config.ENABLE_MAIL_ORGANIZE,
+        "dry_run": dry_run,
+        "label": GMAIL_CLEANUP_LABEL,
+        "candidate_count": len(candidates_payload),
+        "moved_count": len(moved),
+        "candidates": candidates_payload,
+        "moved": moved,
+        "accounts": account_results,
+        "deleted": False,
+        "expunge_used": False,
+        "real_email_enabled": config.ENABLE_REAL_EMAIL,
     }
 
 
@@ -2131,6 +2267,15 @@ def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str,
         )
 
     process_result = message_agent.process_unprocessed_ms_mail_messages()
+    cleanup_result = None
+    if config.ENABLE_MAIL_ORGANIZE:
+        cleanup_result = _run_mailbox_cleanup(
+            MailboxCleanupRunRequest(
+                top=top,
+                account_id=requested_account_id,
+                dry_run=False,
+            )
+        )
     return _envelope(
         {
             "synced": True,
@@ -2139,6 +2284,7 @@ def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str,
             "stored_count": stored_count,
             "provider_count": provider_count,
             "process_result": process_result,
+            "cleanup_result": cleanup_result,
             "read_only": True,
             "real_email_enabled": config.ENABLE_REAL_EMAIL,
         }
@@ -2347,6 +2493,83 @@ def sync_imap_mail_messages(payload: ImapMailSyncRequest | None = None) -> dict[
             "process_result": process_result,
             "read_only": True,
             "real_email_enabled": config.ENABLE_REAL_EMAIL,
+        }
+    )
+
+
+@app.post("/api/mail/organize/activation-gate")
+def get_mailbox_cleanup_activation_gate(payload: MailboxCleanupActivationGateRequest) -> dict[str, Any]:
+    if payload.execute_write:
+        gate = apply_mailbox_cleanup_activation_to_config(
+            config_path=config.PACKAGE_DIR / "config.py",
+            approval_token=payload.approval_token,
+            scanner_smoke_passed=payload.scanner_smoke_passed,
+            execute_write=True,
+            post_write_validation=lambda path: (
+                "ENABLE_MAIL_ORGANIZE = True" in path.read_text(encoding="utf-8")
+                and "ENABLE_REAL_EMAIL = False" in path.read_text(encoding="utf-8")
+            ),
+        )
+    else:
+        gate = build_mailbox_cleanup_activation_gate(
+            approval_token=payload.approval_token,
+            scanner_smoke_passed=payload.scanner_smoke_passed,
+        )
+    return _envelope(asdict(gate))
+
+
+@app.post("/api/mail/organize/run")
+def run_mailbox_cleanup(payload: MailboxCleanupRunRequest | None = None) -> dict[str, Any]:
+    return _envelope(_run_mailbox_cleanup(payload))
+
+
+@app.get("/api/mail/organize/log")
+def get_mailbox_cleanup_log(
+    limit: int = Query(default=50),
+    include_undone: bool = Query(default=False),
+) -> dict[str, Any]:
+    repository = _mailbox_cleanup_log_repository()
+    return _envelope(
+        {
+            "items": repository.list_entries(limit=limit, include_undone=include_undone),
+            "enabled": config.ENABLE_MAIL_ORGANIZE,
+            "label": GMAIL_CLEANUP_LABEL,
+            "deleted": False,
+            "expunge_used": False,
+        }
+    )
+
+
+@app.post("/api/mail/organize/undo/{log_id}")
+def undo_mailbox_cleanup(log_id: int) -> dict[str, Any]:
+    if not config.ENABLE_MAIL_ORGANIZE:
+        raise HTTPException(status_code=403, detail="Gmail-Aufraeumen ist deaktiviert.")
+    repository = _mailbox_cleanup_log_repository()
+    entry = repository.get_entry_by_id(log_id)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="Cleanup-Log wurde nicht gefunden.")
+    if int(entry.get("undone") or 0) == 1:
+        return _envelope({"undone": True, "entry": entry, "message": "Cleanup war bereits rueckgaengig."})
+    account = load_imap_mail_account(account_id=str(entry.get("account_id") or ""))
+    if account is None:
+        raise HTTPException(status_code=404, detail="Gmail-IMAP-Konto wurde nicht gefunden.")
+    app_password = decrypt_imap_mail_app_password(account)
+    result = move_back_to_inbox(
+        account=account,
+        app_password=app_password,
+        provider_message_id=str(entry.get("provider_message_id") or ""),
+        label=str(entry.get("to_label") or GMAIL_CLEANUP_LABEL),
+    )
+    if not result.ok:
+        raise HTTPException(status_code=400, detail=result.message)
+    updated = repository.mark_undone(log_id)
+    return _envelope(
+        {
+            "undone": True,
+            "entry": updated,
+            "message": result.message,
+            "deleted": result.deleted,
+            "expunge_used": result.expunge_used,
         }
     )
 
@@ -2630,6 +2853,7 @@ def get_privacy() -> dict[str, Any]:
                 "whatsapp_bridge_read": config.ENABLE_WHATSAPP_BRIDGE_READ,
                 "ms_mail_read": config.ENABLE_MS_MAIL_READ,
                 "imap_mail_read": config.ENABLE_IMAP_MAIL_READ,
+                "mail_organize": config.ENABLE_MAIL_ORGANIZE,
                 "sms": False,
                 "calendar": False,
                 "weather": False,
@@ -2639,6 +2863,7 @@ def get_privacy() -> dict[str, Any]:
                 "exports": False,
                 "messages_send": False,
                 "contacts_write": True,
+                "gmail_organize": config.ENABLE_MAIL_ORGANIZE,
             },
             "notes": "Kontakte koennen lokal gespeichert werden; externe Nachrichten bleiben deaktiviert.",
         },

@@ -316,3 +316,8 @@ Safety:
 | Lernen-Reiter | erlaubt lokal | erkennt Routinen aus lokalen Daten, speichert `learned_rules`, kein Modell-Nachtraining, keine externen Aktionen |
 
 | Gmail IMAP Reader | Ja, read-only ueber `imap.gmail.com:993` | Nein | IMAP erlaubt nur in `friday/app/imap_mail_reader.py` | `MAIL LESEN AKTIVIEREN`; kein SMTP, kein Versand |
+
+
+## Gmail-Aufraeumen Gate
+
+Siehe FRIDAY_GMAIL_CLEANUP_GATE.md: reversibles Gmail-Aufraeumen nur fuer offensichtliche Noise-Mails, gegated mit POSTFACH AUFRAEUMEN, ohne Loeschen und ohne Senden.

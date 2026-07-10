@@ -981,6 +981,110 @@ class MsMailMessageRepository:
             )
 
 
+class MailboxCleanupLogRepository:
+    """Audit reversible Gmail inbox cleanup moves."""
+
+    def __init__(self, db_path: Path | str | None = None) -> None:
+        self.db_path = db_path or get_database_path()
+
+    def create_entry(
+        self,
+        *,
+        account_id: str,
+        provider_message_id: str,
+        sender: str | None,
+        subject: str | None,
+        from_folder: str = "INBOX",
+        to_label: str = "Friday/Aussortiert",
+        source: str = "imap_mail",
+    ) -> dict:
+        """Create one local audit entry for a reversible mailbox move."""
+        normalized_source = _normalize_blocked_sender_source(source)
+        now = _now_iso_timestamp()
+        with get_connection(self.db_path) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO mailbox_cleanup_log (
+                    account_id, provider_message_id, sender, subject,
+                    from_folder, to_label, moved_at, undone, source
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+                """,
+                (
+                    str(account_id or "").strip(),
+                    str(provider_message_id or "").strip(),
+                    str(sender or "").strip(),
+                    str(subject or "").strip(),
+                    str(from_folder or "INBOX").strip() or "INBOX",
+                    str(to_label or "Friday/Aussortiert").strip() or "Friday/Aussortiert",
+                    now,
+                    normalized_source,
+                ),
+            )
+            row = connection.execute(
+                """
+                SELECT id, account_id, provider_message_id, sender, subject,
+                    from_folder, to_label, moved_at, undone, undone_at, source
+                FROM mailbox_cleanup_log
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (cursor.lastrowid,),
+            ).fetchone()
+        return row_to_dict(row)
+
+    def list_entries(self, limit: int = 50, *, include_undone: bool = False) -> list[dict]:
+        """Return recent mailbox cleanup audit entries."""
+        safe_limit = max(1, min(int(limit), 200))
+        where = "" if include_undone else "WHERE undone = 0"
+        with get_connection(self.db_path) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, account_id, provider_message_id, sender, subject,
+                    from_folder, to_label, moved_at, undone, undone_at, source
+                FROM mailbox_cleanup_log
+                {where}
+                ORDER BY moved_at DESC, id DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [row_to_dict(row) for row in rows]
+
+    def get_entry_by_id(self, log_id: int) -> dict | None:
+        """Return one cleanup audit entry."""
+        with get_connection(self.db_path) as connection:
+            row = connection.execute(
+                """
+                SELECT id, account_id, provider_message_id, sender, subject,
+                    from_folder, to_label, moved_at, undone, undone_at, source
+                FROM mailbox_cleanup_log
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (int(log_id),),
+            ).fetchone()
+        return row_to_dict(row) if row is not None else None
+
+    def mark_undone(self, log_id: int) -> dict | None:
+        """Mark one cleanup move as reverted in the local audit log."""
+        existing = self.get_entry_by_id(log_id)
+        if existing is None:
+            return None
+        now = _now_iso_timestamp()
+        with get_connection(self.db_path) as connection:
+            connection.execute(
+                """
+                UPDATE mailbox_cleanup_log
+                SET undone = 1,
+                    undone_at = ?
+                WHERE id = ?
+                """,
+                (now, int(log_id)),
+            )
+        return self.get_entry_by_id(log_id)
+
+
 class CalendarRepository:
     """Reads calendar blocks and computes local free slots."""
 

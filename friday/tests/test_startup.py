@@ -24,6 +24,8 @@ def test_modules_import() -> None:
         "friday.app.imap_mail_account_store",
         "friday.app.imap_mail_read_activation_gate",
         "friday.app.imap_mail_reader",
+        "friday.app.imap_mail_writer",
+        "friday.app.mailbox_cleanup",
         "friday.app.obsidian_brain",
         "friday.agents.task_agent",
         "friday.agents.message_agent",
@@ -60,6 +62,7 @@ def test_config_safety_flags() -> None:
     assert config.ENABLE_REAL_MUSIC is False
     assert isinstance(config.ENABLE_MS_MAIL_READ, bool)
     assert config.ENABLE_IMAP_MAIL_READ is False
+    assert config.ENABLE_MAIL_ORGANIZE is False
     assert config.REQUIRE_USER_APPROVAL is True
     assert config.USE_REAL_TODAY is True
     assert config.USE_SQLITE_STORAGE is True

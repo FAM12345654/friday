@@ -403,6 +403,34 @@ export async function deleteImapMailAccount(accountId, payload) {
   });
 }
 
+export async function activateMailOrganize(payload) {
+  return callApi("/api/mail/organize/activation-gate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function runMailOrganize(payload = { top: 25, dry_run: false }) {
+  return callApi("/api/mail/organize/run", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getMailOrganizeLog(limit = 25, includeUndone = false) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (includeUndone) {
+    params.set("include_undone", "true");
+  }
+  return callApi(`/api/mail/organize/log?${params.toString()}`);
+}
+
+export async function undoMailOrganize(logId) {
+  return callApi(`/api/mail/organize/undo/${encodeURIComponent(String(logId))}`, {
+    method: "POST",
+  });
+}
+
 export async function getWhatsAppStatus() {
   return callApi("/api/whatsapp/status");
 }

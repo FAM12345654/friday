@@ -543,3 +543,8 @@ Sicherheitsgrenzen:
 - Es wird nichts gesendet, geloescht, verschoben oder serverseitig markiert.
 - Gmail- und Microsoft-Mails erscheinen gemeinsam im lokalen Posteingang.
 - Details: `FRIDAY_IMAP_MAIL_READ_GATE.md`.
+
+
+## Gmail-Aufraeumen Gate
+
+Siehe FRIDAY_GMAIL_CLEANUP_GATE.md: reversibles Gmail-Aufraeumen nur fuer offensichtliche Noise-Mails, gegated mit POSTFACH AUFRAEUMEN, ohne Loeschen und ohne Senden.

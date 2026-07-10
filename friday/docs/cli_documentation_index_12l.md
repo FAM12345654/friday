@@ -146,3 +146,8 @@ Naechster sinnvoller Build Step: Build Step 1.2B - lokale Aufgaben-Review-Ansich
 ## Gmail IMAP Read-only Dokumente
 
 - `FRIDAY_IMAP_MAIL_READ_GATE.md`: Gmail/IMAP Read-only Gate, Setup, Safety und Tests.
+
+
+## Gmail-Aufraeumen Gate
+
+Siehe FRIDAY_GMAIL_CLEANUP_GATE.md: reversibles Gmail-Aufraeumen nur fuer offensichtliche Noise-Mails, gegated mit POSTFACH AUFRAEUMEN, ohne Loeschen und ohne Senden.

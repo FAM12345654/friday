@@ -25,6 +25,7 @@ import {
   buildTaskForwardDraft,
   checkHealth,
   completeTask,
+  activateMailOrganize,
   connectEmailAccount,
   connectImapMailAccount,
   connectMsMailAccount,
@@ -54,6 +55,7 @@ import {
   getContacts,
   getDashboard,
   getLearning,
+  getMailOrganizeLog,
   getBlockedSenders,
   getMessageSuggestion,
   getMessageSuggestions,
@@ -67,6 +69,7 @@ import {
   checkCalendarActivationGate,
   activateImapMailRead,
   activateMsMailRead,
+  runMailOrganize,
   syncImapMailMessages,
   syncMsMailMessages,
   markMessageSpam,
@@ -79,6 +82,7 @@ import {
   updateCalendarViewPrefs,
   updateEmailAgentNotes,
   updateLearnedRule,
+  undoMailOrganize,
   updateWhatsAppAgentNotes,
 } from "./src/api/client";
 
@@ -646,6 +650,9 @@ export default function App() {
   const [msMailIncludeAll, setMsMailIncludeAll] = useState(false);
   const [selectedMsMailDetail, setSelectedMsMailDetail] = useState(null);
   const [imapMailStatus, setImapMailStatus] = useState(null);
+  const [mailOrganizeLog, setMailOrganizeLog] = useState(null);
+  const [mailOrganizeResult, setMailOrganizeResult] = useState("");
+  const [mailOrganizeToken, setMailOrganizeToken] = useState("");
   const [whatsappStatus, setWhatsappStatus] = useState(null);
   const [whatsappInbox, setWhatsappInbox] = useState(null);
   const [blockedSenders, setBlockedSenders] = useState([]);
@@ -943,30 +950,36 @@ export default function App() {
       const emailStatus = await getEmailAccountStatus().catch(() => null);
       const microsoftStatus = await getMsMailStatus().catch(() => null);
       const imapStatus = await getImapMailStatus().catch(() => null);
+      const cleanupLog = await getMailOrganizeLog().catch(() => null);
       const waStatus = await getWhatsAppStatus().catch(() => null);
       setPrivacy(payload);
       setEmailAccountStatus(emailStatus);
       setMsMailStatus(microsoftStatus);
       setImapMailStatus(imapStatus);
+      setMailOrganizeLog(cleanupLog);
       setWhatsappStatus(waStatus);
       return;
     }
 
     if (screenName === "Setup") {
       const payload = await getSetupStatus();
+      const privacyPayload = await getPrivacy().catch(() => null);
       const policies = await getAccountPolicies().catch(() => null);
       const calendarStatus = await getCalendarAccountStatus().catch(() => null);
       const emailStatus = await getEmailAccountStatus().catch(() => null);
       const microsoftStatus = await getMsMailStatus().catch(() => null);
       const imapStatus = await getImapMailStatus().catch(() => null);
+      const cleanupLog = await getMailOrganizeLog().catch(() => null);
       const microsoftInbox = await getUnifiedMailMessages(10, null, false, msMailIncludeAll).catch(() => null);
       const whatsappNotesPayload = await getWhatsAppAgentNotes().catch(() => null);
       setSetupStatus(payload);
+      setPrivacy(privacyPayload);
       setAccountPolicies(policies);
       setCalendarAccountStatus(calendarStatus);
       setEmailAccountStatus(emailStatus);
       setMsMailStatus(microsoftStatus);
       setImapMailStatus(imapStatus);
+      setMailOrganizeLog(cleanupLog);
       setMsMailInbox(microsoftInbox);
       setEmailAgentNotes(emailStatus?.agent_notes || "");
       setWhatsappAgentNotes(whatsappNotesPayload?.agent_notes || "");
@@ -1606,6 +1619,55 @@ export default function App() {
     }
   };
 
+  const handleActivateMailOrganize = async () => {
+    setActionBusy(true);
+    setMailOrganizeResult("");
+    try {
+      const result = await activateMailOrganize({
+        approval_token: mailOrganizeToken.trim(),
+        scanner_smoke_passed: true,
+        execute_write: true,
+      });
+      setMailOrganizeResult(result?.message || "Gmail-Aufraeumen geprueft.");
+      setMailOrganizeLog(await getMailOrganizeLog());
+      await refreshActive();
+    } catch (err) {
+      setMailOrganizeResult(`Gmail-Aufraeumen blockiert: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleRunMailOrganize = async () => {
+    setActionBusy(true);
+    setMailOrganizeResult("");
+    try {
+      const result = await runMailOrganize({ top: 25, dry_run: false });
+      setMailOrganizeResult(`${result?.moved_count || 0} Mail(s) nach Friday/Aussortiert verschoben.`);
+      setMailOrganizeLog(await getMailOrganizeLog());
+      await refreshActive();
+    } catch (err) {
+      setMailOrganizeResult(`Gmail-Aufraeumen blockiert: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleUndoMailOrganize = async (logId) => {
+    setActionBusy(true);
+    setMailOrganizeResult("");
+    try {
+      const result = await undoMailOrganize(logId);
+      setMailOrganizeResult(result?.message || "Mail wurde zurueckgeholt.");
+      setMailOrganizeLog(await getMailOrganizeLog());
+      await refreshActive();
+    } catch (err) {
+      setMailOrganizeResult(`Rueckgaengig blockiert: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const handleSyncImapMail = async (accountId = null) => {
     const selectedAccountId = typeof accountId === "string" ? accountId : null;
     setActionBusy(true);
@@ -1619,6 +1681,7 @@ export default function App() {
       setImapMailResult(`Gmail-Sync${label} fertig: ${result?.stored_count || 0} Mail-Vorschauen lokal aktualisiert.`);
       setMsMailInbox(await getUnifiedMailMessages(10, null, false, msMailIncludeAll));
       setImapMailStatus(await getImapMailStatus());
+      setMailOrganizeLog(await getMailOrganizeLog());
       await refreshActive();
     } catch (err) {
       setImapMailResult(`Gmail-Sync blockiert: ${normalizeApiError(err)}`);
@@ -3755,6 +3818,57 @@ export default function App() {
             {!!calendarActivationResult && (
               <Text style={styles.approvalResultText}>{calendarActivationResult}</Text>
             )}
+          </View>
+
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Posteingang aufraeumen (Gmail)</Text>
+              <Chip
+                label={privacy?.external_services?.mail_organize ? "aktiv" : "aus"}
+                color={privacy?.external_services?.mail_organize ? colors.warn : colors.textSoft}
+              />
+            </View>
+            <Text style={styles.cardBody}>
+              Friday verschiebt nur offensichtliche Gmail-Noise-Mails reversibel nach Friday/Aussortiert.
+              Es wird nichts geloescht und nichts gesendet.
+            </Text>
+            <TextInput
+              value={mailOrganizeToken}
+              onChangeText={setMailOrganizeToken}
+              style={styles.input}
+              placeholder="POSTFACH AUFRAEUMEN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <View style={styles.row}>
+              <ActionButton
+                label="Aufraeumen aktivieren"
+                onPress={handleActivateMailOrganize}
+                disabled={actionBusy || mailOrganizeToken.trim() !== "POSTFACH AUFRAEUMEN"}
+              />
+              <ActionButton
+                label="Jetzt aufraeumen"
+                onPress={handleRunMailOrganize}
+                disabled={actionBusy || !privacy?.external_services?.mail_organize}
+              />
+            </View>
+            {!!mailOrganizeResult && <Text style={styles.approvalResultText}>{mailOrganizeResult}</Text>}
+            {isArray(mailOrganizeLog?.items).slice(0, 5).map((entry) => (
+              <View key={entry.id} style={styles.cardCompact}>
+                <Text style={styles.cardMeta}>{entry.sender || "Unbekannter Absender"}</Text>
+                <Text style={styles.cardBody}>{entry.subject || "Ohne Betreff"}</Text>
+                <Text style={styles.forwardSafety}>
+                  Label: {entry.to_label} / Rueckgaengig: {entry.undone ? "ja" : "nein"}
+                </Text>
+                {!entry.undone && (
+                  <ActionButton
+                    label="Zurueck in Posteingang"
+                    onPress={() => handleUndoMailOrganize(entry.id)}
+                    disabled={actionBusy || !privacy?.external_services?.mail_organize}
+                  />
+                )}
+              </View>
+            ))}
           </View>
 
           <View style={styles.card}>
