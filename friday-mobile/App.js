@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useFonts } from "expo-font";
+import * as SplashScreen from "expo-splash-screen";
 import * as Updates from "expo-updates";
 import {
   ActivityIndicator,
@@ -17,6 +19,7 @@ import {
   useColorScheme,
   View,
 } from "react-native";
+import Svg, { Circle, Line, Path, Polyline } from "react-native-svg";
 
 import {
   approveMessageSuggestion,
@@ -73,6 +76,7 @@ import {
   runMailOrganize,
   syncImapMailMessages,
   syncMsMailMessages,
+  syncWorkdaysToGoogle,
   markMessageSpam,
   sendTaskForwardEmail,
   testEmailAccountConnection,
@@ -87,23 +91,25 @@ import {
   updateWhatsAppAgentNotes,
 } from "./src/api/client";
 
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
 const bottomTabs = [
-  { key: "Home", label: "Home", icon: "⌂" },
-  { key: "Kalender", label: "Kalender", icon: "▦" },
-  { key: "Tasks", label: "Aufgaben", icon: "✓" },
-  { key: "Nachrichten", label: "Posteingang", icon: "✉" },
-  { key: "Mehr", label: "Mehr", icon: "•••" },
+  { key: "Home", label: "Home", icon: "home" },
+  { key: "Kalender", label: "Kalender", icon: "calendar" },
+  { key: "Tasks", label: "Aufgaben", icon: "check" },
+  { key: "Nachrichten", label: "Posteingang", icon: "mail" },
+  { key: "Mehr", label: "Mehr", icon: "more" },
 ];
 
 const moreScreens = [
-  { key: "Kontakte", label: "Kontakte", description: "Personen, Kunden und Notizen", icon: "☺" },
-  { key: "Lernen", label: "Lernen", description: "Offene Fragen und gelernte Regeln", icon: "?" },
-  { key: "Setup", label: "Einrichten", description: "Konten, lokale KI und Verbindungen", icon: "⚙" },
-  { key: "Datenschutz", label: "Datenschutz", description: "Safety-Status und lokale Grenzen", icon: "◉" },
-  { key: "Spam", label: "Spam / Blockiert", description: "Lokal blockierte Absender", icon: "!" },
+  { key: "Kontakte", label: "Kontakte", description: "Personen, Kunden und Notizen", icon: "contacts" },
+  { key: "Lernen", label: "Lernen", description: "Offene Fragen und gelernte Regeln", icon: "learning" },
+  { key: "Setup", label: "Einrichten", description: "Konten, lokale KI und Verbindungen", icon: "settings" },
+  { key: "Datenschutz", label: "Datenschutz", description: "Safety-Status und lokale Grenzen", icon: "privacy" },
+  { key: "Spam", label: "Spam / Blockiert", description: "Lokal blockierte Absender", icon: "alert" },
 ];
 
-const colors = {
+const lightColors = {
   bg: "#f6f1e4",
   bgWash: "#efe3ce",
   surface: "#fdfaf1",
@@ -157,13 +163,78 @@ const darkColors = {
   white: "#273322",
 };
 
-const softShadow = {
-  shadowColor: colors.deep,
-  shadowOffset: { width: 0, height: 3 },
-  shadowOpacity: 0.08,
-  shadowRadius: 10,
-  elevation: 2,
+let colors = lightColors;
+
+const figtreeFonts = {
+  Figtree_400Regular: require("@expo-google-fonts/figtree/400Regular/Figtree_400Regular.ttf"),
+  Figtree_500Medium: require("@expo-google-fonts/figtree/500Medium/Figtree_500Medium.ttf"),
+  Figtree_600SemiBold: require("@expo-google-fonts/figtree/600SemiBold/Figtree_600SemiBold.ttf"),
+  Figtree_700Bold: require("@expo-google-fonts/figtree/700Bold/Figtree_700Bold.ttf"),
+  Figtree_800ExtraBold: require("@expo-google-fonts/figtree/800ExtraBold/Figtree_800ExtraBold.ttf"),
 };
+
+const defaultTextStyle = { fontFamily: "Figtree_400Regular" };
+Text.defaultProps = Text.defaultProps || {};
+Text.defaultProps.style = [defaultTextStyle, Text.defaultProps.style].filter(Boolean);
+TextInput.defaultProps = TextInput.defaultProps || {};
+TextInput.defaultProps.style = [defaultTextStyle, TextInput.defaultProps.style].filter(Boolean);
+
+const fontFamilyForWeight = (fontWeight) => {
+  const weight = Number(String(fontWeight || "400").replace(/\D/g, "")) || 400;
+  if (weight >= 800) return "Figtree_800ExtraBold";
+  if (weight >= 700) return "Figtree_700Bold";
+  if (weight >= 600) return "Figtree_600SemiBold";
+  if (weight >= 500) return "Figtree_500Medium";
+  return "Figtree_400Regular";
+};
+
+const withFigtreeFonts = (styleMap) =>
+  Object.fromEntries(
+    Object.entries(styleMap).map(([key, value]) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return [key, value];
+      }
+      const isTextStyle =
+        Object.prototype.hasOwnProperty.call(value, "fontSize") ||
+        Object.prototype.hasOwnProperty.call(value, "fontWeight") ||
+        key.toLowerCase().includes("text") ||
+        key.toLowerCase().includes("label") ||
+        key.toLowerCase().includes("title") ||
+        key.toLowerCase().includes("heading") ||
+        key.toLowerCase().includes("body") ||
+        key.toLowerCase().includes("meta");
+      if (!isTextStyle) {
+        return [key, value];
+      }
+      const numericWeight = Number(String(value.fontWeight || "400").replace(/\D/g, "")) || 400;
+      const normalizedWeight =
+        numericWeight >= 800
+          ? "800"
+          : numericWeight >= 700
+            ? "700"
+            : numericWeight >= 600
+              ? "600"
+              : numericWeight >= 500
+                ? "500"
+                : "400";
+      return [
+        key,
+        {
+          ...value,
+          fontWeight: normalizedWeight,
+          fontFamily: fontFamilyForWeight(value.fontWeight),
+        },
+      ];
+    }),
+  );
+
+const createSoftShadow = (theme) => ({
+  shadowColor: theme.deep,
+  shadowOffset: { width: 0, height: 3 },
+  shadowOpacity: 0.06,
+  shadowRadius: 16,
+  elevation: 2,
+});
 
 const formatDate = (value) => {
   if (!value) {
@@ -216,6 +287,89 @@ const addDays = (date, days) => {
   next.setDate(next.getDate() + days);
   return next;
 };
+
+// Wochenkalender-Helfer: Stunden aus "HH:MM" oder ISO-Zeiten robust ableiten.
+const extractHourValue = (value) => {
+  const match = String(value || "").match(/(\d{1,2}):(\d{2})/);
+  if (!match) {
+    return null;
+  }
+  return Number(match[1]) + Number(match[2]) / 60;
+};
+
+const eventDurationHours = (entry) => {
+  const start = extractHourValue(entry?.start || entry?.start_time);
+  const end = extractHourValue(entry?.end || entry?.end_time);
+  if (start === null || end === null) {
+    return 0;
+  }
+  const diff = end - start;
+  return diff > 0 ? diff : 0;
+};
+
+const eventDateKey = (entry) => {
+  const explicit = String(entry?.date || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(explicit)) {
+    return explicit;
+  }
+  const fromStart = String(entry?.start || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(fromStart)) {
+    return fromStart;
+  }
+  return "";
+};
+
+const eventTimeLabel = (entry) => {
+  const match = String(entry?.start || entry?.start_time || "").match(/(\d{1,2}:\d{2})/);
+  return match ? match[1] : "";
+};
+
+const formatHoursLabel = (hours) => {
+  const rounded = Math.round(Number(hours || 0) * 10) / 10;
+  return `${String(rounded).replace(".", ",")} h`;
+};
+
+// Rollierendes Wochenfenster: heute + 7 Tage einschließlich (Mi -> nächster Mi).
+const buildWeekDays = (calendarPayload, googlePreview) => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const events = [
+    ...isArray(calendarPayload?.merged_items || calendarPayload?.items || calendarPayload?.calendar_items || []),
+    ...isArray(googlePreview?.events),
+  ];
+  const seen = new Set();
+  const byDay = {};
+  events.forEach((entry) => {
+    const key = eventDateKey(entry);
+    if (!key) {
+      return;
+    }
+    const dedupKey = `${key}|${String(entry?.title || "").trim().toLowerCase()}|${extractHourValue(entry?.start)}`;
+    if (seen.has(dedupKey)) {
+      return;
+    }
+    seen.add(dedupKey);
+    if (!byDay[key]) {
+      byDay[key] = [];
+    }
+    byDay[key].push(entry);
+  });
+  return Array.from({ length: 8 }, (_, index) => {
+    const day = addDays(start, index);
+    const key = formatDateOnly(day);
+    const dayEvents = (byDay[key] || [])
+      .slice()
+      .sort((a, b) => (extractHourValue(a?.start) ?? 0) - (extractHourValue(b?.start) ?? 0));
+    const hours = dayEvents.reduce((sum, entry) => sum + eventDurationHours(entry), 0);
+    return { key, date: day, events: dayEvents, hours };
+  });
+};
+
+const weekdayLabel = (date) =>
+  date.toLocaleDateString("de-DE", { weekday: "short" }).replace(".", "");
+
+const shortDateLabel = (date) =>
+  `${padDatePart(date.getDate())}.${padDatePart(date.getMonth() + 1)}.`;
 
 const defaultCalendarViewPrefs = {
   range_preset: "heute",
@@ -442,16 +596,161 @@ const todayLabel = () =>
     month: "long",
   });
 
+function LineIcon({ name, size = 21, color = colors.muted }) {
+  const common = {
+    stroke: color,
+    strokeWidth: 2,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    fill: "none",
+  };
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityRole="image">
+      {name === "home" && (
+        <>
+          <Path d="M3 11.5 12 4l9 7.5" {...common} />
+          <Path d="M5.5 10.5V20h13v-9.5" {...common} />
+          <Path d="M9.5 20v-5h5v5" {...common} />
+        </>
+      )}
+      {name === "calendar" && (
+        <>
+          <Path d="M5 5h14a2 2 0 0 1 2 2v12H3V7a2 2 0 0 1 2-2Z" {...common} />
+          <Line x1="8" y1="3" x2="8" y2="7" {...common} />
+          <Line x1="16" y1="3" x2="16" y2="7" {...common} />
+          <Line x1="3" y1="10" x2="21" y2="10" {...common} />
+        </>
+      )}
+      {name === "check" && <Polyline points="5 12.5 10 17.5 19 7" {...common} />}
+      {name === "mail" && (
+        <>
+          <Path d="M4 6h16v12H4Z" {...common} />
+          <Path d="m4 7 8 6 8-6" {...common} />
+        </>
+      )}
+      {name === "more" && (
+        <>
+          <Circle cx="6" cy="12" r="1.4" fill={color} />
+          <Circle cx="12" cy="12" r="1.4" fill={color} />
+          <Circle cx="18" cy="12" r="1.4" fill={color} />
+        </>
+      )}
+      {name === "contacts" && (
+        <>
+          <Circle cx="9" cy="8" r="3" {...common} />
+          <Path d="M3.5 20a5.5 5.5 0 0 1 11 0" {...common} />
+          <Path d="M17 9a2.5 2.5 0 0 1 0 5" {...common} />
+          <Path d="M18.5 20a4 4 0 0 0-2.5-3.7" {...common} />
+        </>
+      )}
+      {name === "learning" && (
+        <>
+          <Path d="M6 4h9.5A2.5 2.5 0 0 1 18 6.5V20H7a3 3 0 0 1-3-3V6a2 2 0 0 1 2-2Z" {...common} />
+          <Path d="M8 8h6" {...common} />
+          <Path d="M8 12h5" {...common} />
+        </>
+      )}
+      {name === "settings" && (
+        <>
+          <Circle cx="12" cy="12" r="3" {...common} />
+          <Path d="M19.4 15a8.2 8.2 0 0 0 .1-6l-2.1-.4-1-1.7.7-2A8.2 8.2 0 0 0 11 3l-1.3 1.6H7.8L6.5 3.1A8.2 8.2 0 0 0 3.4 8l1.3 1.6-.1 1.9L3.2 13a8.2 8.2 0 0 0 3 5.3l2-.7 1.7 1 .4 2.1a8.2 8.2 0 0 0 6-1l-.4-2.2 1-1.6Z" {...common} />
+        </>
+      )}
+      {name === "privacy" && (
+        <>
+          <Path d="M12 3 19 6v5c0 4.5-2.8 7.7-7 10-4.2-2.3-7-5.5-7-10V6Z" {...common} />
+          <Path d="m9 12 2 2 4-5" {...common} />
+        </>
+      )}
+      {name === "alert" && (
+        <>
+          <Path d="M12 4 21 20H3Z" {...common} />
+          <Line x1="12" y1="9" x2="12" y2="13" {...common} />
+          <Circle cx="12" cy="17" r="1" fill={color} />
+        </>
+      )}
+      {name === "lightbulb" && (
+        <>
+          <Path d="M9 18h6" {...common} />
+          <Path d="M10 22h4" {...common} />
+          <Path d="M8 14a6 6 0 1 1 8 0c-.8.7-1 1.5-1 2H9c0-.5-.2-1.3-1-2Z" {...common} />
+        </>
+      )}
+      {name === "clock" && (
+        <>
+          <Circle cx="12" cy="12" r="8" {...common} />
+          <Path d="M12 8v5l3 2" {...common} />
+        </>
+      )}
+    </Svg>
+  );
+}
 
+function ToggleSwitch({ enabled }) {
+  return (
+    <View style={[styles.toggleSwitch, enabled && styles.toggleSwitchOn]}>
+      <View style={[styles.toggleKnob, enabled && styles.toggleKnobOn]} />
+    </View>
+  );
+}
+
+function PrivacyStatusPill({ active, inactiveLabel = "AUS" }) {
+  const label = active ? "AKTIV" : inactiveLabel;
+  return (
+    <View style={[styles.privacyStatusPill, active && styles.privacyStatusPillWarn]}>
+      <Text style={[styles.privacyStatusText, active && styles.privacyStatusTextWarn]}>{label}</Text>
+    </View>
+  );
+}
+
+function ListRow({ children, style }) {
+  return <View style={[styles.listRow, style]}>{children}</View>;
+}
+
+
+// Konzept A "Kompasspunkt": Ring + Mittelpunkt + Orbit-Punkt (siehe assets/icon.png).
 function LogoMark({ size = 48 }) {
   const scale = size / 48;
+  const ring = 32 * scale;
+  const ringBorder = Math.max(2, 3.4 * scale);
+  const core = 9 * scale;
+  const orbit = 8.5 * scale;
+  const center = size / 2;
+  const diag = (ring / 2) * 0.707; // 45°-Position oben rechts auf dem Ring
   return (
     <View style={[styles.logoMark, { width: size, height: size, borderRadius: 17 * scale }]}>
-      <View style={[styles.logoHalo, { width: 30 * scale, height: 30 * scale, borderRadius: 15 * scale }]} />
-      <View style={[styles.logoLeaf, { width: 17 * scale, height: 27 * scale, borderRadius: 10 * scale }]} />
-      <View style={[styles.logoNeedle, { width: 5 * scale, height: 24 * scale, borderRadius: 3 * scale }]} />
-      <View style={[styles.logoHome, { width: 15 * scale, height: 12 * scale, borderRadius: 5 * scale }]} />
-      <View style={[styles.logoCore, { width: 7 * scale, height: 7 * scale, borderRadius: 4 * scale }]} />
+      <View
+        style={{
+          width: ring,
+          height: ring,
+          borderRadius: ring / 2,
+          borderWidth: ringBorder,
+          borderColor: colors.cream,
+          backgroundColor: "transparent",
+        }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          width: core,
+          height: core,
+          borderRadius: core / 2,
+          backgroundColor: colors.cream,
+          left: center - core / 2,
+          top: center - core / 2,
+        }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          width: orbit,
+          height: orbit,
+          borderRadius: orbit / 2,
+          backgroundColor: colors.cream,
+          left: center + diag - orbit / 2,
+          top: center - diag - orbit / 2,
+        }}
+      />
     </View>
   );
 }
@@ -480,10 +779,10 @@ function ActionButton({ label, onPress, disabled, variant = "primary", small }) 
 }
 
 function Chip({ label, color }) {
+  const chipColor = color || colors.accentStrong;
   return (
-    <View style={[styles.chip, { backgroundColor: `${color}1f` }]}>
-      <View style={[styles.chipDot, { backgroundColor: color }]} />
-      <Text style={[styles.chipText, { color }]}>{label}</Text>
+    <View style={[styles.chip, { backgroundColor: `${chipColor}1f` }]}>
+      <Text style={[styles.chipText, { color: chipColor }]}>{String(label || "").toUpperCase()}</Text>
     </View>
   );
 }
@@ -512,7 +811,7 @@ function Card({ children, onPress, style }) {
 }
 
 function ReadOnlyChip({ label }) {
-  return <Chip label={`● ${label}`} color={colors.textSoft} />;
+  return <Chip label={label} color={colors.textSoft} />;
 }
 
 function RelevanceFilterBar({ includeAll, onToggle }) {
@@ -581,7 +880,7 @@ function SectionTitle({ children }) {
 function EmptyState({ icon, text }) {
   return (
     <View style={styles.empty}>
-      <Text style={styles.emptyIcon}>{icon}</Text>
+      <LineIcon name={icon} size={21} color={colors.textSoft} />
       <Text style={styles.emptyText}>{text}</Text>
     </View>
   );
@@ -589,18 +888,29 @@ function EmptyState({ icon, text }) {
 
 function StatCard({ label, value, tint }) {
   return (
-    <View style={[styles.statCard, { borderTopColor: tint }]}>
+    <View style={[styles.statCard, { borderLeftColor: tint }]}>
       <Text style={[styles.statValue, { color: tint }]}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
 }
 
+function Avatar({ name }) {
+  const initial = (String(name || "?").trim().charAt(0) || "?").toUpperCase();
+  return (
+    <View style={styles.avatar}>
+      <Text style={styles.avatarText}>{initial}</Text>
+    </View>
+  );
+}
+
 export default function App() {
+  const [fontsLoaded, fontLoadError] = useFonts(figtreeFonts);
   const [active, setActive] = useState("Home");
   const [moreScreen, setMoreScreen] = useState("");
   const [tokenModal, setTokenModal] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadProgress, setLoadProgress] = useState({ done: 0, total: 0 });
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [updateStatus, setUpdateStatus] = useState("Update: prüfe…");
@@ -611,6 +921,7 @@ export default function App() {
   const [messageSuggestions, setMessageSuggestions] = useState([]);
   const [taskSuggestions, setTaskSuggestions] = useState([]);
   const [calendar, setCalendar] = useState(null);
+  const [weekCalendar, setWeekCalendar] = useState(null);
   const [calendarViewPrefs, setCalendarViewPrefs] = useState(defaultCalendarViewPrefs);
   const [calendarPrefsResult, setCalendarPrefsResult] = useState("");
   const [googleCalendarPreview, setGoogleCalendarPreview] = useState(null);
@@ -706,9 +1017,14 @@ export default function App() {
   const [calendarWriteResult, setCalendarWriteResult] = useState("");
   const [calendarDeleteTokens, setCalendarDeleteTokens] = useState({});
   const [calendarDeleteResult, setCalendarDeleteResult] = useState("");
+  const [workdaySyncToken, setWorkdaySyncToken] = useState("");
+  const [workdaySyncResult, setWorkdaySyncResult] = useState("");
+  const [workdaySyncPreview, setWorkdaySyncPreview] = useState(null);
   const [actionBusy, setActionBusy] = useState(false);
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === "dark";
+  colors = isDarkMode ? darkColors : lightColors;
+  styles = createStyles(colors);
   const currentScreen = active === "Mehr" && moreScreen ? moreScreen : active;
   const openLearningCount = Number(learning?.open_count || isArray(learning?.open_questions).length || 0);
   const connectionKind = getApiUrl().includes("100.") ? "Tailscale" : "LAN";
@@ -736,12 +1052,34 @@ export default function App() {
     setMoreScreen("");
   };
 
+  useEffect(() => {
+    if (fontsLoaded || fontLoadError) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsLoaded, fontLoadError]);
+
   const openTokenModal = ({ title, explanation, expectedToken, onConfirm }) => {
     setTokenModal({ title, explanation, expectedToken, onConfirm });
   };
 
 
   const updateCheckInFlight = useRef(false);
+  const progressTotalRef = useRef(0);
+
+  // Ladefortschritt: zählt abgeschlossene API-Calls pro Screen-Ladevorgang,
+  // damit der Ladebalken echten Fortschritt zeigt (hängt vs. lädt).
+  const beginProgress = (total) => {
+    progressTotalRef.current = total;
+    setLoadProgress({ done: 0, total });
+  };
+
+  const tracked = (promise) =>
+    promise.finally(() => {
+      setLoadProgress((current) => ({
+        ...current,
+        done: Math.min(current.done + 1, progressTotalRef.current),
+      }));
+    });
 
   useEffect(() => {
     let isMounted = true;
@@ -844,15 +1182,18 @@ export default function App() {
     };
   }, [active, moreScreen]);
 
+  // Alle Screen-Daten parallel laden: jede Anfrage meldet ihren Abschluss an den
+  // Ladebalken. Vorher liefen z.B. im Setup-Screen 10 Anfragen nacheinander.
   const loadScreenData = async (screenName) => {
     if (screenName === "Home") {
       const homePrefs = { ...defaultCalendarViewPrefs, range_preset: "heute", day_start: "06:00", day_end: "22:00" };
+      beginProgress(5);
       const [dashboardPayload, taskPayload, calendarPayload, learningPayload, msMailPayload] = await Promise.all([
-        getDashboard().catch(() => null),
-        getTasks().catch(() => []),
-        getCalendar(resolveCalendarViewQuery(homePrefs)).catch(() => null),
-        getLearning().catch(() => null),
-        getUnifiedMailMessages(5).catch(() => ({ items: [] })),
+        tracked(getDashboard().catch(() => null)),
+        tracked(getTasks().catch(() => [])),
+        tracked(getCalendar(resolveCalendarViewQuery(homePrefs)).catch(() => null)),
+        tracked(getLearning().catch(() => null)),
+        tracked(getUnifiedMailMessages(5).catch(() => ({ items: [] }))),
       ]);
       setDashboard(dashboardPayload);
       setTasks(isArray(taskPayload));
@@ -863,42 +1204,54 @@ export default function App() {
     }
 
     if (screenName === "Mehr") {
-      const payload = await getLearning().catch(() => null);
+      beginProgress(1);
+      const payload = await tracked(getLearning().catch(() => null));
       setLearning(payload);
       return;
     }
 
     if (screenName === "Dashboard") {
-      const payload = await getDashboard();
+      beginProgress(1);
+      const payload = await tracked(getDashboard());
       setDashboard(payload);
       return;
     }
 
     if (screenName === "Tasks") {
-      const payload = await getTasks();
+      beginProgress(1);
+      const payload = await tracked(getTasks());
       setTasks(isArray(payload));
       return;
     }
 
     if (screenName === "Nachrichten") {
-      const messagePayload = await getMessages();
-      const suggestions = await getMessageSuggestions();
-      const inbox = await getEmailInbox(10).catch((err) => ({
-        connected: false,
-        items: [],
-        message: normalizeApiError(err),
-      }));
-      const msInbox = await getUnifiedMailMessages(10, null, false, msMailIncludeAll).catch((err) => ({
-        items: [],
-        status: { connected: false, read_enabled: false },
-        message: normalizeApiError(err),
-      }));
-      const whatsapp = await getWhatsAppMessages(10).catch((err) => ({
-        items: [],
-        status: { read_enabled: false, connected: false },
-        message: normalizeApiError(err),
-      }));
-      const contactPayload = await getContacts().catch(() => []);
+      beginProgress(6);
+      const [messagePayload, suggestions, inbox, msInbox, whatsapp, contactPayload] = await Promise.all([
+        tracked(getMessages()),
+        tracked(getMessageSuggestions()),
+        tracked(
+          getEmailInbox(10).catch((err) => ({
+            connected: false,
+            items: [],
+            message: normalizeApiError(err),
+          })),
+        ),
+        tracked(
+          getUnifiedMailMessages(10, null, false, msMailIncludeAll).catch((err) => ({
+            items: [],
+            status: { connected: false, read_enabled: false },
+            message: normalizeApiError(err),
+          })),
+        ),
+        tracked(
+          getWhatsAppMessages(10).catch((err) => ({
+            items: [],
+            status: { read_enabled: false, connected: false },
+            message: normalizeApiError(err),
+          })),
+        ),
+        tracked(getContacts().catch(() => [])),
+      ]);
       const list = messagePayload?.items || [];
       setMessages(isArray(list));
       setMessageSuggestions(isArray(suggestions?.message_suggestions));
@@ -912,10 +1265,13 @@ export default function App() {
     }
 
     if (screenName === "Spam") {
-      const blocked = await getBlockedSenders().catch(() => ({ items: [] }));
-      const messagePayload = await getMessages(true).catch(() => ({ items: [] }));
-      const msInbox = await getUnifiedMailMessages(50, null, true).catch(() => ({ items: [] }));
-      const whatsapp = await getWhatsAppMessages(50, true).catch(() => ({ items: [] }));
+      beginProgress(4);
+      const [blocked, messagePayload, msInbox, whatsapp] = await Promise.all([
+        tracked(getBlockedSenders().catch(() => ({ items: [] }))),
+        tracked(getMessages(true).catch(() => ({ items: [] }))),
+        tracked(getUnifiedMailMessages(50, null, true).catch(() => ({ items: [] }))),
+        tracked(getWhatsAppMessages(50, true).catch(() => ({ items: [] }))),
+      ]);
       setBlockedSenders(isArray(blocked?.items));
       setSpamMessages({
         messages: isArray(messagePayload?.items).filter((item) => Number(item?.is_spam || 0) === 1),
@@ -926,33 +1282,53 @@ export default function App() {
     }
 
     if (screenName === "Kalender") {
-      const prefs = await getCalendarViewPrefs().catch(() => defaultCalendarViewPrefs);
+      beginProgress(5);
+      const prefs = await tracked(getCalendarViewPrefs().catch(() => defaultCalendarViewPrefs));
       const normalizedPrefs = { ...defaultCalendarViewPrefs, ...(prefs || {}) };
-      const payload = await getCalendar(resolveCalendarViewQuery(normalizedPrefs));
-      const calendarStatus = await getCalendarAccountStatus().catch(() => null);
+      // Wochenkalender: immer heute + 7 Tage, unabhängig von der gespeicherten Ansicht.
+      const weekToday = new Date();
+      const weekStart = new Date(weekToday.getFullYear(), weekToday.getMonth(), weekToday.getDate());
+      const [payload, weekPayload, calendarStatus] = await Promise.all([
+        tracked(getCalendar(resolveCalendarViewQuery(normalizedPrefs))),
+        tracked(
+          getCalendar({
+            range_start: formatDateOnly(weekStart),
+            range_end: formatDateOnly(addDays(weekStart, 7)),
+            day_start: "00:00",
+            day_end: "23:59",
+          }).catch(() => null),
+        ),
+        tracked(getCalendarAccountStatus().catch(() => null)),
+      ]);
       let googlePreview = null;
       if (calendarStatus?.google?.connected) {
         const { rangeStart, rangeEnd } = buildGoogleCalendarRange(30);
-        googlePreview = await getGoogleCalendarReadPreview(rangeStart, rangeEnd).catch((err) => ({
-          ok: false,
-          read_only: true,
-          write_enabled: false,
-          real_calendar_enabled: false,
-          events: [],
-          message: normalizeApiError(err),
-          blocked_reasons: ["google_calendar_read_failed"],
-          external_call_used: true,
-        }));
+        googlePreview = await tracked(
+          getGoogleCalendarReadPreview(rangeStart, rangeEnd).catch((err) => ({
+            ok: false,
+            read_only: true,
+            write_enabled: false,
+            real_calendar_enabled: false,
+            events: [],
+            message: normalizeApiError(err),
+            blocked_reasons: ["google_calendar_read_failed"],
+            external_call_used: true,
+          })),
+        );
+      } else {
+        await tracked(Promise.resolve());
       }
       setCalendarViewPrefs(normalizedPrefs);
       setCalendar(payload);
+      setWeekCalendar(weekPayload);
       setCalendarAccountStatus(calendarStatus);
       setGoogleCalendarPreview(googlePreview);
       return;
     }
 
     if (screenName === "Kontakte") {
-      const payload = await getContacts();
+      beginProgress(1);
+      const payload = await tracked(getContacts());
       setContacts(isArray(payload));
       setContactNotesDrafts(
         Object.fromEntries(isArray(payload).map((contact) => [contact.id, contact.notes || ""]))
@@ -961,19 +1337,23 @@ export default function App() {
     }
 
     if (screenName === "Lernen") {
-      const payload = await getLearning();
+      beginProgress(1);
+      const payload = await tracked(getLearning());
       setLearning(payload);
       setLearningResult("");
       return;
     }
 
     if (screenName === "Datenschutz") {
-      const payload = await getPrivacy();
-      const emailStatus = await getEmailAccountStatus().catch(() => null);
-      const microsoftStatus = await getMsMailStatus().catch(() => null);
-      const imapStatus = await getImapMailStatus().catch(() => null);
-      const cleanupLog = await getMailOrganizeLog().catch(() => null);
-      const waStatus = await getWhatsAppStatus().catch(() => null);
+      beginProgress(6);
+      const [payload, emailStatus, microsoftStatus, imapStatus, cleanupLog, waStatus] = await Promise.all([
+        tracked(getPrivacy()),
+        tracked(getEmailAccountStatus().catch(() => null)),
+        tracked(getMsMailStatus().catch(() => null)),
+        tracked(getImapMailStatus().catch(() => null)),
+        tracked(getMailOrganizeLog().catch(() => null)),
+        tracked(getWhatsAppStatus().catch(() => null)),
+      ]);
       setPrivacy(payload);
       setEmailAccountStatus(emailStatus);
       setMsMailStatus(microsoftStatus);
@@ -984,16 +1364,30 @@ export default function App() {
     }
 
     if (screenName === "Setup") {
-      const payload = await getSetupStatus();
-      const privacyPayload = await getPrivacy().catch(() => null);
-      const policies = await getAccountPolicies().catch(() => null);
-      const calendarStatus = await getCalendarAccountStatus().catch(() => null);
-      const emailStatus = await getEmailAccountStatus().catch(() => null);
-      const microsoftStatus = await getMsMailStatus().catch(() => null);
-      const imapStatus = await getImapMailStatus().catch(() => null);
-      const cleanupLog = await getMailOrganizeLog().catch(() => null);
-      const microsoftInbox = await getUnifiedMailMessages(10, null, false, msMailIncludeAll).catch(() => null);
-      const whatsappNotesPayload = await getWhatsAppAgentNotes().catch(() => null);
+      beginProgress(10);
+      const [
+        payload,
+        privacyPayload,
+        policies,
+        calendarStatus,
+        emailStatus,
+        microsoftStatus,
+        imapStatus,
+        cleanupLog,
+        microsoftInbox,
+        whatsappNotesPayload,
+      ] = await Promise.all([
+        tracked(getSetupStatus()),
+        tracked(getPrivacy().catch(() => null)),
+        tracked(getAccountPolicies().catch(() => null)),
+        tracked(getCalendarAccountStatus().catch(() => null)),
+        tracked(getEmailAccountStatus().catch(() => null)),
+        tracked(getMsMailStatus().catch(() => null)),
+        tracked(getImapMailStatus().catch(() => null)),
+        tracked(getMailOrganizeLog().catch(() => null)),
+        tracked(getUnifiedMailMessages(10, null, false, msMailIncludeAll).catch(() => null)),
+        tracked(getWhatsAppAgentNotes().catch(() => null)),
+      ]);
       setSetupStatus(payload);
       setPrivacy(privacyPayload);
       setAccountPolicies(policies);
@@ -1327,7 +1721,7 @@ export default function App() {
 
     try {
       await Linking.openURL(forwardDeepLink);
-      const result = "Extern geöffnet — Versand liegt beim Nutzer. Friday hat nichts gesendet.";
+      const result = "Extern geöffnet - Versand liegt beim Nutzer. Friday hat nichts gesendet.";
       setForwardExternalOpenResult(result);
       setForwardAuditPreview((current) =>
         [current, `Status: ${result}`].filter(Boolean).join("\n"),
@@ -1350,7 +1744,7 @@ export default function App() {
         contact_id: forwardContact.id,
         subject: `Aufgabe: ${forwardTask.title || ""}`,
         body: forwardDraft,
-        approval_token: (tokenOverride || forwardApprovalToken).trim(),
+        approval_token: forwardApprovalToken.trim(),
       });
       setForwardExternalOpenResult(
         result?.sent
@@ -1908,6 +2302,43 @@ export default function App() {
     }
   };
 
+  const handlePreviewWorkdaySync = async () => {
+    setActionBusy(true);
+    setWorkdaySyncResult("");
+    try {
+      const result = await syncWorkdaysToGoogle({ dry_run: true, days: 14 });
+      setWorkdaySyncPreview(result);
+      setWorkdaySyncResult(result?.message || "Vorschau geladen.");
+    } catch (err) {
+      setWorkdaySyncPreview(null);
+      setWorkdaySyncResult(`Vorschau fehlgeschlagen: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleRunWorkdaySync = async (tokenOverride) => {
+    setActionBusy(true);
+    setWorkdaySyncResult("");
+    try {
+      const result = await syncWorkdaysToGoogle({
+        dry_run: false,
+        days: 14,
+        approval_token: (tokenOverride || workdaySyncToken).trim(),
+      });
+      setWorkdaySyncPreview(result);
+      setWorkdaySyncResult(result?.message || "Arbeitstage-Sync ausgeführt.");
+      if (isArray(result?.created).length) {
+        setWorkdaySyncToken("");
+        await refreshActive();
+      }
+    } catch (err) {
+      setWorkdaySyncResult(`Eintragen fehlgeschlagen: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const handleCompleteTask = async (taskId) => {
     setActionBusy(true);
     try {
@@ -2032,6 +2463,7 @@ export default function App() {
     const learningCount = openLearningCount;
     return (
       <View>
+        <SectionTitle>Heute</SectionTitle>
         <View style={styles.homeHero}>
           <View style={styles.cardHeader}>
             <View>
@@ -2057,7 +2489,7 @@ export default function App() {
               </View>
             </View>
           ))}
-          {nextEvents.length === 0 && <EmptyState icon="▦" text="Heute ist kein Termin im Filter sichtbar." />}
+          {nextEvents.length === 0 && <EmptyState icon="calendar" text="Heute ist kein Termin im Filter sichtbar." />}
         </Card>
 
         <Card onPress={() => navigateTo("Nachrichten")}>
@@ -2074,7 +2506,7 @@ export default function App() {
               </View>
             </View>
           ))}
-          {relevantMails.length === 0 && <EmptyState icon="✉" text="Keine relevanten Mails geladen." />}
+          {relevantMails.length === 0 && <EmptyState icon="mail" text="Keine relevanten Mails geladen." />}
         </Card>
 
         <Card onPress={() => navigateTo("Tasks")}>
@@ -2088,7 +2520,7 @@ export default function App() {
               <Text style={[styles.cardBody, { flex: 1 }]}>{task.title}</Text>
             </View>
           ))}
-          {dueTasks.length === 0 && <EmptyState icon="✓" text="Keine fälligen Aufgaben für heute." />}
+          {dueTasks.length === 0 && <EmptyState icon="check" text="Keine fälligen Aufgaben für heute." />}
         </Card>
 
         <Card onPress={() => navigateTo("Mehr", "Lernen")}>
@@ -2097,7 +2529,7 @@ export default function App() {
             <Badge value={learningCount} />
           </View>
           <Text style={styles.cardBody}>
-            {learningCount ? `${learningCount} offene Frage(n) — jetzt beantworten.` : "Keine offenen Lernfragen. Friday bleibt bereit."}
+            {learningCount ? `${learningCount} offene Frage(n) - jetzt beantworten.` : "Keine offenen Lernfragen. Friday bleibt bereit."}
           </Text>
         </Card>
       </View>
@@ -2114,7 +2546,9 @@ export default function App() {
           onPress={() => navigateTo("Mehr", item.key)}
           activeOpacity={0.75}
         >
-          <View style={styles.moreIcon}><Text style={styles.moreIconText}>{item.icon}</Text></View>
+          <View style={styles.moreIcon}>
+            <LineIcon name={item.icon} color={colors.accentStrong} />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.cardTitle}>{item.label}</Text>
             <Text style={styles.cardMeta}>{item.description}</Text>
@@ -2150,6 +2584,7 @@ export default function App() {
     if (currentScreen === "Tasks") {
       return (
         <View>
+          <SectionTitle>Aufgabe erfassen</SectionTitle>
           <View style={styles.inputRow}>
             <TextInput
               value={newTaskTitle}
@@ -2160,7 +2595,7 @@ export default function App() {
               onSubmitEditing={handleCreateTask}
               returnKeyType="done"
             />
-            <ActionButton label="＋" onPress={handleCreateTask} disabled={actionBusy} />
+            <ActionButton label="Hinzufügen" onPress={handleCreateTask} disabled={actionBusy} />
           </View>
           <View style={styles.forwardBox}>
             <Text style={styles.forwardLabel}>Weiterleiten an Kollege</Text>
@@ -2168,7 +2603,7 @@ export default function App() {
               value={newTaskForwardTo}
               onChangeText={setNewTaskForwardTo}
               style={styles.input}
-              placeholder="Name eingeben — lokal, kein Versand"
+              placeholder="Name eingeben - lokal, kein Versand"
               placeholderTextColor={colors.textSoft}
               returnKeyType="done"
             />
@@ -2194,8 +2629,8 @@ export default function App() {
                   <Text style={styles.contactChoiceText}>{contact.name || "Unbekannt"}</Text>
                   <Text style={styles.cardMeta}>
                     {contact.contact_type || "work"}
-                    {contact.email_address ? ` • ${contact.email_address}` : ""}
-                    {contact.whatsapp_target ? ` • WhatsApp: ${contact.whatsapp_target}` : ""}
+                    {contact.email_address ? ` | ${contact.email_address}` : ""}
+                    {contact.whatsapp_target ? ` | WhatsApp: ${contact.whatsapp_target}` : ""}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -2295,6 +2730,7 @@ export default function App() {
               <ActionButton small variant="ghost" label="Entwurf schließen" onPress={closeForwardFlow} />
             </View>
           )}
+          <SectionTitle>Offene Aufgaben</SectionTitle>
           {tasks.map((task) => (
             <View key={task.id} style={styles.card}>
               <View style={styles.cardHeader}>
@@ -2302,15 +2738,15 @@ export default function App() {
                 <Chip label={toPriorityLabel(task.priority)} color={priorityColor(task.priority)} />
               </View>
               <Text style={styles.cardMeta}>
-                #{task.id} • {task.category || "allgemein"} • {task.status || "open"}
-                {task.due_date ? ` • fällig ${formatDate(task.due_date)}` : ""}
+                #{task.id} | {task.category || "allgemein"} | {task.status || "open"}
+                {task.due_date ? ` | fällig ${formatDate(task.due_date)}` : ""}
               </Text>
               {!!task.notes && <Text style={styles.cardBody}>{task.notes}</Text>}
               <View style={styles.row}>
                 <ActionButton
                   small
                   variant="success"
-                  label="✓ Erledigt"
+                  label="Erledigt"
                   onPress={() => handleCompleteTask(task.id)}
                   disabled={actionBusy}
                 />
@@ -2338,7 +2774,7 @@ export default function App() {
               </View>
             </View>
           ))}
-          {tasks.length === 0 && <EmptyState icon="✓" text="Alles erledigt — keine Aufgaben offen." />}
+          {tasks.length === 0 && <EmptyState icon="check" text="Alles erledigt - keine Aufgaben offen." />}
         </View>
       );
     }
@@ -2460,7 +2896,7 @@ export default function App() {
               </Text>
             </View>
           )}
-          {messages.length === 0 && <EmptyState icon="✉" text="Keine Nachrichten." />}
+          {messages.length === 0 && <EmptyState icon="mail" text="Keine Nachrichten." />}
           <SectionTitle>E-Mail-Posteingang (nur lesen)</SectionTitle>
           {!emailInbox?.connected && (
             <View style={styles.card}>
@@ -2613,7 +3049,7 @@ export default function App() {
             <View key={suggestion.id} style={styles.card}>
               <View style={styles.cardHeader}>
                 <Text style={styles.cardMeta}>
-                  Nachricht #{suggestion.message_id || "-"} • {suggestion.suggestion_type || "reply"}
+                  Nachricht #{suggestion.message_id || "-"} | {suggestion.suggestion_type || "reply"}
                 </Text>
                 <Chip
                   label={suggestion.status || "offen"}
@@ -2649,7 +3085,7 @@ export default function App() {
                 <Chip label={toPriorityLabel(suggestion.priority)} color={priorityColor(suggestion.priority)} />
               </View>
               <Text style={styles.cardMeta}>
-                Aus Nachricht #{suggestion.message_id || "-"} • {suggestion.status || "offen"}
+                Aus Nachricht #{suggestion.message_id || "-"} | {suggestion.status || "offen"}
               </Text>
               {!!suggestion.notes && <Text style={styles.cardBody}>{suggestion.notes}</Text>}
               <View style={styles.row}>
@@ -2671,7 +3107,7 @@ export default function App() {
             </View>
           ))}
           {messageSuggestions.length === 0 && taskSuggestions.length === 0 && (
-            <EmptyState icon="💡" text="Noch keine Vorschläge." />
+            <EmptyState icon="lightbulb" text="Noch keine Vorschläge." />
           )}
         </View>
       );
@@ -2684,7 +3120,7 @@ export default function App() {
         <View>
           <SectionTitle>Spam / Blockiert</SectionTitle>
           <View style={styles.privacyBanner}>
-            <Text style={styles.privacyBannerIcon}>!</Text>
+            <LineIcon name="alert" color={colors.accentStrong} />
             <Text style={styles.privacyBannerText}>
               Alles hier ist lokal. Friday verschiebt oder löscht nichts im echten Postfach.
             </Text>
@@ -2738,7 +3174,7 @@ export default function App() {
             </View>
           ))}
           {totalSpam === 0 && (
-            <EmptyState icon="!" text="Keine lokalen Spam-Nachrichten." />
+            <EmptyState icon="alert" text="Keine lokalen Spam-Nachrichten." />
           )}
         </View>
       );
@@ -2751,8 +3187,49 @@ export default function App() {
       const sourceEvents = isArray(calendar?.source_events);
       const sourceErrors = isArray(calendar?.source_errors);
       const googleConnected = Boolean(calendarAccountStatus?.google?.connected);
+      const weekDays = buildWeekDays(weekCalendar, googleCalendarPreview);
+      const weekTodayKey = formatDateOnly(new Date());
+      const weekFirst = weekDays[0];
+      const weekLast = weekDays[weekDays.length - 1];
       return (
         <View>
+          <SectionTitle>Wochenkalender</SectionTitle>
+          <Text style={styles.cardMeta}>
+            {weekdayLabel(weekFirst.date)} {shortDateLabel(weekFirst.date)} bis {weekdayLabel(weekLast.date)} {shortDateLabel(weekLast.date)} · verplante Stunden pro Tag
+          </Text>
+          <View style={styles.weekGrid}>
+            {weekDays.map((day) => {
+              const isToday = day.key === weekTodayKey;
+              const visibleEvents = day.events.slice(0, 4);
+              const hiddenCount = day.events.length - visibleEvents.length;
+              return (
+                <View key={day.key} style={[styles.weekTile, isToday && styles.weekTileToday]}>
+                  <View style={styles.weekTileHeader}>
+                    <Text style={[styles.weekTileDay, isToday && styles.weekTileDayToday]}>
+                      {isToday ? "Heute" : weekdayLabel(day.date)}
+                    </Text>
+                    <Text style={styles.weekTileDate}>{shortDateLabel(day.date)}</Text>
+                  </View>
+                  <Text style={[styles.weekTileHours, day.hours === 0 && styles.weekTileHoursFree]}>
+                    {day.hours > 0 ? `${formatHoursLabel(day.hours)} verplant` : "frei"}
+                  </Text>
+                  {visibleEvents.map((entry, index) => (
+                    <Text
+                      key={`${day.key}-event-${index}`}
+                      style={styles.weekTileEvent}
+                      numberOfLines={1}
+                    >
+                      {eventTimeLabel(entry) ? `${eventTimeLabel(entry)} · ` : ""}
+                      {entry.title || entry.summary || "Termin"}
+                    </Text>
+                  ))}
+                  {hiddenCount > 0 && (
+                    <Text style={styles.weekTileMore}>+{hiddenCount} weitere</Text>
+                  )}
+                </View>
+              );
+            })}
+          </View>
           <SectionTitle>Kalenderansicht</SectionTitle>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Zeitraum und Tagesfenster</Text>
@@ -2919,6 +3396,66 @@ export default function App() {
               <Text style={styles.cardBody}>{googleCalendarPreview.message}</Text>
             )}
           </View>
+          <SectionTitle>Arbeitstage nach Google</SectionTitle>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>PH-Arbeitstage eintragen</Text>
+            <Text style={styles.cardBody}>
+              Friday nimmt aus dem team-hampejs-Kalender nur die PH/Philip/Phips-Einträge und trägt
+              sie immer als Block 08:00-18:00 in deinen Google-Kalender ein. Alle anderen Termine der
+              Quelle werden ignoriert; schon vorhandene Tage werden übersprungen.
+            </Text>
+            <ActionButton
+              small
+              variant="ghost"
+              label="Vorschau laden (ohne Schreiben)"
+              onPress={handlePreviewWorkdaySync}
+              disabled={actionBusy}
+            />
+            {!!workdaySyncPreview && (
+              <View style={styles.cardCompact}>
+                {isArray(workdaySyncPreview.created).map((day) => (
+                  <Text key={`wd-created-${day.date}`} style={styles.cardMeta}>
+                    Eingetragen: {day.date} - {day.title}
+                  </Text>
+                ))}
+                {isArray(workdaySyncPreview.to_create).map((day) => (
+                  <Text key={`wd-create-${day.date}`} style={styles.cardMeta}>
+                    Geplant: {day.date} - {day.title} ({String(day.start).slice(11, 16)}-{String(day.end).slice(11, 16)})
+                  </Text>
+                ))}
+                {isArray(workdaySyncPreview.already_in_google).map((day) => (
+                  <Text key={`wd-existing-${day.date}`} style={styles.cardMeta}>
+                    Schon in Google: {day.date} - {day.title}
+                  </Text>
+                ))}
+                {isArray(workdaySyncPreview.failed).map((day) => (
+                  <Text key={`wd-failed-${day.date}`} style={styles.cardMeta}>
+                    Fehlgeschlagen: {day.date} - {day.message || "fehlgeschlagen"}
+                  </Text>
+                ))}
+                {workdaySyncPreview.workdays_found === 0 && (
+                  <Text style={styles.cardMeta}>Keine PH-Arbeitstage im Zeitraum gefunden.</Text>
+                )}
+              </View>
+            )}
+            <TextInput
+              value={workdaySyncToken}
+              onChangeText={setWorkdaySyncToken}
+              style={styles.input}
+              placeholder="TERMIN SPEICHERN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <ActionButton
+              label="Arbeitstage jetzt eintragen"
+              onPress={() => openTokenModal({ title: "Arbeitstage eintragen", explanation: "Fehlende PH-Arbeitstage der nächsten 14 Tage werden als Termine in Google geschrieben.", expectedToken: "TERMIN SPEICHERN", onConfirm: handleRunWorkdaySync })}
+              disabled={actionBusy || workdaySyncToken.trim() !== "TERMIN SPEICHERN"}
+            />
+            {!!workdaySyncResult && <Text style={styles.approvalResultText}>{workdaySyncResult}</Text>}
+            <Text style={styles.forwardSafety}>
+              Es wird erst nach exaktem Token geschrieben. Vorschau ist jederzeit ohne Änderung möglich.
+            </Text>
+          </View>
           {googleEvents.map((entry) => (
             <View key={entry.id ?? `${entry.calendar_id}-${entry.start}-${entry.end}`} style={styles.card}>
               <View style={styles.cardHeader}>
@@ -2926,7 +3463,7 @@ export default function App() {
                 <Chip label="Google" color={colors.sage} />
               </View>
               <Text style={styles.cardMeta}>
-                {formatCalendarMoment(entry.start)} – {formatCalendarMoment(entry.end)}
+                {formatCalendarMoment(entry.start)} - {formatCalendarMoment(entry.end)}
               </Text>
               {!!entry.location && <Text style={styles.cardMeta}>Ort: {entry.location}</Text>}
               <TextInput
@@ -2943,16 +3480,16 @@ export default function App() {
                 label="Termin löschen"
                 onPress={() => openTokenModal({ title: "Termin löschen", explanation: "Dieser Termin wird nur nach hartem Token gelöscht.", expectedToken: "TERMIN LOESCHEN", onConfirm: (token) => handleDeleteCalendarEvent(entry, token) })}
                 disabled={actionBusy || !entry.id || (calendarDeleteTokens[entry.id] || "").trim() !== "TERMIN LOESCHEN"}
-                tone="danger"
+                variant="danger"
               />
             </View>
           ))}
           {!!calendarDeleteResult && <Text style={styles.approvalResultText}>{calendarDeleteResult}</Text>}
           {googleConnected && googleEvents.length === 0 && (
-            <EmptyState icon="▦" text="Keine Google-Termine in den nächsten 30 Tagen gefunden." />
+            <EmptyState icon="calendar" text="Keine Google-Termine in den nächsten 30 Tagen gefunden." />
           )}
           {!googleConnected && (
-            <EmptyState icon="▦" text="Google-Kalender ist noch nicht verbunden." />
+            <EmptyState icon="calendar" text="Google-Kalender ist noch nicht verbunden." />
           )}
           <SectionTitle>Kalender-Quellen</SectionTitle>
           {sourceEvents.map((entry) => (
@@ -2962,12 +3499,12 @@ export default function App() {
                 <Chip label={entry.policy_label || entry.provider || "Quelle"} color={colors.sage} />
               </View>
               <Text style={styles.cardMeta}>
-                {formatCalendarMoment(entry.start)} – {formatCalendarMoment(entry.end)}
+                {formatCalendarMoment(entry.start)} - {formatCalendarMoment(entry.end)}
               </Text>
               {!!entry.location && <Text style={styles.cardMeta}>Ort: {entry.location}</Text>}
             </View>
           ))}
-          {sourceEvents.length === 0 && <EmptyState icon="▦" text="Keine gefilterten Quellen-Termine gefunden." />}
+          {sourceEvents.length === 0 && <EmptyState icon="calendar" text="Keine gefilterten Quellen-Termine gefunden." />}
           {sourceErrors.map((error, index) => (
             <Text key={`${error.policy_id}-${index}`} style={styles.cardMeta}>
               Quelle nicht geladen: {error.provider} · {(error.blocked_reasons || []).join(", ")}
@@ -2981,21 +3518,21 @@ export default function App() {
                 <Chip label={entry.policy_label || entry.provider || entry.item_type || "busy"} color={colors.accent} />
               </View>
               <Text style={styles.cardMeta}>
-                {formatCalendarMoment(entry.start)} – {formatCalendarMoment(entry.end)} • {entry.date || calendar?.date || entry.start?.slice?.(0, 10)}
+                {formatCalendarMoment(entry.start)} - {formatCalendarMoment(entry.end)} | {entry.date || calendar?.date || entry.start?.slice?.(0, 10)}
               </Text>
             </View>
           ))}
-          {items.length === 0 && <EmptyState icon="▦" text="Keine Termine im gewählten Zeitraum." />}
+          {items.length === 0 && <EmptyState icon="calendar" text="Keine Termine im gewählten Zeitraum." />}
           <SectionTitle>Freie Slots</SectionTitle>
           {slots.map((slot, index) => (
             <View key={`${slot.start}-${slot.end}-${index}`} style={styles.slotCard}>
               <Text style={styles.slotText}>
-                {slot.start || "-"} – {slot.end || "-"}
+                {slot.start || "-"} - {slot.end || "-"}
               </Text>
               <Text style={styles.slotFree}>frei</Text>
             </View>
           ))}
-          {slots.length === 0 && <EmptyState icon="◷" text="Keine Freizeiten im Standardfenster." />}
+          {slots.length === 0 && <EmptyState icon="clock" text="Keine Freizeiten im Standardfenster." />}
         </View>
       );
     }
@@ -3003,6 +3540,7 @@ export default function App() {
     if (currentScreen === "Kontakte") {
       return (
         <View>
+          <SectionTitle>Kontakt erfassen</SectionTitle>
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Häufigen Kontakt speichern</Text>
             <TextInput
@@ -3077,6 +3615,7 @@ export default function App() {
               Kontakt wird nur lokal gespeichert. Es wird keine Nachricht gesendet.
             </Text>
           </View>
+          <SectionTitle>Kontakte</SectionTitle>
           {contacts.map((contact) => (
             <View key={contact.id ?? contact.name} style={styles.card}>
               <View style={styles.cardHeader}>
@@ -3118,7 +3657,7 @@ export default function App() {
             </View>
           ))}
           {!!contactNotesResult && <Text style={styles.approvalResultText}>{contactNotesResult}</Text>}
-          {contacts.length === 0 && <EmptyState icon="☺" text="Keine Kontakte." />}
+          {contacts.length === 0 && <EmptyState icon="contacts" text="Keine Kontakte." />}
         </View>
       );
     }
@@ -3129,7 +3668,7 @@ export default function App() {
       return (
         <View>
           <View style={styles.privacyBanner}>
-            <Text style={styles.privacyBannerIcon}>?</Text>
+            <LineIcon name="learning" color={colors.accentStrong} />
             <Text style={styles.privacyBannerText}>
               Lernen speichert lokale Regeln und Präferenzen. Das ist kein Modell-Nachtraining.
             </Text>
@@ -3177,7 +3716,7 @@ export default function App() {
               </View>
             );
           })}
-          {questions.length === 0 && <EmptyState icon="?" text="Keine offenen Lernfragen." />}
+          {questions.length === 0 && <EmptyState icon="learning" text="Keine offenen Lernfragen." />}
           <SectionTitle>Bereits gelernt</SectionTitle>
           {rules.map((rule) => (
             <View key={rule.id} style={styles.card}>
@@ -3196,7 +3735,7 @@ export default function App() {
               />
             </View>
           ))}
-          {rules.length === 0 && <EmptyState icon="?" text="Noch keine Regeln gelernt." />}
+          {rules.length === 0 && <EmptyState icon="learning" text="Noch keine Regeln gelernt." />}
           <Text style={styles.forwardSafety}>
             Alle Lernregeln bleiben lokal. Friday sendet dadurch keine Nachrichten und erstellt keine Termine automatisch.
           </Text>
@@ -3221,39 +3760,51 @@ export default function App() {
         ["Nachrichten senden", writes.messages_send],
         ["Kontakte ändern", writes.contacts_write],
       ];
+      const boundaryRows = [
+        ["E-Mail-Versand gesperrt", !external.email],
+        ["WhatsApp-Versand gesperrt", !external.whatsapp],
+        ["SMS gesperrt", !external.sms],
+        ["Cloud-KI gesperrt", true],
+        ["Schreibaktionen tokenpflichtig", !writes.messages_send && !writes.contacts_write],
+      ];
       return (
         <View>
-          <View style={styles.privacyBanner}>
-            <Text style={styles.privacyBannerIcon}>🛡</Text>
-            <Text style={styles.privacyBannerText}>
-              Modus: {privacy?.mode || "local"} — deine Daten bleiben auf deinen Geräten.
+          <View style={styles.privacyHero}>
+            <View style={styles.privacyHeroTop}>
+              <View style={styles.privacyHeroIcon}>
+                <LineIcon name="privacy" color={colors.cream} />
+              </View>
+              <Text style={styles.privacyHeroTitle}>Alles läuft lokal</Text>
+            </View>
+            <Text style={styles.privacyHeroText}>
+              Modus: {privacy?.mode || "local"}. Daten bleiben auf deinen Geräten; externe Aktionen sind hart begrenzt.
             </Text>
           </View>
-          <SectionTitle>Externe Dienste</SectionTitle>
+          <SectionTitle>Status</SectionTitle>
           <View style={styles.card}>
             {services.map(([label, value]) => (
-              <View key={label} style={styles.privacyRow}>
+              <ListRow key={label}>
                 <Text style={styles.privacyLabel}>{label}</Text>
-                <Chip
-                  label={value ? "aktiv" : "aus"}
-                  color={value ? colors.warn : colors.success}
-                />
-              </View>
+                <PrivacyStatusPill active={Boolean(value)} inactiveLabel="AUS" />
+              </ListRow>
             ))}
-          </View>
-          <SectionTitle>Lokale Schreibzugriffe</SectionTitle>
-          <View style={styles.card}>
             {writeRows.map(([label, value]) => (
-              <View key={label} style={styles.privacyRow}>
+              <ListRow key={label}>
                 <Text style={styles.privacyLabel}>{label}</Text>
-                <Chip
-                  label={value ? "erlaubt" : "gesperrt"}
-                  color={value ? colors.sage : colors.textSoft}
-                />
-              </View>
+                <PrivacyStatusPill active={Boolean(value)} inactiveLabel="DEAKTIVIERT" />
+              </ListRow>
             ))}
           </View>
           {!!note && <Text style={styles.privacyNote}>{note}</Text>}
+          <SectionTitle>Lokale Grenzen</SectionTitle>
+          <View style={styles.card}>
+            {boundaryRows.map(([label, enabled]) => (
+              <ListRow key={label}>
+                <Text style={styles.privacyLabel}>{label}</Text>
+                <ToggleSwitch enabled={Boolean(enabled)} />
+              </ListRow>
+            ))}
+          </View>
           <SectionTitle>Konten</SectionTitle>
           <View style={styles.card}>
             <View style={styles.privacyRow}>
@@ -3676,7 +4227,7 @@ export default function App() {
               Termin-Erkennung: KI darf Rohdaten liefern, Python löst Datum und Uhrzeit deterministisch auf.
             </Text>
             <Text style={styles.forwardSafety}>
-              Kalender-Schreiben: {setupStatus?.calendar?.real_enabled ? "aktiv" : "aus"} — Vorschläge gehen immer in den Review.
+              Kalender-Schreiben: {setupStatus?.calendar?.real_enabled ? "aktiv" : "aus"} - Vorschläge gehen immer in den Review.
             </Text>
           </View>
 
@@ -3950,9 +4501,13 @@ export default function App() {
     return null;
   };
 
+  if (!fontsLoaded && !fontLoadError) {
+    return null;
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.bg} />
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} backgroundColor={colors.bg} />
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={
@@ -3971,7 +4526,7 @@ export default function App() {
             <View style={styles.brandTextBlock}>
               <Text style={styles.brandKicker}>FRIDAY</Text>
               <Text style={styles.heading}>{greeting()}, Philip</Text>
-              <Text style={styles.subheading}>{todayLabel()} • {headerSummary}</Text>
+              <Text style={styles.subheading}>{todayLabel()} | {headerSummary}</Text>
             </View>
           </View>
           <View style={styles.statusPill}>
@@ -3982,14 +4537,31 @@ export default function App() {
               ]}
             />
             <Text style={styles.statusText}>
-              {online === null ? "Prüfe…" : online ? `Verbunden · ${connectionKind}` : "Offline"}
+              {online === null ? "Prüfe…" : online ? `Verbunden | ${connectionKind}` : "Offline"}
             </Text>
           </View>
         </View>
 
         {loading && (
           <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color={colors.accent} />
+            <ActivityIndicator size="small" color={colors.accent} />
+            <View style={styles.progressTrack}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    width: `${
+                      loadProgress.total
+                        ? Math.max(6, Math.round((loadProgress.done / loadProgress.total) * 100))
+                        : 6
+                    }%`,
+                  },
+                ]}
+              />
+            </View>
+            <Text style={styles.progressText}>
+              {currentScreen} lädt… {loadProgress.done}/{loadProgress.total || "?"} Anfragen
+            </Text>
           </View>
         )}
         {!!error && (
@@ -4000,12 +4572,12 @@ export default function App() {
         )}
         {active === "Mehr" && moreScreen && (
           <TouchableOpacity style={styles.backToMore} onPress={() => setMoreScreen("")} activeOpacity={0.75}>
-            <Text style={styles.backToMoreText}>← Zurück zu Mehr</Text>
+            <Text style={styles.backToMoreText}>Zurück zu Mehr</Text>
           </TouchableOpacity>
         )}
         {!loading && !error && renderScreenContent()}
         {actionBusy && <Text style={styles.busyHint}>Aktion läuft…</Text>}
-        <Text style={styles.footer}>Friday 1.0 • lokal & privat • {updateStatus} • {getApiUrl()}</Text>
+        <Text style={styles.footer}>Friday 1.0 | lokal & privat | {updateStatus} | {getApiUrl()}</Text>
       </ScrollView>
       <View style={styles.bottomTabBar}>
         {bottomTabs.map((tab) => {
@@ -4018,7 +4590,7 @@ export default function App() {
               onPress={() => navigateTo(tab.key)}
               activeOpacity={0.76}
             >
-              <Text style={[styles.bottomTabIcon, selected && styles.bottomTabTextActive]}>{tab.icon}</Text>
+              <LineIcon name={tab.icon} color={selected ? colors.accentStrong : colors.muted} />
               <Text style={[styles.bottomTabLabel, selected && styles.bottomTabTextActive]}>{tab.label}</Text>
               <Badge value={badgeValue} />
             </TouchableOpacity>
@@ -4041,7 +4613,10 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(themeColors) {
+  const colors = themeColors;
+  const softShadow = createSoftShadow(colors);
+  return StyleSheet.create(withFigtreeFonts({
   container: {
     backgroundColor: colors.bg,
     flex: 1,
@@ -4969,5 +5544,600 @@ const styles = StyleSheet.create({
     gap: 10,
     ...softShadow,
   },
+  weekGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 8,
+  },
+  weekTile: {
+    width: "48%",
+    flexGrow: 1,
+    backgroundColor: colors.card,
+    borderRadius: 18,
+    borderColor: "rgba(83,106,72,0.10)",
+    borderWidth: 1,
+    padding: 12,
+    ...softShadow,
+  },
+  weekTileToday: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accentStrong,
+    borderWidth: 1.5,
+  },
+  weekTileHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  weekTileDay: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  weekTileDayToday: {
+    color: colors.accentStrong,
+  },
+  weekTileDate: {
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  weekTileHours: {
+    color: colors.accentStrong,
+    fontSize: 12,
+    fontWeight: "800",
+    marginBottom: 6,
+  },
+  weekTileHoursFree: {
+    color: colors.textSoft,
+  },
+  weekTileEvent: {
+    color: "#46513f",
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 2,
+  },
+  weekTileMore: {
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  progressTrack: {
+    width: "100%",
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: colors.accentSoft,
+    marginTop: 14,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: colors.accentStrong,
+  },
+  progressText: {
+    color: colors.textSoft,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 8,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 14,
+    ...softShadow,
+  },
+  brandRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  brandKicker: {
+    color: colors.sage,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.6,
+    marginBottom: 2,
+  },
+  heading: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  subheading: {
+    color: colors.textSoft,
+    fontSize: 12,
+    marginTop: 3,
+    fontWeight: "500",
+  },
+  logoMark: {
+    backgroundColor: colors.accentStrong,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderColor: colors.line,
+    borderWidth: 1,
+    ...softShadow,
+  },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.accentSoft,
+    borderRadius: 999,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderColor: colors.line,
+    borderWidth: 1,
+  },
+  statusText: {
+    color: colors.accentStrong,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
+    borderColor: colors.line,
+    borderWidth: 1,
+    ...softShadow,
+  },
+  cardTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+    flexShrink: 1,
+  },
+  cardBody: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 4,
+  },
+  cardMeta: {
+    color: colors.textSoft,
+    fontSize: 12,
+    marginBottom: 4,
+    fontWeight: "500",
+  },
+  sectionTitle: {
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+    marginTop: 18,
+    marginBottom: 8,
+    textTransform: "uppercase",
+  },
+  statCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    borderLeftWidth: 4,
+    padding: 16,
+    width: "48%",
+    flexGrow: 1,
+    borderColor: colors.line,
+    borderWidth: 1,
+    ...softShadow,
+  },
+  statValue: {
+    fontSize: 32,
+    fontWeight: "800",
+  },
+  statLabel: {
+    color: colors.textSoft,
+    fontSize: 12,
+    marginTop: 5,
+    fontWeight: "700",
+  },
+  chip: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  chipText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  row: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+  },
+  listRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 11,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+  },
+  button: {
+    minHeight: 44,
+    borderRadius: 16,
+    paddingHorizontal: 17,
+    paddingVertical: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    ...softShadow,
+  },
+  buttonText: {
+    color: colors.cream,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  buttonGhostText: {
+    color: colors.accentStrong,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  input: {
+    flex: 1,
+    minHeight: 46,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderColor: colors.line,
+    borderWidth: 1,
+    color: colors.text,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 14,
+  },
+  forwardBox: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    marginBottom: 14,
+    padding: 16,
+    borderColor: colors.line,
+    borderWidth: 1,
+    ...softShadow,
+  },
+  assignmentBox: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.line,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 12,
+  },
+  forwardPanel: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    marginBottom: 16,
+    padding: 16,
+    borderColor: colors.line,
+    borderWidth: 1,
+    ...softShadow,
+  },
+  contactChoice: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  draftBox: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 12,
+  },
+  approvalBox: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 8,
+    marginTop: 12,
+    padding: 12,
+  },
+  auditBox: {
+    backgroundColor: colors.surface,
+    borderColor: colors.line,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 12,
+  },
+  slotCard: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderColor: colors.line,
+    borderWidth: 1,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    marginBottom: 8,
+    ...softShadow,
+  },
+  empty: {
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 26,
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    borderColor: colors.line,
+    borderWidth: 1,
+  },
+  emptyText: {
+    color: colors.textSoft,
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  errorBanner: {
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 14,
+    gap: 10,
+    borderColor: colors.clay,
+    borderWidth: 1,
+  },
+  errorText: {
+    color: colors.clay,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  homeHero: {
+    backgroundColor: colors.accentStrong,
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 14,
+    ...softShadow,
+  },
+  homeEyebrow: {
+    color: colors.accentSoft,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  homeTitle: {
+    color: colors.cream,
+    fontSize: 25,
+    lineHeight: 32,
+    fontWeight: "800",
+    marginTop: 4,
+  },
+  homeListRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 11,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+  },
+  homeListTime: {
+    color: colors.accentStrong,
+    fontSize: 13,
+    fontWeight: "800",
+    width: 48,
+  },
+  privacyBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: colors.accentSoft,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
+    ...softShadow,
+  },
+  privacyBannerText: {
+    color: colors.accentStrong,
+    fontSize: 13,
+    flex: 1,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
+  privacyHero: {
+    backgroundColor: colors.accentStrong,
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 12,
+    ...softShadow,
+  },
+  privacyHeroTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 10,
+  },
+  privacyHeroIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 16,
+    backgroundColor: `${colors.cream}1f`,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  privacyHeroTitle: {
+    color: colors.cream,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: "800",
+  },
+  privacyHeroText: {
+    color: colors.accentSoft,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "500",
+  },
+  privacyRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 11,
+    borderBottomColor: colors.line,
+    borderBottomWidth: 1,
+  },
+  privacyLabel: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "600",
+    flex: 1,
+  },
+  privacyNote: {
+    color: colors.textSoft,
+    fontSize: 12,
+    marginTop: 12,
+    lineHeight: 18,
+  },
+  privacyStatusPill: {
+    borderRadius: 999,
+    backgroundColor: `${colors.success}22`,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  privacyStatusPillWarn: {
+    backgroundColor: `${colors.warn}22`,
+  },
+  privacyStatusText: {
+    color: colors.success,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  privacyStatusTextWarn: {
+    color: colors.warn,
+  },
+  toggleSwitch: {
+    width: 42,
+    height: 24,
+    borderRadius: 999,
+    backgroundColor: colors.line,
+    padding: 3,
+    justifyContent: "center",
+  },
+  toggleSwitchOn: {
+    backgroundColor: `${colors.success}55`,
+  },
+  toggleKnob: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.surface,
+  },
+  toggleKnobOn: {
+    alignSelf: "flex-end",
+    backgroundColor: colors.success,
+  },
+  bottomTabBar: {
+    minHeight: 74,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    backgroundColor: colors.surface,
+    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === "ios" ? 20 : 10,
+  },
+  bottomTabItem: {
+    minWidth: 58,
+    minHeight: 50,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    position: "relative",
+  },
+  bottomTabItemActive: {
+    backgroundColor: colors.accentSoft,
+  },
+  bottomTabLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  bottomTabTextActive: {
+    color: colors.accentStrong,
+  },
+  badgeText: {
+    color: colors.cream,
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  moreItem: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 10,
+    borderColor: colors.line,
+    borderWidth: 1,
+    ...softShadow,
+  },
+  moreIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 15,
+    backgroundColor: colors.accentSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  weekTile: {
+    width: "48%",
+    flexGrow: 1,
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    borderColor: colors.line,
+    borderWidth: 1,
+    padding: 12,
+    ...softShadow,
+  },
+  weekTileEvent: {
+    color: colors.text,
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 2,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 390,
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    padding: 18,
+    gap: 10,
+    ...softShadow,
+  },
+  footer: {
+    color: colors.muted,
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: 26,
+    lineHeight: 17,
+  },
+  }));
+}
 
-});
+let styles = createStyles(colors);

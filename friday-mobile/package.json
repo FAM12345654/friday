@@ -23,12 +23,16 @@
     "update:production": "npx eas-cli@latest update --channel production --message \"Friday production update\""
   },
   "dependencies": {
+    "@expo-google-fonts/figtree": "^0.4.1",
     "expo": "~54.0.35",
     "expo-build-properties": "~1.0.10",
     "expo-constants": "~18.0.13",
+    "expo-font": "~14.0.12",
+    "expo-splash-screen": "~31.0.13",
     "expo-updates": "~29.0.18",
     "react": "^19.1.0",
-    "react-native": "^0.81.5"
+    "react-native": "^0.81.5",
+    "react-native-svg": "15.12.1"
   },
   "devDependencies": {
     "@expo/ngrok": "^4.1.0",
