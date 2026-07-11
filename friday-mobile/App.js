@@ -145,6 +145,7 @@ const lightColors = {
   cream: "#f6f1e4",
   white: "#fdfaf1",
   buttonSolidText: "#f6f1e4",
+  buttonLightText: "#2e3627",
 };
 
 const darkColors = {
@@ -173,6 +174,7 @@ const darkColors = {
   cream: "#f1ede0",
   white: "#273322",
   buttonSolidText: "#111111",
+  buttonLightText: "#111111",
 };
 
 let colors = lightColors;
@@ -775,9 +777,15 @@ function ActionButton({ label, onPress, disabled, variant = "primary", small }) 
         ? styles.buttonGhost
         : variant === "success"
           ? styles.buttonSuccess
-          : styles.buttonPrimary;
+          : variant === "light"
+            ? styles.buttonLight
+            : styles.buttonPrimary;
   const textStyle =
-    variant === "ghost" ? styles.buttonGhostText : styles.buttonText;
+    variant === "ghost"
+      ? styles.buttonGhostText
+      : variant === "light"
+        ? styles.buttonLightText
+        : styles.buttonText;
   return (
     <TouchableOpacity
       style={[styles.button, variantStyle, small && styles.buttonSmall, disabled && styles.buttonDisabled]}
@@ -3003,6 +3011,7 @@ export default function App() {
               <View style={styles.row}>
                 <ActionButton
                   small
+                  variant="light"
                   label="Antwort-Vorschlag"
                   onPress={() => handleMessageSuggestionReply(message.id)}
                   disabled={actionBusy}
@@ -5062,6 +5071,9 @@ function createStyles(themeColors) {
   buttonDanger: {
     backgroundColor: colors.danger,
   },
+  buttonLight: {
+    backgroundColor: colors.cream,
+  },
   buttonGhost: {
     backgroundColor: colors.accentSoft,
     shadowOpacity: 0,
@@ -5072,6 +5084,11 @@ function createStyles(themeColors) {
   },
   buttonText: {
     color: colors.buttonSolidText,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  buttonLightText: {
+    color: colors.buttonLightText,
     fontSize: 14,
     fontWeight: "700",
   },
@@ -5544,6 +5561,9 @@ function createStyles(themeColors) {
   buttonDanger: {
     backgroundColor: colors.clay,
   },
+  buttonLight: {
+    backgroundColor: colors.cream,
+  },
   buttonGhost: {
     backgroundColor: colors.accentSoft,
     shadowOpacity: 0,
@@ -5551,6 +5571,11 @@ function createStyles(themeColors) {
   },
   buttonText: {
     color: colors.buttonSolidText,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  buttonLightText: {
+    color: colors.buttonLightText,
     fontSize: 14,
     fontWeight: "900",
   },
@@ -6004,6 +6029,11 @@ function createStyles(themeColors) {
   },
   buttonText: {
     color: colors.buttonSolidText,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  buttonLightText: {
+    color: colors.buttonLightText,
     fontSize: 14,
     fontWeight: "800",
   },
