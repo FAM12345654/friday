@@ -145,7 +145,10 @@ const lightColors = {
   cream: "#f6f1e4",
   white: "#fdfaf1",
   buttonSolidText: "#f6f1e4",
-  buttonLightText: "#2e3627",
+  buttonLightText: "#36442e",
+  buttonGhostBg: "#e9eddd",
+  buttonGhostText: "#36442e",
+  onAccent: "#f6f1e4",
 };
 
 const darkColors = {
@@ -173,8 +176,11 @@ const darkColors = {
   gold: "#d1ab62",
   cream: "#f1ede0",
   white: "#273322",
-  buttonSolidText: "#111111",
-  buttonLightText: "#111111",
+  buttonSolidText: "#36442e",
+  buttonLightText: "#36442e",
+  buttonGhostBg: "#d9e4c8",
+  buttonGhostText: "#36442e",
+  onAccent: "#36442e",
 };
 
 let colors = lightColors;
@@ -739,7 +745,7 @@ function LogoMark({ size = 48 }) {
           height: ring,
           borderRadius: ring / 2,
           borderWidth: ringBorder,
-          borderColor: colors.cream,
+          borderColor: colors.onAccent,
           backgroundColor: "transparent",
         }}
       />
@@ -749,7 +755,7 @@ function LogoMark({ size = 48 }) {
           width: core,
           height: core,
           borderRadius: core / 2,
-          backgroundColor: colors.cream,
+          backgroundColor: colors.onAccent,
           left: center - core / 2,
           top: center - core / 2,
         }}
@@ -760,7 +766,7 @@ function LogoMark({ size = 48 }) {
           width: orbit,
           height: orbit,
           borderRadius: orbit / 2,
-          backgroundColor: colors.cream,
+          backgroundColor: colors.onAccent,
           left: center + diag - orbit / 2,
           top: center - diag - orbit / 2,
         }}
@@ -2688,9 +2694,9 @@ export default function App() {
               <Text style={styles.homeEyebrow}>Tagesüberblick</Text>
               <Text style={styles.homeTitle}>Was heute wichtig ist</Text>
             </View>
-            <Chip label={connectionKind} color={online ? colors.success : colors.danger} />
+            <Chip label={connectionKind} color={colors.onAccent} />
           </View>
-          <Text style={styles.cardBody}>{headerSummary}</Text>
+          <Text style={[styles.cardBody, { color: colors.onAccent }]}>{headerSummary}</Text>
         </View>
 
         <Card onPress={() => navigateTo("Kalender")}>
@@ -3991,7 +3997,7 @@ export default function App() {
           <View style={styles.privacyHero}>
             <View style={styles.privacyHeroTop}>
               <View style={styles.privacyHeroIcon}>
-                <LineIcon name="privacy" color={colors.cream} />
+                <LineIcon name="privacy" color={colors.onAccent} />
               </View>
               <Text style={styles.privacyHeroTitle}>Alles läuft lokal</Text>
             </View>
@@ -5075,7 +5081,9 @@ function createStyles(themeColors) {
     backgroundColor: colors.cream,
   },
   buttonGhost: {
-    backgroundColor: colors.accentSoft,
+    backgroundColor: colors.buttonGhostBg,
+    borderWidth: 1.5,
+    borderColor: colors.accent,
     shadowOpacity: 0,
     elevation: 0,
   },
@@ -5096,7 +5104,7 @@ function createStyles(themeColors) {
     fontSize: 12,
   },
   buttonGhostText: {
-    color: colors.accent,
+    color: colors.buttonGhostText,
     fontSize: 14,
     fontWeight: "700",
   },
@@ -5465,7 +5473,7 @@ function createStyles(themeColors) {
     fontWeight: "800",
   },
   tabTextActive: {
-    color: colors.cream,
+    color: colors.onAccent,
   },
   card: {
     backgroundColor: colors.card,
@@ -5565,7 +5573,9 @@ function createStyles(themeColors) {
     backgroundColor: colors.cream,
   },
   buttonGhost: {
-    backgroundColor: colors.accentSoft,
+    backgroundColor: colors.buttonGhostBg,
+    borderWidth: 1.5,
+    borderColor: colors.accent,
     shadowOpacity: 0,
     elevation: 0,
   },
@@ -5580,7 +5590,7 @@ function createStyles(themeColors) {
     fontWeight: "900",
   },
   buttonGhostText: {
-    color: colors.accentStrong,
+    color: colors.buttonGhostText,
     fontSize: 14,
     fontWeight: "900",
   },
@@ -5635,7 +5645,7 @@ function createStyles(themeColors) {
     textTransform: "uppercase",
   },
   homeTitle: {
-    color: colors.cream,
+    color: colors.onAccent,
     fontSize: 26,
     lineHeight: 34,
     fontWeight: "900",
@@ -5701,7 +5711,7 @@ function createStyles(themeColors) {
     paddingHorizontal: 6,
   },
   badgeText: {
-    color: colors.cream,
+    color: colors.onAccent,
     fontSize: 10,
     fontWeight: "900",
   },
@@ -5764,7 +5774,7 @@ function createStyles(themeColors) {
     fontSize: 12,
   },
   filterTextActive: {
-    color: colors.cream,
+    color: colors.onAccent,
   },
   modalBackdrop: {
     flex: 1,
@@ -6038,7 +6048,7 @@ function createStyles(themeColors) {
     fontWeight: "800",
   },
   buttonGhostText: {
-    color: colors.accentStrong,
+    color: colors.buttonGhostText,
     fontSize: 14,
     fontWeight: "800",
   },
@@ -6170,7 +6180,7 @@ function createStyles(themeColors) {
     textTransform: "uppercase",
   },
   homeTitle: {
-    color: colors.cream,
+    color: colors.onAccent,
     fontSize: 25,
     lineHeight: 32,
     fontWeight: "800",
@@ -6224,12 +6234,12 @@ function createStyles(themeColors) {
     width: 44,
     height: 44,
     borderRadius: 16,
-    backgroundColor: `${colors.cream}1f`,
+    backgroundColor: `${colors.onAccent}1f`,
     alignItems: "center",
     justifyContent: "center",
   },
   privacyHeroTitle: {
-    color: colors.cream,
+    color: colors.onAccent,
     fontSize: 22,
     lineHeight: 28,
     fontWeight: "800",
@@ -6334,7 +6344,7 @@ function createStyles(themeColors) {
     color: colors.accentStrong,
   },
   badgeText: {
-    color: colors.cream,
+    color: colors.onAccent,
     fontSize: 10,
     fontWeight: "800",
   },
