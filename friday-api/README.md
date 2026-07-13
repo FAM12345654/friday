@@ -12,6 +12,10 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 - `FRIDAY_CORS_ORIGINS` (Komma-getrennte Liste) für Mobile/Desktop-Clients.
 - `FRIDAY_API_PORT` / `FRIDAY_API_HOST` werden optional vom Desktop-Launcher genutzt.
+- `FRIDAY_API_TOKEN` (optional): Wenn gesetzt, verlangen alle Endpunkte außer
+  `/health` und den Docs einen `Authorization: Bearer <token>`- oder
+  `X-Friday-Token`-Header. Ohne die Variable bleibt die API offen (lokaler
+  Betrieb wie bisher).
 
 ## API-Vereinheitlicher JSON-Vertrag
 
@@ -31,9 +35,20 @@ Alle Endpunkte antworten mit:
 - `GET /api/tasks`, `GET /api/tasks/{id}`, `POST /api/tasks`, `PATCH /api/tasks/{id}`, `DELETE /api/tasks/{id}`
 - `POST /api/tasks/{id}/done`, `POST /api/tasks/{id}/archive`
 - `GET /api/messages`, `GET /api/messages/{id}`, `GET /api/messages/{id}/reply`, `GET /api/messages/suggestions`
+- `POST /api/tasks/{id}/snooze` (`{"until": "YYYY-MM-DD"}`), `POST /api/tasks/{id}/unsnooze`
 - `GET /api/calendar`, `GET /api/calendar/{message_id}/slots`
 - `GET /api/contacts`
 - `GET /api/privacy`
+- `GET /metrics` — Cache-Trefferquote und Latenz/Fehler pro Endpunkt
+- `GET /api/search?q=...` — lokale Suche über Aufgaben, Kontakte, Nachrichten, WhatsApp und Mail
+- `GET /api/mail/followups?days=3` — gesendete Mails ohne Antwort
+- `GET /api/events` — Server-Sent Events; feuert `change`-Events (dashboard/mail/calendar) bei Datenänderungen
+- `GET /api/search/semantic?q=...`, `POST /api/search/semantic/reindex`,
+  `GET /api/search/semantic/status` — semantische Suche über lokale
+  Ollama-Embeddings (`OLLAMA_EMBED_MODEL`, nur localhost)
+- `POST /api/push/register`, `DELETE /api/push/register`, `GET /api/push/status`,
+  `POST /api/push/send-due-reminders` — Expo-Push-Erinnerungen (extern, nur aktiv
+  wenn `ENABLE_PUSH_NOTIFICATIONS = True` in `friday/config.py`)
 
 ## Performance-Integration
 

@@ -230,3 +230,43 @@ Im Stack-Betrieb (`start_friday_stack.bat`) wird der eingebettete API-Start übe
 - `GET /api/calendar`
 - `GET /api/contacts`
 - `GET /api/privacy`
+
+## 5) Linux/macOS & Docker
+
+Neben den `.bat`-Skripten gibt es Shell-Äquivalente:
+
+```bash
+scripts/start_friday_api.sh        # API auf 0.0.0.0:8000
+scripts/run_tests.sh               # friday/tests + friday-api/tests
+scripts/start_whatsapp_bridge.sh   # WhatsApp-Bridge (npm install bei Bedarf)
+```
+
+Oder die API im Container:
+
+```bash
+docker compose up friday-api
+```
+
+## 6) Neue Funktionen (Kurzüberblick)
+
+- **API-Token (optional)**: `FRIDAY_API_TOKEN` setzen, sobald die API im
+  LAN erreichbar ist. Clients senden dann `Authorization: Bearer <token>`.
+- **Metriken**: `GET /metrics` zeigt Cache-Trefferquote und Endpunkt-Latenzen.
+- **Suche**: `GET /api/search?q=...` (Volltext) und
+  `GET /api/search/semantic?q=...` (Ollama-Embeddings, vorher einmal
+  `POST /api/search/semantic/reindex`).
+- **Follow-ups**: `GET /api/mail/followups` listet gesendete Mails ohne Antwort.
+- **Task-Snooze**: `POST /api/tasks/{id}/snooze` mit `{"until": "YYYY-MM-DD"}`;
+  wiederkehrende Aufgaben (`taeglich`/`woechentlich`/`monatlich`) gab es schon.
+- **Live-Updates**: `GET /api/events` (Server-Sent Events) statt Polling.
+- **Verschlüsselte Backups**: `FRIDAY_BACKUP_PASSPHRASE=... python
+  scripts/friday_encrypted_backup.py` — geeignet für Task Scheduler/cron.
+  Wiederherstellen über `friday.app.backup_encryption.decrypt_backup_archive`.
+- **Push-Erinnerungen**: In `friday/config.py` `ENABLE_PUSH_NOTIFICATIONS = True`
+  setzen, App einmal öffnen (registriert das Gerät), dann
+  `python scripts/friday_push_reminders.py` zeitgesteuert ausführen.
+- **CalDAV**: `friday.app.calendar_provider_caldav.CaldavCalendarProvider`
+  für Nextcloud/iCloud/Radicale (gleiche Schnittstelle wie Google/ICS).
+- **Sprache**: In der Mobile-App unter „Mehr“ zwischen DE und EN umschalten.
+- **CI**: GitHub Actions führt bei jedem Push alle Tests auf Linux und
+  Windows aus (`.github/workflows/ci.yml`).
