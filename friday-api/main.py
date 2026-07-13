@@ -21,7 +21,8 @@ for _path in (str(API_DIR), str(ROOT_DIR)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from perf import TTLCache, etag_response, register_timing
+from perf import TTLCache, etag_response, register_timing, request_metrics
+from security import register_auth
 
 from friday import config
 from friday.agents import (
@@ -182,6 +183,7 @@ app = FastAPI(
 )
 
 register_timing(app)
+register_auth(app)
 cache = TTLCache(ttl=120)
 
 app.add_middleware(
@@ -1123,6 +1125,17 @@ def health() -> dict[str, Any]:
             "status": "ok",
             "database": "local",
             "version": app.version,
+        },
+    )
+
+
+@app.get("/metrics")
+def metrics() -> dict[str, Any]:
+    """Runtime metrics: TTL cache effectiveness and per-endpoint latencies."""
+    return _envelope(
+        {
+            "cache": cache.stats(),
+            "requests": request_metrics.snapshot(),
         },
     )
 
