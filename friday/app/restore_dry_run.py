@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal
 
 from friday.app.backup_restore_path_safety import is_forbidden_backup_restore_path
@@ -135,6 +135,11 @@ def _manifest_has_external_path(
 
     planned_path = Path(planned_root)
     if not planned_path.is_absolute():
+        # Recognize foreign-OS absolute paths (e.g. "C:/..." checked on POSIX,
+        # or "/..." checked on Windows) and treat them as external: they can
+        # never live under the allowed backup parent on this OS.
+        if PureWindowsPath(planned_root).is_absolute() or PurePosixPath(planned_root).is_absolute():
+            return True
         return False
 
     allowed_backup_parent = project_root / "local_data" / "backups"
