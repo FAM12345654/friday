@@ -9,24 +9,7 @@ import { ActivityIndicator, Text, TouchableOpacity, View } from "react-native";
 
 import { sendVoiceCommandAudio } from "../api/client";
 import { t } from "../i18n";
-
-async function loadAudioModule() {
-  try {
-    const module = await import("expo-av");
-    return module.Audio;
-  } catch (error) {
-    return null;
-  }
-}
-
-async function writeReplyAudio(base64) {
-  const FileSystem = await import("expo-file-system/legacy");
-  const target = `${FileSystem.cacheDirectory}friday-reply.wav`;
-  await FileSystem.writeAsStringAsync(target, base64, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  return target;
-}
+import { loadAudioModule, playBase64Wav } from "./audio";
 
 export default function PushToTalk({ colors }) {
   const [phase, setPhase] = useState("idle"); // idle | recording | sending | speaking | error
@@ -34,12 +17,10 @@ export default function PushToTalk({ colors }) {
   const [reply, setReply] = useState("");
   const [errorText, setErrorText] = useState("");
   const recordingRef = useRef(null);
-  const soundRef = useRef(null);
 
   useEffect(() => {
     return () => {
       recordingRef.current?.stopAndUnloadAsync().catch(() => null);
-      soundRef.current?.unloadAsync().catch(() => null);
     };
   }, []);
 
@@ -92,26 +73,8 @@ export default function PushToTalk({ colors }) {
       setReply(result?.reply_text || "");
 
       if (result?.audio_base64) {
-        const Audio = await loadAudioModule();
-        if (Audio) {
-          setPhase("speaking");
-          await Audio.setAudioModeAsync({
-            allowsRecordingIOS: false,
-            playsInSilentModeIOS: true,
-          });
-          const fileUri = await writeReplyAudio(result.audio_base64);
-          const { sound } = await Audio.Sound.createAsync({ uri: fileUri });
-          soundRef.current = sound;
-          sound.setOnPlaybackStatusUpdate((status) => {
-            if (status?.didJustFinish) {
-              sound.unloadAsync().catch(() => null);
-              soundRef.current = null;
-              setPhase("idle");
-            }
-          });
-          await sound.playAsync();
-          return;
-        }
+        setPhase("speaking");
+        await playBase64Wav(result.audio_base64);
       }
       setPhase("idle");
     } catch (error) {

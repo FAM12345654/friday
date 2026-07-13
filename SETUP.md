@@ -305,3 +305,22 @@ morgen/nächste Woche“), Suche („Suche nach …“).
 In der Mobile-App gibt es auf dem Home-Screen einen Push-to-Talk-Button
 (halten zum Sprechen). Dafür ist ein neuer EAS-Build nötig (expo-av und
 Mikrofon-Berechtigung sind neue native Bestandteile).
+
+## 8) Morgen-Wecker (nativer Alarm mit gesprochenem Briefing)
+
+Unter „Mehr“ in der Mobile-App gibt es den **Morgen-Wecker**: Zeit als
+`HH:MM` eintragen und einschalten. Der Wecker klingelt täglich als echter
+Alarm (Android: AlarmManager mit Vollbild-Benachrichtigung, klingelt auch
+im Doze-Modus; iOS: zeitkritische Benachrichtigung — Drittanbieter-Apps
+dürfen dort den Lautlos-Modus nicht übersteuern). Beim Auslösen oder
+Antippen spielt Friday das gesprochene Tages-Briefing ab
+(`/api/voice/morning-briefing`) — snooze-bewusst, in der App-Sprache.
+
+„Briefing jetzt abspielen" testet die Kette sofort ohne zu warten.
+
+Voraussetzungen:
+- Neuer EAS-Build (Notifee ist ein natives Modul): in `friday-mobile/`
+  `npm install` und dann `npm run build:android:preview`.
+- Damit das Briefing auch unterwegs abgespielt werden kann, muss der
+  Friday-Server erreichbar sein (Tailscale-IP ist in `app.json` als
+  API-Kandidat eingetragen).

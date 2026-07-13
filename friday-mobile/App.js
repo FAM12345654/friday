@@ -33,6 +33,8 @@ import {
 import { registerForPushNotifications } from "./src/notifications";
 import { SUPPORTED_LOCALES, getAppLocale, initLocale, setAppLocale, t } from "./src/i18n";
 import PushToTalk from "./src/voice/PushToTalk";
+import AlarmSettings from "./src/alarm/AlarmSettings";
+import { initAlarmHandlers, playMorningBriefing } from "./src/alarm/alarm";
 
 import {
   approveMessageSuggestion,
@@ -1277,6 +1279,21 @@ export default function App() {
   useEffect(() => {
     // Best-effort push registration; the app works fine if it fails.
     registerForPushNotifications().catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    // Alarm fired or tapped -> speak the morning briefing.
+    let unsubscribe = () => {};
+    initAlarmHandlers(() => {
+      playMorningBriefing().catch(() => null);
+    })
+      .then((cleanup) => {
+        if (typeof cleanup === "function") {
+          unsubscribe = cleanup;
+        }
+      })
+      .catch(() => null);
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -2798,6 +2815,7 @@ export default function App() {
           {item.key === "Lernen" && <Badge value={openLearningCount} />}
         </TouchableOpacity>
       ))}
+      <AlarmSettings colors={colors} styles={styles} />
       <View style={styles.moreItem}>
         <View style={{ flex: 1 }}>
           <Text style={styles.cardTitle}>{t("common.language")}</Text>
