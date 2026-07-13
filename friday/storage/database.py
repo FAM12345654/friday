@@ -284,6 +284,17 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 enabled INTEGER NOT NULL DEFAULT 1,
                 UNIQUE (kind, key)
             );
+
+            CREATE TABLE IF NOT EXISTS semantic_index (
+                id INTEGER PRIMARY KEY,
+                source TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                text TEXT NOT NULL,
+                embedding_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE (source, source_id)
+            );
             """
         )
         _ensure_task_priority_column(connection)

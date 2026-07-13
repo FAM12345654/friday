@@ -55,6 +55,7 @@ OBSIDIAN_ALLOWED_SUBDIR = "Friday"
 ENABLE_LOCAL_OLLAMA = True
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "qwen3:8b"
+OLLAMA_EMBED_MODEL = "nomic-embed-text"
 OLLAMA_TIMEOUT_SECONDS = 30
 
 # Lokale Benachrichtigungen bleiben standardmäßig deaktiviert.

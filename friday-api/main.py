@@ -152,6 +152,13 @@ from friday.app.local_ollama_config_preview import build_local_ollama_config_pre
 from friday.app.local_model_provider import get_local_model_fallback_count
 from friday.app.messaging_audit_preview import build_messaging_audit_preview
 from friday.app.routine_detector import detect_routine_candidates
+from friday.app.semantic_index import (
+    OllamaEmbedder,
+    index_documents,
+    index_stats,
+    semantic_search,
+)
+from friday.app.local_ollama_runtime import check_ollama_health
 from friday.app.unified_search import search_unified
 from friday.app.setup_status import build_setup_status
 from friday.app.whatsapp_bridge_activation_gate import (
@@ -1162,6 +1169,114 @@ async def live_events() -> Response:
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _collect_semantic_documents() -> list[dict[str, Any]]:
+    documents: list[dict[str, Any]] = []
+    if task_agent.repository is not None:
+        for task in task_agent.repository.filter_tasks():
+            documents.append(
+                {
+                    "source": "task",
+                    "source_id": task["id"],
+                    "title": task.get("title") or "",
+                    "text": " ".join(
+                        str(task.get(field) or "") for field in ("notes", "category", "status")
+                    ),
+                }
+            )
+    for message in message_agent.get_messages():
+        documents.append(
+            {
+                "source": "message",
+                "source_id": message.get("id"),
+                "title": message.get("sender") or "",
+                "text": message.get("text") or "",
+            }
+        )
+    for item in read_recent_whatsapp_messages(limit=50, db_path=message_agent.db_path):
+        documents.append(
+            {
+                "source": "whatsapp",
+                "source_id": item.get("id"),
+                "title": item.get("sender_name") or "",
+                "text": item.get("body") or "",
+            }
+        )
+    if message_agent.ms_mail_repository is not None:
+        for mail in message_agent.ms_mail_repository.list_messages(limit=100, include_all=True):
+            documents.append(
+                {
+                    "source": "mail",
+                    "source_id": mail.get("id"),
+                    "title": mail.get("subject") or mail.get("sender") or "",
+                    "text": " ".join(
+                        str(mail.get(field) or "") for field in ("sender", "snippet")
+                    ),
+                }
+            )
+    return documents
+
+
+def _require_ollama_embeddings() -> OllamaEmbedder:
+    if not config.ENABLE_LOCAL_OLLAMA:
+        raise HTTPException(
+            status_code=503,
+            detail="Lokales Ollama ist deaktiviert. Semantische Suche benötigt Ollama.",
+        )
+    health = check_ollama_health()
+    if not health.available:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Ollama ist nicht erreichbar: {health.error or 'unbekannt'}",
+        )
+    return OllamaEmbedder()
+
+
+@app.post("/api/search/semantic/reindex")
+def semantic_reindex() -> dict[str, Any]:
+    """(Re)build the local embedding index from tasks, messages, WhatsApp and mail."""
+    embedder = _require_ollama_embeddings()
+    documents = _collect_semantic_documents()
+    try:
+        indexed = index_documents(documents, embedder, db_path=message_agent.db_path)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _envelope({"indexed": indexed, **index_stats(db_path=message_agent.db_path)})
+
+
+@app.get("/api/search/semantic")
+def semantic_query(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(10, ge=1, le=100),
+) -> dict[str, Any]:
+    """Semantic (embedding-based) search over the locally indexed content."""
+    embedder = _require_ollama_embeddings()
+    try:
+        hits = semantic_search(q, embedder, db_path=message_agent.db_path, limit=limit)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _envelope(
+        {
+            "query": q,
+            "count": len(hits),
+            "results": [hit.to_dict() for hit in hits],
+        },
+    )
+
+
+@app.get("/api/search/semantic/status")
+def semantic_status() -> dict[str, Any]:
+    """Index size per source plus current Ollama availability."""
+    health = check_ollama_health() if config.ENABLE_LOCAL_OLLAMA else None
+    return _envelope(
+        {
+            "index": index_stats(db_path=message_agent.db_path),
+            "ollama_enabled": config.ENABLE_LOCAL_OLLAMA,
+            "ollama_available": bool(health.available) if health else False,
+            "embed_model": config.OLLAMA_EMBED_MODEL,
         },
     )
 
