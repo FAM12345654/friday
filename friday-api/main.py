@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import sys
+import tempfile
 from dataclasses import asdict
 from datetime import date, timedelta
 import json
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, Header, HTTPException, Query, Response
+from fastapi import FastAPI, File, Header, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -167,6 +169,10 @@ from friday.app.semantic_index import (
 )
 from friday.app.local_ollama_runtime import check_ollama_health
 from friday.app.unified_search import search_unified
+from friday.app import voice_synthesis, voice_transcription
+from friday.app.voice_briefing import build_briefing_text, select_overdue_tasks
+from friday.app.voice_intent import VoiceIntent, match_task_by_title, parse_voice_command
+from friday.app.voice_synthesis import normalize_language
 from friday.app.setup_status import build_setup_status
 from friday.app.whatsapp_bridge_activation_gate import (
     WHATSAPP_BRIDGE_ACTIVATION_TOKEN,
@@ -1337,6 +1343,236 @@ def semantic_status() -> dict[str, Any]:
     )
 
 
+class VoiceSpeakRequest(BaseModel):
+    text: str
+    language: Optional[str] = "de"
+
+
+class VoiceCommandRequest(BaseModel):
+    text: str
+    speak: bool = False
+
+
+def _voice_briefing_text(language: str) -> str:
+    """Snooze-aware spoken briefing for today (tasks, overdue, calendar)."""
+    day = _today()
+    tasks_today = task_agent.get_tasks_for_date(day)
+    open_tasks = task_agent.get_open_tasks()
+    calendar_items = calendar_agent.get_items_for_date(day)
+    return build_briefing_text(
+        day_iso=day,
+        tasks_today=tasks_today,
+        overdue_tasks=select_overdue_tasks(open_tasks, day),
+        calendar_items=calendar_items,
+        language=language,
+    )
+
+
+def _execute_voice_intent(intent: VoiceIntent) -> tuple[str, dict[str, Any]]:
+    """Run one parsed voice command against the agents; return (reply, data)."""
+    german = intent.language != "en"
+
+    if intent.intent == "briefing":
+        return _voice_briefing_text(intent.language), {}
+
+    if intent.intent == "calendar_today":
+        items = calendar_agent.get_items_for_date(_today())
+        titles = [str(item.get("title") or "") for item in items if item.get("title")]
+        if not titles:
+            reply = "Heute stehen keine Termine im Kalender." if german else "No appointments today."
+        else:
+            joined = ", ".join(titles[:5])
+            reply = f"Heute im Kalender: {joined}." if german else f"Today's calendar: {joined}."
+        return reply, {"items": items}
+
+    if intent.intent == "create_task":
+        if not intent.argument:
+            return (
+                "Ich habe keinen Aufgabentitel verstanden." if german else "I did not catch a task title.",
+                {},
+            )
+        task = task_agent.create_task(title=intent.argument)
+        _invalidate_dashboard_cache()
+        reply = (
+            f"Aufgabe „{task['title']}“ wurde erstellt."
+            if german
+            else f"Task \"{task['title']}\" created."
+        )
+        return reply, {"task": task}
+
+    if intent.intent in {"complete_task", "snooze_task"}:
+        # Snoozed tasks stay addressable by voice ("X ist erledigt").
+        matched = match_task_by_title(
+            task_agent.get_open_tasks(include_snoozed=True), intent.argument
+        )
+        if matched is None:
+            reply = (
+                f"Ich habe keine offene Aufgabe gefunden, die zu „{intent.argument}“ passt."
+                if german
+                else f"I could not find an open task matching \"{intent.argument}\"."
+            )
+            return reply, {}
+        task_id = int(matched["id"])
+        if intent.intent == "complete_task":
+            updated = task_agent.mark_task_done(task_id)
+            _invalidate_dashboard_cache()
+            reply = (
+                f"„{matched['title']}“ ist erledigt."
+                if german
+                else f"\"{matched['title']}\" is done."
+            )
+            return reply, {"task": updated}
+        try:
+            updated = task_agent.snooze_task(task_id, intent.snooze_until or "")
+        except ValueError as exc:
+            return str(exc), {}
+        _invalidate_dashboard_cache()
+        reply = (
+            f"„{matched['title']}“ wurde auf {intent.snooze_until} verschoben."
+            if german
+            else f"\"{matched['title']}\" snoozed until {intent.snooze_until}."
+        )
+        return reply, {"task": updated}
+
+    if intent.intent == "search":
+        results = search_unified(intent.argument, **_collect_unified_sources(), limit=5)
+        if not results:
+            reply = (
+                f"Keine Treffer für „{intent.argument}“."
+                if german
+                else f"No results for \"{intent.argument}\"."
+            )
+            return reply, {"results": []}
+        titles = ", ".join(result.title for result in results[:3])
+        reply = (
+            f"{len(results)} Treffer, zum Beispiel: {titles}."
+            if german
+            else f"{len(results)} results, for example: {titles}."
+        )
+        return reply, {"results": [result.to_dict() for result in results]}
+
+    return (
+        "Das habe ich nicht verstanden. Du kannst zum Beispiel sagen: Was steht heute an?"
+        if german
+        else "I did not understand that. Try: what's on today?",
+        {},
+    )
+
+
+def _voice_audio_payload(text: str, language: str) -> tuple[str | None, str | None]:
+    """Synthesize text; return (audio_base64, error) without failing the request."""
+    synthesis = voice_synthesis.synthesize_for_language(text, language)
+    if synthesis.ok:
+        return base64.b64encode(synthesis.audio).decode("ascii"), None
+    return None, synthesis.error
+
+
+@app.get("/api/voice/status")
+def voice_status() -> dict[str, Any]:
+    """Availability of the local STT/TTS engines."""
+    return _envelope(
+        {
+            "stt_available": voice_transcription.transcription_available(),
+            "stt_model": config.VOICE_STT_MODEL,
+            "tts_de": {"base_url": config.VOICE_TTS_DE_BASE_URL, "voice": config.VOICE_TTS_DE_VOICE},
+            "tts_en": {"base_url": config.VOICE_TTS_EN_BASE_URL, "voice": config.VOICE_TTS_EN_VOICE},
+        },
+    )
+
+
+async def _transcribe_upload(audio: UploadFile) -> dict[str, Any]:
+    suffix = Path(audio.filename or "speech.m4a").suffix or ".m4a"
+    payload = await audio.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Leere Audiodatei.")
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+        handle.write(payload)
+        temp_path = handle.name
+    try:
+        result = await asyncio.to_thread(
+            voice_transcription.get_default_transcriber().transcribe, temp_path
+        )
+    finally:
+        os.unlink(temp_path)
+    if not result.ok:
+        raise HTTPException(status_code=503, detail=result.error)
+    return result.to_dict()
+
+
+@app.post("/api/voice/transcribe")
+async def voice_transcribe(audio: UploadFile = File(...)) -> dict[str, Any]:
+    """Speech-to-text for one uploaded audio file (wav/m4a/mp3/ogg)."""
+    return _envelope(await _transcribe_upload(audio))
+
+
+@app.post("/api/voice/speak")
+def voice_speak(payload: VoiceSpeakRequest) -> Response:
+    """Text-to-speech; returns WAV audio (German voice by default)."""
+    synthesis = voice_synthesis.synthesize_for_language(
+        payload.text, normalize_language(payload.language)
+    )
+    if not synthesis.ok:
+        raise HTTPException(status_code=502, detail=synthesis.error)
+    return Response(content=synthesis.audio, media_type=synthesis.media_type)
+
+
+@app.post("/api/voice/command")
+def voice_command(payload: VoiceCommandRequest) -> dict[str, Any]:
+    """Route one transcribed sentence to the agents and reply (optionally spoken)."""
+    intent = parse_voice_command(payload.text, _today())
+    reply_text, data = _execute_voice_intent(intent)
+    response: dict[str, Any] = {
+        "intent": intent.to_dict(),
+        "reply_text": reply_text,
+        "data": data,
+    }
+    if payload.speak:
+        audio_base64, tts_error = _voice_audio_payload(reply_text, intent.language)
+        response["audio_base64"] = audio_base64
+        response["tts_error"] = tts_error
+    return _envelope(response)
+
+
+@app.post("/api/voice/command-audio")
+async def voice_command_audio(
+    audio: UploadFile = File(...),
+    speak: bool = Query(default=True),
+) -> dict[str, Any]:
+    """Push-to-talk round trip: audio in -> transcribe -> execute -> spoken reply."""
+    transcription = await _transcribe_upload(audio)
+    intent = parse_voice_command(transcription["text"], _today())
+    reply_text, data = _execute_voice_intent(intent)
+    response: dict[str, Any] = {
+        "transcription": transcription,
+        "intent": intent.to_dict(),
+        "reply_text": reply_text,
+        "data": data,
+    }
+    if speak:
+        audio_base64, tts_error = await asyncio.to_thread(
+            _voice_audio_payload, reply_text, intent.language
+        )
+        response["audio_base64"] = audio_base64
+        response["tts_error"] = tts_error
+    return _envelope(response)
+
+
+@app.get("/api/voice/morning-briefing")
+def voice_morning_briefing(
+    language: str = Query(default="de"),
+    speak: bool = Query(default=False),
+) -> dict[str, Any]:
+    """Spoken morning briefing: today's tasks (snooze-aware), overdue, calendar."""
+    lang = normalize_language(language)
+    text = _voice_briefing_text(lang)
+    response: dict[str, Any] = {"date": _today(), "language": lang, "text": text}
+    if speak:
+        audio_base64, tts_error = _voice_audio_payload(text, lang)
+        response["audio_base64"] = audio_base64
+        response["tts_error"] = tts_error
+    return _envelope(response)
+
+
 @app.get("/api/mail/followups")
 def mail_followups(
     days: int = Query(3, ge=1, le=30, description="Mindestalter in Tagen ohne Antwort"),
@@ -1362,23 +1598,7 @@ def unified_search(
     limit: int = Query(50, ge=1, le=200),
 ) -> dict[str, Any]:
     """Search tasks, contacts, messages, WhatsApp and synced mail locally."""
-    tasks = task_agent.repository.filter_tasks() if task_agent.repository is not None else []
-    contacts = contact_agent.load_contacts()
-    messages = message_agent.get_messages()
-    whatsapp = read_recent_whatsapp_messages(limit=50, db_path=message_agent.db_path)
-    mail: list[dict[str, Any]] = []
-    if message_agent.ms_mail_repository is not None:
-        mail = message_agent.ms_mail_repository.list_messages(limit=100, include_all=True)
-
-    results = search_unified(
-        q,
-        tasks=tasks,
-        contacts=contacts,
-        messages=messages,
-        whatsapp_messages=whatsapp,
-        mail_messages=mail,
-        limit=limit,
-    )
+    results = search_unified(q, **_collect_unified_sources(), limit=limit)
     return _envelope(
         {
             "query": q,
@@ -1386,6 +1606,24 @@ def unified_search(
             "results": [result.to_dict() for result in results],
         },
     )
+
+
+def _collect_unified_sources() -> dict[str, Any]:
+    """Load all local rows the unified search ranks over."""
+    tasks = task_agent.repository.filter_tasks() if task_agent.repository is not None else []
+    contacts = contact_agent.load_contacts()
+    messages = message_agent.get_messages()
+    whatsapp = read_recent_whatsapp_messages(limit=50, db_path=message_agent.db_path)
+    mail: list[dict[str, Any]] = []
+    if message_agent.ms_mail_repository is not None:
+        mail = message_agent.ms_mail_repository.list_messages(limit=100, include_all=True)
+    return {
+        "tasks": tasks,
+        "contacts": contacts,
+        "messages": messages,
+        "whatsapp_messages": whatsapp,
+        "mail_messages": mail,
+    }
 
 
 @app.get("/api/dashboard")

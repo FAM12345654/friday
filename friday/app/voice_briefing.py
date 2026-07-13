@@ -15,6 +15,15 @@ MAX_SPOKEN_ITEMS = 5
 
 _WEEKDAYS_DE = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag")
 _WEEKDAYS_EN = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+# Month names stay explicit: strftime('%B') depends on the process locale.
+_MONTHS_DE = (
+    "Januar", "Februar", "März", "April", "Mai", "Juni",
+    "Juli", "August", "September", "Oktober", "November", "Dezember",
+)
+_MONTHS_EN = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
 
 
 def _spoken_date(day_iso: str, language: str) -> str:
@@ -23,8 +32,8 @@ def _spoken_date(day_iso: str, language: str) -> str:
     except ValueError:
         return day_iso
     if language == "en":
-        return f"{_WEEKDAYS_EN[day.weekday()]}, {day.strftime('%B %d')}"
-    return f"{_WEEKDAYS_DE[day.weekday()]}, der {day.day}. {day.strftime('%B')}"
+        return f"{_WEEKDAYS_EN[day.weekday()]}, {_MONTHS_EN[day.month - 1]} {day.day}"
+    return f"{_WEEKDAYS_DE[day.weekday()]}, der {day.day}. {_MONTHS_DE[day.month - 1]}"
 
 
 def _titles(items: Iterable[Mapping[str, Any]], key: str = "title") -> list[str]:

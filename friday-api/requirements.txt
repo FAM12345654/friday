@@ -6,3 +6,4 @@ google-auth-oauthlib>=1.2,<2.0
 icalendar>=5.0,<6.0
 recurring-ical-events>=3.0,<4.0
 msal>=1.31,<2.0
+python-multipart>=0.0.9,<1.0
