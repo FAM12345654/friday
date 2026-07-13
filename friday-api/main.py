@@ -137,7 +137,13 @@ from friday.app.ms_mail_read_activation_gate import (
     apply_ms_mail_read_activation_to_config,
     build_ms_mail_read_activation_gate,
 )
-from friday.app.email_send_guard import EMAIL_SEND_TOKEN, check_email_send_allowed, log_email_send
+from friday.app.email_send_guard import (
+    EMAIL_SEND_TOKEN,
+    check_email_send_allowed,
+    list_sent_emails,
+    log_email_send,
+)
+from friday.app.followup_detector import detect_followups
 from friday.app.email_smtp_sender import check_smtp_login, send_single_email
 from friday.app.local_ollama_activation_gate import build_local_ollama_activation_gate
 from friday.app.local_ollama_config_apply_guard import build_local_ollama_config_apply_gate
@@ -1137,6 +1143,25 @@ def metrics() -> dict[str, Any]:
         {
             "cache": cache.stats(),
             "requests": request_metrics.snapshot(),
+        },
+    )
+
+
+@app.get("/api/mail/followups")
+def mail_followups(
+    days: int = Query(3, ge=1, le=30, description="Mindestalter in Tagen ohne Antwort"),
+) -> dict[str, Any]:
+    """List sent emails that are still waiting for a reply."""
+    sent = list_sent_emails(db_path=message_agent.db_path)
+    inbound: list[dict[str, Any]] = []
+    if message_agent.ms_mail_repository is not None:
+        inbound = message_agent.ms_mail_repository.list_messages(limit=100, include_all=True)
+    candidates = detect_followups(sent, inbound, threshold_days=days)
+    return _envelope(
+        {
+            "threshold_days": days,
+            "count": len(candidates),
+            "items": [candidate.to_dict() for candidate in candidates],
         },
     )
 

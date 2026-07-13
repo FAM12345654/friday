@@ -57,6 +57,27 @@ def count_sent_emails_today(db_path: Path | str | None = None) -> int:
         return int(row["count"] if row is not None else 0)
 
 
+def list_sent_emails(
+    *,
+    limit: int = 200,
+    db_path: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    """Return recent send-audit rows (newest first) for follow-up detection."""
+    setup_local_database(db_path)
+    safe_limit = max(1, min(int(limit or 200), 1000))
+    with get_connection(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT id, sent_at, recipient, subject, message_id, status
+            FROM email_send_log
+            ORDER BY sent_at DESC, id DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
 def log_email_send(
     *,
     recipient: str,
