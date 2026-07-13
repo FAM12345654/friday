@@ -67,6 +67,27 @@ def test_build_due_task_notifications() -> None:
     assert "Überfällig" in notifications[1]["body"]
 
 
+def test_snoozed_task_does_not_trigger_reminder() -> None:
+    tasks = [
+        {
+            "title": "Überfällig aber snoozed",
+            "due_date": "2026-07-10",
+            "status": "open",
+            "snoozed_until": "2026-07-20",
+        },
+        {
+            "title": "Snooze bereits abgelaufen",
+            "due_date": "2026-07-10",
+            "status": "open",
+            "snoozed_until": "2026-07-12",
+        },
+    ]
+    notifications = build_due_task_notifications(tasks, "2026-07-13")
+    assert len(notifications) == 1
+    assert "Snooze bereits abgelaufen" in notifications[0]["body"]
+    assert "Überfällig aber snoozed" not in notifications[0]["body"]
+
+
 def test_send_disabled_by_default(tmp_path) -> None:
     db = _db(tmp_path)
     register_push_token(TOKEN, db_path=db)

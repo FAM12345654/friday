@@ -95,6 +95,9 @@ def build_due_task_notifications(
         status = str(task.get("status") or "").lower()
         if status in {"done", "archived"}:
             continue
+        snoozed_until = str(task.get("snoozed_until") or "").strip()
+        if snoozed_until and snoozed_until > today_iso:
+            continue
         due = str(task.get("due_date") or "").strip()
         if not due:
             continue
