@@ -28,6 +28,13 @@ const dictionaries = {
     "common.language": "Sprache",
     "common.busy": "Aktion läuft…",
     "common.footer": "lokal & privat",
+    "voice.hold": "Halten zum Sprechen",
+    "voice.listening": "Ich höre zu…",
+    "voice.thinking": "Friday denkt nach…",
+    "voice.speaking": "Friday spricht…",
+    "voice.noPermission": "Mikrofon-Berechtigung fehlt.",
+    "voice.noAudioModule": "Audio-Modul nicht verfügbar (neuer Build nötig).",
+    "voice.noRecording": "Keine Aufnahme vorhanden.",
   },
   en: {
     "nav.Home": "Home",
@@ -48,6 +55,13 @@ const dictionaries = {
     "common.language": "Language",
     "common.busy": "Working…",
     "common.footer": "local & private",
+    "voice.hold": "Hold to talk",
+    "voice.listening": "Listening…",
+    "voice.thinking": "Friday is thinking…",
+    "voice.speaking": "Friday is speaking…",
+    "voice.noPermission": "Microphone permission missing.",
+    "voice.noAudioModule": "Audio module unavailable (new build required).",
+    "voice.noRecording": "No recording captured.",
   },
 };
 
