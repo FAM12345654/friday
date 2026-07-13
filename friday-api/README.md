@@ -49,6 +49,12 @@ Alle Endpunkte antworten mit:
 - `POST /api/push/register`, `DELETE /api/push/register`, `GET /api/push/status`,
   `POST /api/push/send-due-reminders` — Expo-Push-Erinnerungen (extern, nur aktiv
   wenn `ENABLE_PUSH_NOTIFICATIONS = True` in `friday/config.py`)
+- `POST /api/voice/transcribe` (Audio-Upload → Text, lokales faster-whisper),
+  `POST /api/voice/speak` (Text → WAV über lokalen Orpheus/Kokoro-Server),
+  `POST /api/voice/command` und `POST /api/voice/command-audio`
+  (Sprachbefehl → Intent → Agenten → optional gesprochene Antwort),
+  `GET /api/voice/morning-briefing?speak=true`, `GET /api/voice/status`
+  — Setup siehe SETUP.md Abschnitt 7
 
 ## Performance-Integration
 

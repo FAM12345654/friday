@@ -32,6 +32,7 @@ import {
 } from "./src/data/sync";
 import { registerForPushNotifications } from "./src/notifications";
 import { SUPPORTED_LOCALES, getAppLocale, initLocale, setAppLocale, t } from "./src/i18n";
+import PushToTalk from "./src/voice/PushToTalk";
 
 import {
   approveMessageSuggestion,
@@ -4852,6 +4853,7 @@ export default function App() {
         {actionBusy && <Text style={styles.busyHint}>{t("common.busy")}</Text>}
         <Text style={styles.footer}>Friday 1.0 | {t("common.footer")} | {updateStatus} | {getApiUrl()}</Text>
       </ScrollView>
+      {active === "Home" && <PushToTalk colors={colors} />}
       <View style={styles.bottomTabBar}>
         {bottomTabs.map((tab) => {
           const selected = active === tab.key;

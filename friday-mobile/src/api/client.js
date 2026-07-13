@@ -95,6 +95,50 @@ async function callApi(path, options = {}) {
   }
 }
 
+// Multipart uploads must not set Content-Type manually: fetch adds the
+// boundary itself when it sees FormData.
+async function requestMultipart(baseUrl, path, formData) {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    body: formData,
+  });
+  const payload = await response.json().catch(() => ({ ok: false, message: "Ungültiges JSON" }));
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.detail || payload?.message || `HTTP ${response.status}`);
+  }
+  return payload.data;
+}
+
+async function callApiMultipart(path, formData) {
+  const baseUrl = await resolveApiUrl();
+  try {
+    return await requestMultipart(baseUrl, path, formData);
+  } catch (error) {
+    if (isNetworkError(error)) {
+      const nextUrl = await resolveApiUrl(true);
+      if (nextUrl && nextUrl !== baseUrl) {
+        return requestMultipart(nextUrl, path, formData);
+      }
+    }
+    throw error;
+  }
+}
+
+export async function sendVoiceCommandAudio(fileUri, speak = true) {
+  const formData = new FormData();
+  formData.append("audio", { uri: fileUri, name: "speech.m4a", type: "audio/m4a" });
+  return callApiMultipart(`/api/voice/command-audio?speak=${speak ? "true" : "false"}`, formData);
+}
+
+export async function getVoiceStatus() {
+  return callApi("/api/voice/status");
+}
+
+export async function getVoiceMorningBriefing(language = "de", speak = true) {
+  const params = new URLSearchParams({ language, speak: speak ? "true" : "false" });
+  return callApi(`/api/voice/morning-briefing?${params.toString()}`);
+}
+
 export async function getDashboard() {
   return callApi("/api/dashboard");
 }

@@ -62,6 +62,18 @@ OLLAMA_TIMEOUT_SECONDS = 30
 # standardmäßig deaktiviert.
 ENABLE_PUSH_NOTIFICATIONS = False
 
+# Sprachmodul: Whisper-STT lokal, TTS über lokale OpenAI-kompatible Server
+# (Deutsch: Orpheus "Kartoffel" z. B. via Orpheus-FastAPI auf Port 5005,
+# Englisch: Kokoro z. B. via kokoro-fastapi auf Port 8880). Alles localhost.
+VOICE_STT_MODEL = "small"
+VOICE_TTS_DE_BASE_URL = "http://localhost:5005"
+VOICE_TTS_DE_MODEL = "orpheus"
+VOICE_TTS_DE_VOICE = "jana"
+VOICE_TTS_EN_BASE_URL = "http://localhost:8880"
+VOICE_TTS_EN_MODEL = "kokoro"
+VOICE_TTS_EN_VOICE = "af_heart"
+VOICE_TTS_TIMEOUT_SECONDS = 60
+
 # Lokale Benachrichtigungen bleiben standardmäßig deaktiviert.
 ENABLE_LOCAL_NOTIFICATIONS = False
 

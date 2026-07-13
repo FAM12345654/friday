@@ -18,11 +18,11 @@ class TaskAgent:
         self.db_path = db_path or get_database_path()
         self.repository = TaskRepository(self.db_path) if USE_SQLITE_STORAGE else None
 
-    def get_open_tasks(self) -> List[Dict[str, Any]]:
+    def get_open_tasks(self, *, include_snoozed: bool = False) -> List[Dict[str, Any]]:
         """Return tasks that are not marked as done."""
         if self.repository is None:
             return []
-        return self.repository.get_open_tasks()
+        return self.repository.get_open_tasks(include_snoozed=include_snoozed)
 
     def get_task_by_id(self, task_id: int) -> Dict[str, Any] | None:
         """Return one task for editing or completion."""

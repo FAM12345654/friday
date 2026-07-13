@@ -270,3 +270,38 @@ docker compose up friday-api
 - **Sprache**: In der Mobile-App unter „Mehr“ zwischen DE und EN umschalten.
 - **CI**: GitHub Actions führt bei jedem Push alle Tests auf Linux und
   Windows aus (`.github/workflows/ci.yml`).
+
+## 7) Sprachmodul (Push-to-Talk & gesprochenes Briefing)
+
+Friday kann Sprachbefehle verstehen (lokales Whisper) und mit einer
+menschlichen Stimme antworten (lokale TTS-Server, kein Abo, alles offline):
+
+1. **Speech-to-Text**: `pip install -r friday-api/requirements-voice.txt`
+   (faster-whisper; Modell `small` wird beim ersten Aufruf geladen).
+2. **Deutsche Stimme (Orpheus „Kartoffel“, sehr natürlich, braucht GPU ≥8GB)**:
+   [Orpheus-FastAPI](https://github.com/Lex-au/Orpheus-FastAPI) auf Port 5005
+   starten und in `friday/config.py` bei Bedarf `VOICE_TTS_DE_*` anpassen.
+3. **Englische Stimme (Kokoro, läuft auf CPU)**:
+   `docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest`
+4. Testen ohne App:
+
+```bash
+curl -s "http://127.0.0.1:8000/api/voice/morning-briefing" | python -m json.tool
+curl -s -X POST http://127.0.0.1:8000/api/voice/command \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Was steht heute an?"}' | python -m json.tool
+```
+
+Endpunkte: `POST /api/voice/transcribe` (Audio-Upload), `POST /api/voice/speak`
+(Text → WAV), `POST /api/voice/command` (Text → Intent → Antwort),
+`POST /api/voice/command-audio` (kompletter Push-to-Talk-Roundtrip),
+`GET /api/voice/morning-briefing?speak=true`, `GET /api/voice/status`.
+
+Verstandene Befehle (Deutsch und Englisch): Tagesbriefing („Was steht heute
+an?“), Termine, Aufgabe erstellen („Erstelle Aufgabe: …“, „Erinnere mich
+an …“), erledigen („X ist erledigt“), verschieben („Verschiebe X auf
+morgen/nächste Woche“), Suche („Suche nach …“).
+
+In der Mobile-App gibt es auf dem Home-Screen einen Push-to-Talk-Button
+(halten zum Sprechen). Dafür ist ein neuer EAS-Build nötig (expo-av und
+Mikrofon-Berechtigung sind neue native Bestandteile).
