@@ -145,6 +145,7 @@ from friday.app.local_ollama_config_preview import build_local_ollama_config_pre
 from friday.app.local_model_provider import get_local_model_fallback_count
 from friday.app.messaging_audit_preview import build_messaging_audit_preview
 from friday.app.routine_detector import detect_routine_candidates
+from friday.app.unified_search import search_unified
 from friday.app.setup_status import build_setup_status
 from friday.app.whatsapp_bridge_activation_gate import (
     WHATSAPP_BRIDGE_ACTIVATION_TOKEN,
@@ -1136,6 +1137,38 @@ def metrics() -> dict[str, Any]:
         {
             "cache": cache.stats(),
             "requests": request_metrics.snapshot(),
+        },
+    )
+
+
+@app.get("/api/search")
+def unified_search(
+    q: str = Query(..., min_length=1, description="Suchbegriffe (UND-verknüpft)"),
+    limit: int = Query(50, ge=1, le=200),
+) -> dict[str, Any]:
+    """Search tasks, contacts, messages, WhatsApp and synced mail locally."""
+    tasks = task_agent.repository.filter_tasks() if task_agent.repository is not None else []
+    contacts = contact_agent.load_contacts()
+    messages = message_agent.get_messages()
+    whatsapp = read_recent_whatsapp_messages(limit=50, db_path=message_agent.db_path)
+    mail: list[dict[str, Any]] = []
+    if message_agent.ms_mail_repository is not None:
+        mail = message_agent.ms_mail_repository.list_messages(limit=100, include_all=True)
+
+    results = search_unified(
+        q,
+        tasks=tasks,
+        contacts=contacts,
+        messages=messages,
+        whatsapp_messages=whatsapp,
+        mail_messages=mail,
+        limit=limit,
+    )
+    return _envelope(
+        {
+            "query": q,
+            "count": len(results),
+            "results": [result.to_dict() for result in results],
         },
     )
 
