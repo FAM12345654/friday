@@ -127,6 +127,19 @@ export async function completeTask(taskId) {
   });
 }
 
+export async function snoozeTask(taskId, until) {
+  return callApi(`/api/tasks/${taskId}/snooze`, {
+    method: "POST",
+    body: JSON.stringify({ until }),
+  });
+}
+
+export async function unsnoozeTask(taskId) {
+  return callApi(`/api/tasks/${taskId}/unsnooze`, {
+    method: "POST",
+  });
+}
+
 export async function archiveTask(taskId) {
   return callApi(`/api/tasks/${taskId}/archive`, {
     method: "POST",
@@ -468,6 +481,17 @@ export async function unblockSender(blockedSenderId) {
   return callApi(`/api/senders/blocked/${encodeURIComponent(String(blockedSenderId))}`, {
     method: "DELETE",
   });
+}
+
+export async function registerPushToken(token, platform) {
+  return callApi("/api/push/register", {
+    method: "POST",
+    body: JSON.stringify({ token, platform }),
+  });
+}
+
+export async function getPushStatus() {
+  return callApi("/api/push/status");
 }
 
 export async function getSetupStatus() {

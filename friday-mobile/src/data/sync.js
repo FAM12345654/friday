@@ -5,6 +5,8 @@ import {
   createTask,
   deleteTask,
   getApiUrl,
+  snoozeTask,
+  unsnoozeTask,
   updateContact,
 } from "../api/client";
 import {
@@ -29,6 +31,8 @@ const queueHandlers = {
   completeTask: ({ taskId }) => completeTask(taskId),
   archiveTask: ({ taskId }) => archiveTask(taskId),
   deleteTask: ({ taskId }) => deleteTask(taskId),
+  snoozeTask: ({ taskId, until }) => snoozeTask(taskId, until),
+  unsnoozeTask: ({ taskId }) => unsnoozeTask(taskId),
   createContact: ({ payload }) => createContact(payload),
   updateContactNotes: ({ contactId, notes }) => updateContact(contactId, { notes }),
 };

@@ -55,7 +55,12 @@ OBSIDIAN_ALLOWED_SUBDIR = "Friday"
 ENABLE_LOCAL_OLLAMA = True
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "qwen3:8b"
+OLLAMA_EMBED_MODEL = "nomic-embed-text"
 OLLAMA_TIMEOUT_SECONDS = 30
+
+# Push-Benachrichtigungen (Expo) sind ein externer Dienst und bleiben
+# standardmäßig deaktiviert.
+ENABLE_PUSH_NOTIFICATIONS = False
 
 # Lokale Benachrichtigungen bleiben standardmäßig deaktiviert.
 ENABLE_LOCAL_NOTIFICATIONS = False

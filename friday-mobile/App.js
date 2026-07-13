@@ -30,6 +30,8 @@ import {
   setSyncStatus as persistSyncStatus,
   writeLocalCacheEntry,
 } from "./src/data/sync";
+import { registerForPushNotifications } from "./src/notifications";
+import { SUPPORTED_LOCALES, getAppLocale, initLocale, setAppLocale, t } from "./src/i18n";
 
 import {
   approveMessageSuggestion,
@@ -934,6 +936,16 @@ export default function App() {
   const [fontsLoaded, fontLoadError] = useFonts(figtreeFonts);
   const [active, setActive] = useState("Home");
   const [moreScreen, setMoreScreen] = useState("");
+  const [locale, setLocaleState] = useState(getAppLocale());
+
+  useEffect(() => {
+    initLocale().then((loaded) => setLocaleState(loaded)).catch(() => null);
+  }, []);
+
+  const changeLocale = async (nextLocale) => {
+    const applied = await setAppLocale(nextLocale);
+    setLocaleState(applied);
+  };
   const [tokenModal, setTokenModal] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadProgress, setLoadProgress] = useState({ done: 0, total: 0 });
@@ -1259,6 +1271,11 @@ export default function App() {
       isMounted = false;
       clearInterval(timer);
     };
+  }, []);
+
+  useEffect(() => {
+    // Best-effort push registration; the app works fine if it fails.
+    registerForPushNotifications().catch(() => null);
   }, []);
 
   useEffect(() => {
@@ -2762,7 +2779,7 @@ export default function App() {
 
   const renderMoreScreen = () => (
     <View>
-      <SectionTitle>Mehr</SectionTitle>
+      <SectionTitle>{t("nav.Mehr")}</SectionTitle>
       {moreScreens.map((item) => (
         <TouchableOpacity
           key={item.key}
@@ -2774,12 +2791,40 @@ export default function App() {
             <LineIcon name={item.icon} color={colors.accentStrong} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>{item.label}</Text>
-            <Text style={styles.cardMeta}>{item.description}</Text>
+            <Text style={styles.cardTitle}>{t(`more.${item.key}.label`)}</Text>
+            <Text style={styles.cardMeta}>{t(`more.${item.key}.description`)}</Text>
           </View>
           {item.key === "Lernen" && <Badge value={openLearningCount} />}
         </TouchableOpacity>
       ))}
+      <View style={styles.moreItem}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.cardTitle}>{t("common.language")}</Text>
+        </View>
+        {SUPPORTED_LOCALES.map((code) => (
+          <TouchableOpacity
+            key={code}
+            onPress={() => changeLocale(code)}
+            activeOpacity={0.75}
+            style={{
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              marginLeft: 8,
+              borderRadius: 8,
+              backgroundColor: locale === code ? colors.accentStrong : colors.surface,
+            }}
+          >
+            <Text
+              style={[
+                styles.cardMeta,
+                locale === code && { color: colors.surface, fontWeight: "700" },
+              ]}
+            >
+              {code.toUpperCase()}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
     </View>
   );
 
@@ -4804,8 +4849,8 @@ export default function App() {
           </TouchableOpacity>
         )}
         {!loading && !error && renderScreenContent()}
-        {actionBusy && <Text style={styles.busyHint}>Aktion läuft…</Text>}
-        <Text style={styles.footer}>Friday 1.0 | lokal & privat | {updateStatus} | {getApiUrl()}</Text>
+        {actionBusy && <Text style={styles.busyHint}>{t("common.busy")}</Text>}
+        <Text style={styles.footer}>Friday 1.0 | {t("common.footer")} | {updateStatus} | {getApiUrl()}</Text>
       </ScrollView>
       <View style={styles.bottomTabBar}>
         {bottomTabs.map((tab) => {
@@ -4819,7 +4864,7 @@ export default function App() {
               activeOpacity={0.76}
             >
               <LineIcon name={tab.icon} color={selected ? colors.accentStrong : colors.muted} />
-              <Text style={[styles.bottomTabLabel, selected && styles.bottomTabTextActive]}>{tab.label}</Text>
+              <Text style={[styles.bottomTabLabel, selected && styles.bottomTabTextActive]}>{t(`nav.${tab.key}`)}</Text>
               <Badge value={badgeValue} />
             </TouchableOpacity>
           );

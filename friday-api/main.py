@@ -21,7 +21,9 @@ for _path in (str(API_DIR), str(ROOT_DIR)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from perf import TTLCache, etag_response, register_timing
+from events import broker as event_broker, sse_stream
+from perf import TTLCache, etag_response, register_timing, request_metrics
+from security import register_auth
 
 from friday import config
 from friday.agents import (
@@ -136,14 +138,35 @@ from friday.app.ms_mail_read_activation_gate import (
     apply_ms_mail_read_activation_to_config,
     build_ms_mail_read_activation_gate,
 )
-from friday.app.email_send_guard import EMAIL_SEND_TOKEN, check_email_send_allowed, log_email_send
+from friday.app.email_send_guard import (
+    EMAIL_SEND_TOKEN,
+    check_email_send_allowed,
+    list_sent_emails,
+    log_email_send,
+)
+from friday.app.followup_detector import detect_followups
 from friday.app.email_smtp_sender import check_smtp_login, send_single_email
 from friday.app.local_ollama_activation_gate import build_local_ollama_activation_gate
 from friday.app.local_ollama_config_apply_guard import build_local_ollama_config_apply_gate
 from friday.app.local_ollama_config_preview import build_local_ollama_config_preview
 from friday.app.local_model_provider import get_local_model_fallback_count
 from friday.app.messaging_audit_preview import build_messaging_audit_preview
+from friday.app.push_notifications import (
+    build_due_task_notifications,
+    list_push_tokens,
+    register_push_token,
+    remove_push_token,
+    send_push_notifications,
+)
 from friday.app.routine_detector import detect_routine_candidates
+from friday.app.semantic_index import (
+    OllamaEmbedder,
+    index_documents,
+    index_stats,
+    semantic_search,
+)
+from friday.app.local_ollama_runtime import check_ollama_health
+from friday.app.unified_search import search_unified
 from friday.app.setup_status import build_setup_status
 from friday.app.whatsapp_bridge_activation_gate import (
     WHATSAPP_BRIDGE_ACTIVATION_TOKEN,
@@ -182,6 +205,7 @@ app = FastAPI(
 )
 
 register_timing(app)
+register_auth(app)
 cache = TTLCache(ttl=120)
 
 app.add_middleware(
@@ -489,14 +513,17 @@ def _invalidate_google_calendar_read_cache() -> None:
 
 def _invalidate_mail_read_cache() -> None:
     cache.invalidate_prefix(("mail",))
+    event_broker.publish("mail")
 
 
 def _invalidate_calendar_cache() -> None:
     cache.invalidate_prefix(("calendar",))
+    event_broker.publish("calendar")
 
 
 def _invalidate_dashboard_cache() -> None:
     cache.invalidate_prefix(("dashboard",))
+    event_broker.publish("dashboard")
 
 
 def _coerce_int(value: Any, default: int, *, minimum: int = 1, maximum: int = 100) -> int:
@@ -1127,6 +1154,240 @@ def health() -> dict[str, Any]:
     )
 
 
+@app.get("/metrics")
+def metrics() -> dict[str, Any]:
+    """Runtime metrics: TTL cache effectiveness and per-endpoint latencies."""
+    return _envelope(
+        {
+            "cache": cache.stats(),
+            "requests": request_metrics.snapshot(),
+        },
+    )
+
+
+@app.get("/api/events")
+async def live_events() -> Response:
+    """Server-sent events: emits a 'change' event whenever server data changes."""
+    from fastapi.responses import StreamingResponse
+
+    return StreamingResponse(
+        sse_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+class PushRegisterRequest(BaseModel):
+    token: str
+    platform: Optional[str] = "unknown"
+
+
+@app.post("/api/push/register")
+def push_register(payload: PushRegisterRequest) -> dict[str, Any]:
+    """Register one Expo push token for reminders."""
+    ok = register_push_token(payload.token, payload.platform or "unknown", db_path=message_agent.db_path)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Ungültiges Expo-Push-Token.")
+    return _envelope({"registered": True, "devices": len(list_push_tokens(db_path=message_agent.db_path))})
+
+
+@app.delete("/api/push/register")
+def push_unregister(payload: PushRegisterRequest) -> dict[str, Any]:
+    removed = remove_push_token(payload.token, db_path=message_agent.db_path)
+    return _envelope({"removed": removed})
+
+
+@app.get("/api/push/status")
+def push_status() -> dict[str, Any]:
+    tokens = list_push_tokens(db_path=message_agent.db_path)
+    return _envelope(
+        {
+            "enabled": getattr(config, "ENABLE_PUSH_NOTIFICATIONS", False),
+            "devices": len(tokens),
+            "platforms": sorted({row["platform"] for row in tokens}),
+        },
+    )
+
+
+@app.post("/api/push/send-due-reminders")
+def push_send_due_reminders() -> dict[str, Any]:
+    """Build due/overdue task reminders and send them to registered devices."""
+    today = _today()
+    tasks = task_agent.repository.filter_tasks() if task_agent.repository is not None else []
+    notifications = build_due_task_notifications(tasks, today)
+    result = send_push_notifications(notifications, db_path=message_agent.db_path)
+    return _envelope(
+        {
+            "ok": result.ok,
+            "sent": result.sent,
+            "message": result.message,
+            "notifications": notifications,
+        },
+    )
+
+
+def _collect_semantic_documents() -> list[dict[str, Any]]:
+    documents: list[dict[str, Any]] = []
+    if task_agent.repository is not None:
+        for task in task_agent.repository.filter_tasks():
+            documents.append(
+                {
+                    "source": "task",
+                    "source_id": task["id"],
+                    "title": task.get("title") or "",
+                    "text": " ".join(
+                        str(task.get(field) or "") for field in ("notes", "category", "status")
+                    ),
+                }
+            )
+    for message in message_agent.get_messages():
+        documents.append(
+            {
+                "source": "message",
+                "source_id": message.get("id"),
+                "title": message.get("sender") or "",
+                "text": message.get("text") or "",
+            }
+        )
+    for item in read_recent_whatsapp_messages(limit=50, db_path=message_agent.db_path):
+        documents.append(
+            {
+                "source": "whatsapp",
+                "source_id": item.get("id"),
+                "title": item.get("sender_name") or "",
+                "text": item.get("body") or "",
+            }
+        )
+    if message_agent.ms_mail_repository is not None:
+        for mail in message_agent.ms_mail_repository.list_messages(limit=100, include_all=True):
+            documents.append(
+                {
+                    "source": "mail",
+                    "source_id": mail.get("id"),
+                    "title": mail.get("subject") or mail.get("sender") or "",
+                    "text": " ".join(
+                        str(mail.get(field) or "") for field in ("sender", "snippet")
+                    ),
+                }
+            )
+    return documents
+
+
+def _require_ollama_embeddings() -> OllamaEmbedder:
+    if not config.ENABLE_LOCAL_OLLAMA:
+        raise HTTPException(
+            status_code=503,
+            detail="Lokales Ollama ist deaktiviert. Semantische Suche benötigt Ollama.",
+        )
+    health = check_ollama_health()
+    if not health.available:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Ollama ist nicht erreichbar: {health.error or 'unbekannt'}",
+        )
+    return OllamaEmbedder()
+
+
+@app.post("/api/search/semantic/reindex")
+def semantic_reindex() -> dict[str, Any]:
+    """(Re)build the local embedding index from tasks, messages, WhatsApp and mail."""
+    embedder = _require_ollama_embeddings()
+    documents = _collect_semantic_documents()
+    try:
+        indexed = index_documents(documents, embedder, db_path=message_agent.db_path)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _envelope({"indexed": indexed, **index_stats(db_path=message_agent.db_path)})
+
+
+@app.get("/api/search/semantic")
+def semantic_query(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(10, ge=1, le=100),
+) -> dict[str, Any]:
+    """Semantic (embedding-based) search over the locally indexed content."""
+    embedder = _require_ollama_embeddings()
+    try:
+        hits = semantic_search(q, embedder, db_path=message_agent.db_path, limit=limit)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return _envelope(
+        {
+            "query": q,
+            "count": len(hits),
+            "results": [hit.to_dict() for hit in hits],
+        },
+    )
+
+
+@app.get("/api/search/semantic/status")
+def semantic_status() -> dict[str, Any]:
+    """Index size per source plus current Ollama availability."""
+    health = check_ollama_health() if config.ENABLE_LOCAL_OLLAMA else None
+    return _envelope(
+        {
+            "index": index_stats(db_path=message_agent.db_path),
+            "ollama_enabled": config.ENABLE_LOCAL_OLLAMA,
+            "ollama_available": bool(health.available) if health else False,
+            "embed_model": config.OLLAMA_EMBED_MODEL,
+        },
+    )
+
+
+@app.get("/api/mail/followups")
+def mail_followups(
+    days: int = Query(3, ge=1, le=30, description="Mindestalter in Tagen ohne Antwort"),
+) -> dict[str, Any]:
+    """List sent emails that are still waiting for a reply."""
+    sent = list_sent_emails(db_path=message_agent.db_path)
+    inbound: list[dict[str, Any]] = []
+    if message_agent.ms_mail_repository is not None:
+        inbound = message_agent.ms_mail_repository.list_messages(limit=100, include_all=True)
+    candidates = detect_followups(sent, inbound, threshold_days=days)
+    return _envelope(
+        {
+            "threshold_days": days,
+            "count": len(candidates),
+            "items": [candidate.to_dict() for candidate in candidates],
+        },
+    )
+
+
+@app.get("/api/search")
+def unified_search(
+    q: str = Query(..., min_length=1, description="Suchbegriffe (UND-verknüpft)"),
+    limit: int = Query(50, ge=1, le=200),
+) -> dict[str, Any]:
+    """Search tasks, contacts, messages, WhatsApp and synced mail locally."""
+    tasks = task_agent.repository.filter_tasks() if task_agent.repository is not None else []
+    contacts = contact_agent.load_contacts()
+    messages = message_agent.get_messages()
+    whatsapp = read_recent_whatsapp_messages(limit=50, db_path=message_agent.db_path)
+    mail: list[dict[str, Any]] = []
+    if message_agent.ms_mail_repository is not None:
+        mail = message_agent.ms_mail_repository.list_messages(limit=100, include_all=True)
+
+    results = search_unified(
+        q,
+        tasks=tasks,
+        contacts=contacts,
+        messages=messages,
+        whatsapp_messages=whatsapp,
+        mail_messages=mail,
+        limit=limit,
+    )
+    return _envelope(
+        {
+            "query": q,
+            "count": len(results),
+            "results": [result.to_dict() for result in results],
+        },
+    )
+
+
 @app.get("/api/dashboard")
 async def get_dashboard(
     if_none_match: str | None = Header(default=None),
@@ -1576,6 +1837,33 @@ def delete_task(task_id: int) -> dict[str, Any]:
 @app.post("/api/tasks/{task_id}/done")
 def complete_task(task_id: int) -> dict[str, Any]:
     updated = task_agent.mark_task_done(task_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    _invalidate_dashboard_cache()
+    return _envelope(updated)
+
+
+class TaskSnoozeRequest(BaseModel):
+    until: str
+
+
+@app.post("/api/tasks/{task_id}/snooze")
+def snooze_task(task_id: int, payload: TaskSnoozeRequest) -> dict[str, Any]:
+    """Hide one task from day views until the given date (YYYY-MM-DD)."""
+    try:
+        updated = task_agent.snooze_task(task_id, payload.until)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    _invalidate_dashboard_cache()
+    return _envelope(updated)
+
+
+@app.post("/api/tasks/{task_id}/unsnooze")
+def unsnooze_task(task_id: int) -> dict[str, Any]:
+    """Clear a task snooze so it shows up again immediately."""
+    updated = task_agent.unsnooze_task(task_id)
     if updated is None:
         raise HTTPException(status_code=404, detail="Task not found.")
     _invalidate_dashboard_cache()

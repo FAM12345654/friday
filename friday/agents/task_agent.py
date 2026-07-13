@@ -47,6 +47,18 @@ class TaskAgent:
             return []
         return self.repository.get_tasks_by_status(status)
 
+    def snooze_task(self, task_id: int, until_date: str) -> Dict[str, Any] | None:
+        """Snooze one task until an ISO date (hidden from day views until then)."""
+        if self.repository is None:
+            return None
+        return self.repository.snooze_task(task_id, until_date)
+
+    def unsnooze_task(self, task_id: int) -> Dict[str, Any] | None:
+        """Clear a task snooze."""
+        if self.repository is None:
+            return None
+        return self.repository.unsnooze_task(task_id)
+
     def search_tasks(
         self,
         query: str,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 from typing import Any, Mapping
 
@@ -155,9 +155,16 @@ def build_obsidian_target_path(
 ) -> Path:
     """Build and validate the target path inside an allowed vault subdir."""
     root = vault_path.resolve()
-    safe_subdir = (allowed_subdir or "Friday").strip().strip("/\\") or "Friday"
+    # Treat backslashes as separators on every OS so Windows-style escapes
+    # like "..\\outside" are caught on POSIX as well, and reject absolute
+    # paths (either OS flavor) before any separator stripping can hide them.
+    raw_subdir = (allowed_subdir or "Friday").strip()
+    normalized_subdir = raw_subdir.replace("\\", "/")
+    if PurePosixPath(normalized_subdir).is_absolute() or PureWindowsPath(raw_subdir).is_absolute():
+        raise ValueError("Obsidian-Unterordner muss relativ und innerhalb des Vaults liegen.")
+    safe_subdir = normalized_subdir.strip("/") or "Friday"
     subdir_path = Path(safe_subdir)
-    if subdir_path.is_absolute() or any(part in {"", ".", ".."} for part in subdir_path.parts):
+    if any(part in {"", ".", ".."} for part in subdir_path.parts):
         raise ValueError("Obsidian-Unterordner muss relativ und innerhalb des Vaults liegen.")
 
     allowed_root = (root / subdir_path).resolve()

@@ -60,7 +60,8 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 due_date TEXT,
                 notes TEXT,
                 priority TEXT,
-                recurrence TEXT
+                recurrence TEXT,
+                snoozed_until TEXT
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -283,10 +284,29 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 enabled INTEGER NOT NULL DEFAULT 1,
                 UNIQUE (kind, key)
             );
+
+            CREATE TABLE IF NOT EXISTS push_tokens (
+                id INTEGER PRIMARY KEY,
+                token TEXT NOT NULL UNIQUE,
+                platform TEXT NOT NULL DEFAULT 'unknown',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS semantic_index (
+                id INTEGER PRIMARY KEY,
+                source TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                text TEXT NOT NULL,
+                embedding_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE (source, source_id)
+            );
             """
         )
         _ensure_task_priority_column(connection)
         _ensure_task_recurrence_column(connection)
+        _ensure_task_snooze_column(connection)
         _ensure_contact_target_columns(connection)
         _ensure_account_policy_transform_column(connection)
         _ensure_message_spam_columns(connection)
@@ -305,6 +325,13 @@ def _ensure_task_recurrence_column(connection: sqlite3.Connection) -> None:
     columns = connection.execute("PRAGMA table_info(tasks)").fetchall()
     if not any(column[1] == "recurrence" for column in columns):
         connection.execute("ALTER TABLE tasks ADD COLUMN recurrence TEXT")
+
+
+def _ensure_task_snooze_column(connection: sqlite3.Connection) -> None:
+    """Add snoozed_until column for local task snoozing."""
+    columns = connection.execute("PRAGMA table_info(tasks)").fetchall()
+    if not any(column[1] == "snoozed_until" for column in columns):
+        connection.execute("ALTER TABLE tasks ADD COLUMN snoozed_until TEXT")
 
 
 def _ensure_contact_target_columns(connection: sqlite3.Connection) -> None:

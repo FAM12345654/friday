@@ -1,0 +1,21 @@
+# Friday stack for Linux/macOS (and Windows via Docker Desktop).
+#
+#   docker compose up friday-api
+#
+# The API stores its local data under ./local_data (bind-mounted), matching
+# the layout the native start scripts use.
+services:
+  friday-api:
+    image: python:3.11-slim
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir -r friday-api/requirements.txt &&
+             cd friday-api &&
+             python -m uvicorn main:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - FRIDAY_API_TOKEN=${FRIDAY_API_TOKEN:-}
+    restart: unless-stopped
