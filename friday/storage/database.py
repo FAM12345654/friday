@@ -285,6 +285,13 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 UNIQUE (kind, key)
             );
 
+            CREATE TABLE IF NOT EXISTS push_tokens (
+                id INTEGER PRIMARY KEY,
+                token TEXT NOT NULL UNIQUE,
+                platform TEXT NOT NULL DEFAULT 'unknown',
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS semantic_index (
                 id INTEGER PRIMARY KEY,
                 source TEXT NOT NULL,

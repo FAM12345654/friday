@@ -151,6 +151,13 @@ from friday.app.local_ollama_config_apply_guard import build_local_ollama_config
 from friday.app.local_ollama_config_preview import build_local_ollama_config_preview
 from friday.app.local_model_provider import get_local_model_fallback_count
 from friday.app.messaging_audit_preview import build_messaging_audit_preview
+from friday.app.push_notifications import (
+    build_due_task_notifications,
+    list_push_tokens,
+    register_push_token,
+    remove_push_token,
+    send_push_notifications,
+)
 from friday.app.routine_detector import detect_routine_candidates
 from friday.app.semantic_index import (
     OllamaEmbedder,
@@ -1169,6 +1176,55 @@ async def live_events() -> Response:
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+        },
+    )
+
+
+class PushRegisterRequest(BaseModel):
+    token: str
+    platform: Optional[str] = "unknown"
+
+
+@app.post("/api/push/register")
+def push_register(payload: PushRegisterRequest) -> dict[str, Any]:
+    """Register one Expo push token for reminders."""
+    ok = register_push_token(payload.token, payload.platform or "unknown", db_path=message_agent.db_path)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Ungültiges Expo-Push-Token.")
+    return _envelope({"registered": True, "devices": len(list_push_tokens(db_path=message_agent.db_path))})
+
+
+@app.delete("/api/push/register")
+def push_unregister(payload: PushRegisterRequest) -> dict[str, Any]:
+    removed = remove_push_token(payload.token, db_path=message_agent.db_path)
+    return _envelope({"removed": removed})
+
+
+@app.get("/api/push/status")
+def push_status() -> dict[str, Any]:
+    tokens = list_push_tokens(db_path=message_agent.db_path)
+    return _envelope(
+        {
+            "enabled": getattr(config, "ENABLE_PUSH_NOTIFICATIONS", False),
+            "devices": len(tokens),
+            "platforms": sorted({row["platform"] for row in tokens}),
+        },
+    )
+
+
+@app.post("/api/push/send-due-reminders")
+def push_send_due_reminders() -> dict[str, Any]:
+    """Build due/overdue task reminders and send them to registered devices."""
+    today = _today()
+    tasks = task_agent.repository.filter_tasks() if task_agent.repository is not None else []
+    notifications = build_due_task_notifications(tasks, today)
+    result = send_push_notifications(notifications, db_path=message_agent.db_path)
+    return _envelope(
+        {
+            "ok": result.ok,
+            "sent": result.sent,
+            "message": result.message,
+            "notifications": notifications,
         },
     )
 

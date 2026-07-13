@@ -30,6 +30,7 @@ import {
   setSyncStatus as persistSyncStatus,
   writeLocalCacheEntry,
 } from "./src/data/sync";
+import { registerForPushNotifications } from "./src/notifications";
 
 import {
   approveMessageSuggestion,
@@ -1259,6 +1260,11 @@ export default function App() {
       isMounted = false;
       clearInterval(timer);
     };
+  }, []);
+
+  useEffect(() => {
+    // Best-effort push registration; the app works fine if it fails.
+    registerForPushNotifications().catch(() => null);
   }, []);
 
   useEffect(() => {

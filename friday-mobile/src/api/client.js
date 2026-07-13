@@ -483,6 +483,17 @@ export async function unblockSender(blockedSenderId) {
   });
 }
 
+export async function registerPushToken(token, platform) {
+  return callApi("/api/push/register", {
+    method: "POST",
+    body: JSON.stringify({ token, platform }),
+  });
+}
+
+export async function getPushStatus() {
+  return callApi("/api/push/status");
+}
+
 export async function getSetupStatus() {
   return callApi("/api/setup/status");
 }
