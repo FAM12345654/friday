@@ -31,7 +31,7 @@ if errorlevel 1 (
 )
 
 echo Running Friday tests...
-python -m pytest friday/tests
+python -m pytest friday/tests friday-api/tests
 set "TEST_EXIT=%errorlevel%"
 echo.
 
