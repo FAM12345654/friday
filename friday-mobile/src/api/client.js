@@ -127,6 +127,19 @@ export async function completeTask(taskId) {
   });
 }
 
+export async function snoozeTask(taskId, until) {
+  return callApi(`/api/tasks/${taskId}/snooze`, {
+    method: "POST",
+    body: JSON.stringify({ until }),
+  });
+}
+
+export async function unsnoozeTask(taskId) {
+  return callApi(`/api/tasks/${taskId}/unsnooze`, {
+    method: "POST",
+  });
+}
+
 export async function archiveTask(taskId) {
   return callApi(`/api/tasks/${taskId}/archive`, {
     method: "POST",
