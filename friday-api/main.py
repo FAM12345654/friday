@@ -21,6 +21,7 @@ for _path in (str(API_DIR), str(ROOT_DIR)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
+from events import broker as event_broker, sse_stream
 from perf import TTLCache, etag_response, register_timing, request_metrics
 from security import register_auth
 
@@ -498,14 +499,17 @@ def _invalidate_google_calendar_read_cache() -> None:
 
 def _invalidate_mail_read_cache() -> None:
     cache.invalidate_prefix(("mail",))
+    event_broker.publish("mail")
 
 
 def _invalidate_calendar_cache() -> None:
     cache.invalidate_prefix(("calendar",))
+    event_broker.publish("calendar")
 
 
 def _invalidate_dashboard_cache() -> None:
     cache.invalidate_prefix(("dashboard",))
+    event_broker.publish("dashboard")
 
 
 def _coerce_int(value: Any, default: int, *, minimum: int = 1, maximum: int = 100) -> int:
@@ -1143,6 +1147,21 @@ def metrics() -> dict[str, Any]:
         {
             "cache": cache.stats(),
             "requests": request_metrics.snapshot(),
+        },
+    )
+
+
+@app.get("/api/events")
+async def live_events() -> Response:
+    """Server-sent events: emits a 'change' event whenever server data changes."""
+    from fastapi.responses import StreamingResponse
+
+    return StreamingResponse(
+        sse_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
         },
     )
 
