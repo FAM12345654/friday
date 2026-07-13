@@ -60,7 +60,8 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 due_date TEXT,
                 notes TEXT,
                 priority TEXT,
-                recurrence TEXT
+                recurrence TEXT,
+                snoozed_until TEXT
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -287,6 +288,7 @@ def initialize_database(db_path: Path | str | None = None) -> None:
         )
         _ensure_task_priority_column(connection)
         _ensure_task_recurrence_column(connection)
+        _ensure_task_snooze_column(connection)
         _ensure_contact_target_columns(connection)
         _ensure_account_policy_transform_column(connection)
         _ensure_message_spam_columns(connection)
@@ -305,6 +307,13 @@ def _ensure_task_recurrence_column(connection: sqlite3.Connection) -> None:
     columns = connection.execute("PRAGMA table_info(tasks)").fetchall()
     if not any(column[1] == "recurrence" for column in columns):
         connection.execute("ALTER TABLE tasks ADD COLUMN recurrence TEXT")
+
+
+def _ensure_task_snooze_column(connection: sqlite3.Connection) -> None:
+    """Add snoozed_until column for local task snoozing."""
+    columns = connection.execute("PRAGMA table_info(tasks)").fetchall()
+    if not any(column[1] == "snoozed_until" for column in columns):
+        connection.execute("ALTER TABLE tasks ADD COLUMN snoozed_until TEXT")
 
 
 def _ensure_contact_target_columns(connection: sqlite3.Connection) -> None:

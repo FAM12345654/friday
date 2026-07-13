@@ -1653,6 +1653,33 @@ def complete_task(task_id: int) -> dict[str, Any]:
     return _envelope(updated)
 
 
+class TaskSnoozeRequest(BaseModel):
+    until: str
+
+
+@app.post("/api/tasks/{task_id}/snooze")
+def snooze_task(task_id: int, payload: TaskSnoozeRequest) -> dict[str, Any]:
+    """Hide one task from day views until the given date (YYYY-MM-DD)."""
+    try:
+        updated = task_agent.snooze_task(task_id, payload.until)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    _invalidate_dashboard_cache()
+    return _envelope(updated)
+
+
+@app.post("/api/tasks/{task_id}/unsnooze")
+def unsnooze_task(task_id: int) -> dict[str, Any]:
+    """Clear a task snooze so it shows up again immediately."""
+    updated = task_agent.unsnooze_task(task_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    _invalidate_dashboard_cache()
+    return _envelope(updated)
+
+
 @app.post("/api/tasks/{task_id}/archive")
 def archive_task(task_id: int) -> dict[str, Any]:
     updated = task_agent.archive_task(task_id)

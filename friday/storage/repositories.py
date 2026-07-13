@@ -193,7 +193,7 @@ def _ordered_task_query() -> str:
 def _task_select_sql() -> str:
     """Return selected task columns."""
     return """
-            SELECT id, title, category, notes, status, due_date, priority, recurrence
+            SELECT id, title, category, notes, status, due_date, priority, recurrence, snoozed_until
             FROM tasks
             """
 
@@ -217,16 +217,26 @@ class TaskRepository:
             ).fetchone()
             return row_to_dict(row) if row is not None else None
 
-    def get_open_tasks(self) -> List[dict]:
-        """Return all tasks that are not marked as done."""
+    def get_open_tasks(self, *, include_snoozed: bool = False) -> List[dict]:
+        """Return all tasks that are not marked as done.
+
+        Tasks snoozed into the future are hidden unless include_snoozed is set.
+        """
+        snooze_filter = (
+            ""
+            if include_snoozed
+            else " AND (snoozed_until IS NULL OR snoozed_until <= :today)"
+        )
         with get_connection(self.db_path) as connection:
             rows = connection.execute(
                 f"""
                 {_task_select_sql()}
-                WHERE status IS NULL
-                    OR (LOWER(status) != 'done' AND LOWER(status) != 'archived')
+                WHERE (status IS NULL
+                    OR (LOWER(status) != 'done' AND LOWER(status) != 'archived'))
+                    {snooze_filter}
                 {_ordered_task_query()}
                 """,
+                {"today": date.today().isoformat()} if not include_snoozed else {},
             ).fetchall()
             return [row_to_dict(row) for row in rows]
 
@@ -415,6 +425,36 @@ class TaskRepository:
             ).fetchone()
             return row_to_dict(updated_row)
 
+    def snooze_task(self, task_id: int, until_date: str) -> dict | None:
+        """Hide one open task from day views until the given ISO date."""
+        normalized = str(until_date or "").strip()
+        try:
+            parsed = date.fromisoformat(normalized)
+        except ValueError as exc:
+            raise ValueError("Snooze-Datum muss im Format YYYY-MM-DD sein.") from exc
+        if parsed <= date.today():
+            raise ValueError("Snooze-Datum muss in der Zukunft liegen.")
+
+        with get_connection(self.db_path) as connection:
+            result = connection.execute(
+                "UPDATE tasks SET snoozed_until = :until WHERE id = :task_id",
+                {"until": parsed.isoformat(), "task_id": task_id},
+            )
+            if result.rowcount == 0:
+                return None
+        return self.get_task_by_id(task_id)
+
+    def unsnooze_task(self, task_id: int) -> dict | None:
+        """Clear a task's snooze so it shows up again immediately."""
+        with get_connection(self.db_path) as connection:
+            result = connection.execute(
+                "UPDATE tasks SET snoozed_until = NULL WHERE id = :task_id",
+                {"task_id": task_id},
+            )
+            if result.rowcount == 0:
+                return None
+        return self.get_task_by_id(task_id)
+
     def mark_task_done(self, task_id: int) -> dict | None:
         """Set one task status to done."""
         task = self.get_task_by_id(task_id)
@@ -463,9 +503,10 @@ class TaskRepository:
                 {_task_select_sql()}
                 WHERE (status IS NULL OR (LOWER(status) != 'done' AND LOWER(status) != 'archived'))
                     AND due_date = ?
+                    AND (snoozed_until IS NULL OR snoozed_until <= ?)
                 {_ordered_task_query()}
                 """,
-                (date_iso,),
+                (date_iso, date_iso),
             ).fetchall()
             return [row_to_dict(row) for row in rows]
 
