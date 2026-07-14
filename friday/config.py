@@ -66,6 +66,9 @@ ENABLE_PUSH_NOTIFICATIONS = False
 # (Deutsch: Orpheus "Kartoffel" z. B. via Orpheus-FastAPI auf Port 5005,
 # Englisch: Kokoro z. B. via kokoro-fastapi auf Port 8880). Alles localhost.
 VOICE_STT_MODEL = "small"
+# STT läuft bewusst auf der CPU, damit die GPU (8 GB) komplett für die
+# deutsche Orpheus-Stimme frei bleibt. Bei größeren GPUs: "auto" oder "cuda".
+VOICE_STT_DEVICE = "cpu"
 VOICE_TTS_DE_BASE_URL = "http://localhost:5005"
 VOICE_TTS_DE_MODEL = "orpheus"
 VOICE_TTS_DE_VOICE = "jana"

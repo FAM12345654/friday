@@ -39,9 +39,9 @@ class TranscriptionResult:
 class FasterWhisperTranscriber:
     """Lazy-loading faster-whisper wrapper (CPU by default)."""
 
-    def __init__(self, model_size: str | None = None, device: str = "auto") -> None:
+    def __init__(self, model_size: str | None = None, device: str | None = None) -> None:
         self.model_size = (model_size or config.VOICE_STT_MODEL).strip() or "small"
-        self.device = device
+        self.device = device or getattr(config, "VOICE_STT_DEVICE", "cpu")
         self._model: Any = None
         self._load_error: str | None = None
         self._lock = threading.Lock()

@@ -281,6 +281,20 @@ menschlichen Stimme antworten (lokale TTS-Server, kein Abo, alles offline):
 2. **Deutsche Stimme (Orpheus „Kartoffel“, sehr natürlich, braucht GPU ≥8GB)**:
    [Orpheus-FastAPI](https://github.com/Lex-au/Orpheus-FastAPI) auf Port 5005
    starten und in `friday/config.py` bei Bedarf `VOICE_TTS_DE_*` anpassen.
+
+   **VRAM-Budget bei einer 8-GB-GPU** — so passt alles gleichzeitig:
+   - Orpheus als **Q4_K_M-GGUF** laden (≈3 GB Gewichte, mit SNAC-Decoder und
+     KV-Cache ≈5 GB) — nicht FP16/vLLM, das braucht 16 GB+. Das deutsche
+     Modell: `lex-au/Orpheus-3b-Kartoffel` bzw. die GGUF-Variante im
+     Orpheus-FastAPI-Setup.
+   - Whisper-STT läuft absichtlich auf der **CPU** (`VOICE_STT_DEVICE = "cpu"`),
+     damit es der Stimme kein VRAM wegnimmt (~1–2 s pro Push-to-Talk-Satz).
+   - Kokoro (Englisch) läuft auf der CPU — kein VRAM.
+   - Ollama (`qwen3:8b`, ~5–6 GB) passt **nicht gleichzeitig** neben Orpheus.
+     Ollama entlädt Modelle standardmäßig nach 5 Minuten Leerlauf; wer beides
+     nutzt, kann `OLLAMA_KEEP_ALIVE=1m` setzen. Die Sprachbefehle brauchen
+     kein LLM (deterministischer Parser) — nur KI-Entwürfe und semantische
+     Suche laden qwen3/Embeddings bei Bedarf.
 3. **Englische Stimme (Kokoro, läuft auf CPU)**:
    `docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest`
 4. Testen ohne App:
