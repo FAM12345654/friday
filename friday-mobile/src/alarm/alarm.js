@@ -9,6 +9,7 @@
 import { getVoiceMorningBriefing } from "../api/client";
 import { getAppLocale, t } from "../i18n";
 import { playBase64Wav } from "../voice/audio";
+import { getAlarmSettings } from "./alarmStore";
 
 export const ALARM_NOTIFICATION_ID = "friday-morning-alarm";
 const ALARM_CHANNEL_ID = "friday-alarm";
@@ -103,6 +104,27 @@ export async function cancelDailyAlarm() {
   }
   await module.default.cancelTriggerNotification(ALARM_NOTIFICATION_ID);
   return true;
+}
+
+// Re-arms the daily alarm from saved settings on app start. Notifee trigger
+// notifications do not survive a device reboot, so nothing fires again until
+// the app is opened once and re-schedules. scheduleDailyAlarm is idempotent
+// here: the trigger uses a fixed ID and createTriggerNotification replaces it.
+// Never throws — app startup must not crash because of the alarm.
+export async function restoreScheduledAlarm() {
+  try {
+    const settings = await getAlarmSettings();
+    if (!settings?.enabled) {
+      return { ok: false, reason: "disabled" };
+    }
+    const parsed = parseAlarmTime(settings.time);
+    if (!parsed) {
+      return { ok: false, reason: "invalidTime" };
+    }
+    return await scheduleDailyAlarm(parsed.hour, parsed.minute);
+  } catch (error) {
+    return { ok: false, reason: String(error?.message || error) };
+  }
 }
 
 // Fetches today's briefing in the app language and speaks it.

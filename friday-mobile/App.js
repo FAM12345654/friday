@@ -34,7 +34,7 @@ import { registerForPushNotifications } from "./src/notifications";
 import { SUPPORTED_LOCALES, getAppLocale, initLocale, setAppLocale, t } from "./src/i18n";
 import PushToTalk from "./src/voice/PushToTalk";
 import AlarmSettings from "./src/alarm/AlarmSettings";
-import { initAlarmHandlers, playMorningBriefing } from "./src/alarm/alarm";
+import { initAlarmHandlers, playMorningBriefing, restoreScheduledAlarm } from "./src/alarm/alarm";
 import { subscribeLiveEvents } from "./src/data/liveEvents";
 
 import {
@@ -1311,6 +1311,9 @@ export default function App() {
   useEffect(() => {
     // Alarm fired or tapped -> speak the morning briefing.
     let unsubscribe = () => {};
+    // Trigger notifications don't survive a reboot, so re-arm from saved
+    // settings on every launch (idempotent — fixed trigger ID gets replaced).
+    restoreScheduledAlarm().catch(() => null);
     initAlarmHandlers(() => {
       playMorningBriefing().catch(() => null);
     })

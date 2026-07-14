@@ -338,3 +338,10 @@ Voraussetzungen:
 - Damit das Briefing auch unterwegs abgespielt werden kann, muss der
   Friday-Server erreichbar sein (Tailscale-IP ist in `app.json` als
   API-Kandidat eingetragen).
+
+Hinweis zum Neustart: Der Wecker richtet sich bei jedem App-Start
+automatisch aus den gespeicherten Einstellungen neu ein. Nach einem
+Neustart des Handys überleben die Benachrichtigungs-Trigger jedoch nicht
+(Plattform-Grenze) — die App muss nach einem Reboot einmal geöffnet
+werden, damit der Wecker wieder aktiv ist. Ein manuelles Aus-/Einschalten
+ist dafür nicht mehr nötig.
