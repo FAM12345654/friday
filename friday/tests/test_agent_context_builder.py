@@ -102,6 +102,9 @@ def test_build_agent_context_returns_empty_string_when_no_notes_exist() -> None:
             policies=[],
             email_account=SimpleNamespace(agent_notes=""),
             whatsapp_notes={"agent_notes": ""},
+            # Explicitly empty: without this the builder falls back to the
+            # real local learning database, which is not empty on dev machines.
+            learned_rules=[],
         )
         == ""
     )

@@ -49,6 +49,15 @@ def test_whatsapp_ingest_stores_and_processes_when_enabled(tmp_path, monkeypatch
     setup_local_database(db_path, seed_demo_data=False)
     api.message_agent = MessageAgent(db_path=db_path)
     monkeypatch.setattr(api.config, "ENABLE_WHATSAPP_BRIDGE_READ", True)
+    # Isolate from a real bridge token in local_data: point the token lookup
+    # at a nonexistent file so the guard accepts requests without a token.
+    from friday.app import whatsapp_inbox_store
+
+    monkeypatch.setattr(
+        whatsapp_inbox_store,
+        "get_whatsapp_bridge_token_path",
+        lambda: tmp_path / "no-bridge-token.txt",
+    )
 
     client = TestClient(api.app)
     response = client.post(
