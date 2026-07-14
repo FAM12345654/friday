@@ -1,5 +1,7 @@
 """Configuration constants for the local Friday assistant."""
 
+import os
+
 from pathlib import Path
 
 
@@ -80,6 +82,21 @@ VOICE_TTS_TIMEOUT_SECONDS = 60
 # Lokale Benachrichtigungen bleiben standardmäßig deaktiviert.
 ENABLE_LOCAL_NOTIFICATIONS = False
 
+# Wetter im Morning-Briefing über Open-Meteo (kein API-Key nötig, aber ein
+# externer HTTP-Aufruf). Bleibt als externer Dienst standardmäßig aus und
+# wird nur bei aktiviertem Flag abgefragt; Standort per Umgebungsvariable.
+ENABLE_WEATHER_BRIEFING = False
+OPEN_METEO_LATITUDE = float(os.getenv("FRIDAY_WEATHER_LATITUDE", "52.5200"))
+OPEN_METEO_LONGITUDE = float(os.getenv("FRIDAY_WEATHER_LONGITUDE", "13.4050"))
+WEATHER_BRIEFING_TIMEZONE = os.getenv("FRIDAY_WEATHER_TIMEZONE", "Europe/Berlin")
+WEATHER_BRIEFING_TIMEOUT_SECONDS = 10
+
+# Vorproduziertes Morning-Briefing: Das Briefing-Audio wird vorab (z. B.
+# nachts) erzeugt und im lokalen Datenordner abgelegt, damit der Morgenwecker
+# es sofort abspielen kann. Rein lokal (lokale TTS-Server), kein externer Dienst.
+BRIEFING_PREGEN_LANGUAGE = "de"
+BRIEFING_PREGEN_KEEP_LAST = 7
+
 # E-Mail-Versand bleibt deaktiviert, bis der Nutzer spaeter EMAIL AKTIVIEREN nutzt.
 EMAIL_DAILY_SEND_LIMIT = 20
 
@@ -91,6 +108,8 @@ DATA_DIR = PACKAGE_DIR / "data"
 
 # Die eigentliche Arbeitsdatenbank liegt im Projektordner.
 LOCAL_DATA_DIR = PROJECT_ROOT / "local_data"
+# Ablageort für vorproduzierte Briefing-Audiodateien und deren Statusdatei.
+BRIEFING_PREGEN_DIR = LOCAL_DATA_DIR / "briefings"
 DATABASE_NAME = "friday.db"
 DATABASE_PATH = LOCAL_DATA_DIR / DATABASE_NAME
 DEMO_DATABASE_NAME = "friday_demo.db"

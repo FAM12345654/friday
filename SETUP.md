@@ -345,3 +345,27 @@ Neustart des Handys überleben die Benachrichtigungs-Trigger jedoch nicht
 (Plattform-Grenze) — die App muss nach einem Reboot einmal geöffnet
 werden, damit der Wecker wieder aktiv ist. Ein manuelles Aus-/Einschalten
 ist dafür nicht mehr nötig.
+
+### Briefing vorproduzieren (sofortiges Abspielen)
+
+Damit der Wecker das Briefing ohne Wartezeit abspielt, kann das Audio vorab
+(z. B. nachts) erzeugt und lokal abgelegt werden. Das Skript
+`scripts/friday_pregenerate_briefing.py` baut den Text über
+`build_briefing_text`, synthetisiert ihn über die lokalen TTS-Server und
+schreibt `local_data/briefings/briefing_<datum>.wav` samt kleiner
+`briefing_status.json` (die letzten 7 Dateien bleiben erhalten).
+
+Cron-Beispiel (täglich um 03:00 Uhr):
+
+```bash
+0 3 * * * cd /pfad/zu/friday && python scripts/friday_pregenerate_briefing.py
+```
+
+Der Wecker ruft dann
+`GET /api/voice/morning-briefing?prefer_pregenerated=true` auf: Ist die
+vorproduzierte Datei für heute vorhanden, liefert die API deren Audio sofort
+zurück, sonst synthetisiert sie wie bisher live. Optional lässt sich mit
+`ENABLE_WEATHER_BRIEFING = True` (Open-Meteo, `FRIDAY_WEATHER_LATITUDE` /
+`FRIDAY_WEATHER_LONGITUDE`) ein Wettersatz nach der Begrüßung ergänzen; bei
+deaktiviertem Flag oder Netzfehler entfällt er still. Details siehe
+`friday/docs/morning_briefing_audio.md`.

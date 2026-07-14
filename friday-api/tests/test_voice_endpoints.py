@@ -187,3 +187,43 @@ def test_morning_briefing_endpoint(client, monkeypatch: pytest.MonkeyPatch) -> N
     ).json()["data"]
     assert spoken["text"].startswith("Good morning")
     assert base64.b64decode(spoken["audio_base64"]) == WAV
+
+
+def test_morning_briefing_prefers_pregenerated_when_present(
+    client, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from datetime import date
+
+    from friday import config
+
+    pregen = b"RIFF-pregenerated"
+    monkeypatch.setattr(config, "BRIEFING_PREGEN_DIR", tmp_path)
+    (tmp_path / f"briefing_{date.today().isoformat()}.wav").write_bytes(pregen)
+
+    # Live synthesis must NOT be used when a pre-generated file exists.
+    def _boom(*_a, **_k):  # pragma: no cover - guard
+        raise AssertionError("live synthesis must not run when pregenerated audio exists")
+
+    monkeypatch.setattr(voice_synthesis, "synthesize_for_language", _boom)
+    data = client.get(
+        "/api/voice/morning-briefing", params={"prefer_pregenerated": "true"}
+    ).json()["data"]
+
+    assert data["pregenerated"] is True
+    assert base64.b64decode(data["audio_base64"]) == pregen
+
+
+def test_morning_briefing_pregenerated_missing_falls_back_to_live(
+    client, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from friday import config
+
+    monkeypatch.setattr(config, "BRIEFING_PREGEN_DIR", tmp_path)
+    monkeypatch.setattr(voice_synthesis, "synthesize_for_language", _fake_tts_ok)
+    data = client.get(
+        "/api/voice/morning-briefing",
+        params={"prefer_pregenerated": "true", "speak": "true"},
+    ).json()["data"]
+
+    assert "pregenerated" not in data
+    assert base64.b64decode(data["audio_base64"]) == WAV
