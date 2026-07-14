@@ -35,6 +35,7 @@ import { SUPPORTED_LOCALES, getAppLocale, initLocale, setAppLocale, t } from "./
 import PushToTalk from "./src/voice/PushToTalk";
 import AlarmSettings from "./src/alarm/AlarmSettings";
 import { initAlarmHandlers, playMorningBriefing } from "./src/alarm/alarm";
+import { subscribeLiveEvents } from "./src/data/liveEvents";
 
 import {
   approveMessageSuggestion,
@@ -89,6 +90,7 @@ import {
   activateImapMailRead,
   activateMsMailRead,
   runMailOrganize,
+  snoozeTask,
   syncImapMailMessages,
   syncMsMailMessages,
   syncWorkdaysToGoogle,
@@ -1073,6 +1075,7 @@ export default function App() {
   colors = isDarkMode ? darkColors : lightColors;
   styles = createStyles(colors);
   const currentScreen = active === "Mehr" && moreScreen ? moreScreen : active;
+  const currentScreenRef = useRef(currentScreen);
   const openLearningCount = Number(learning?.open_count || isArray(learning?.open_questions).length || 0);
   const connectionKind = getApiUrl().includes("100.") ? "Tailscale" : "LAN";
   const homeCalendarItems = isArray(calendar?.merged_items || calendar?.items || calendar?.calendar_items || []);
@@ -1279,6 +1282,30 @@ export default function App() {
   useEffect(() => {
     // Best-effort push registration; the app works fine if it fails.
     registerForPushNotifications().catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    currentScreenRef.current = currentScreen;
+  }, [currentScreen]);
+
+  useEffect(() => {
+    // Server-sent events: refresh the visible screen when server data
+    // changes elsewhere (debounced — invalidations arrive in bursts).
+    let timer = null;
+    const unsubscribe = subscribeLiveEvents(() => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      timer = setTimeout(() => {
+        loadScreenData(currentScreenRef.current).catch(() => null);
+      }, 1200);
+    });
+    return () => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -2602,6 +2629,28 @@ export default function App() {
     }
   };
 
+  const handleSnoozeTask = async (taskId) => {
+    const until = new Date();
+    until.setDate(until.getDate() + 1);
+    const untilIso = until.toISOString().slice(0, 10);
+    setActionBusy(true);
+    await mutateTasksCache((current) =>
+      current.map((task) =>
+        task.id === taskId ? { ...task, snoozed_until: untilIso, local_pending: true } : task,
+      ),
+    );
+    try {
+      await snoozeTask(taskId, untilIso);
+      await refreshActive();
+    } catch (err) {
+      await enqueueOfflineWrite("snoozeTask", { taskId, until: untilIso });
+      await persistSyncStatus({ online: false, lastError: normalizeApiError(err) });
+      await refreshSyncStatusState();
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const handleArchiveTask = async (taskId) => {
     setActionBusy(true);
     await mutateTasksCache((current) =>
@@ -3028,6 +3077,7 @@ export default function App() {
               <Text style={styles.cardMeta}>
                 #{task.id} | {task.category || "allgemein"} | {task.status || "open"}
                 {task.due_date ? ` | fällig ${formatDate(task.due_date)}` : ""}
+                {task.snoozed_until ? ` | verschoben bis ${formatDate(task.snoozed_until)}` : ""}
               </Text>
               {!!task.notes && <Text style={styles.cardBody}>{task.notes}</Text>}
               <View style={styles.row}>
@@ -3036,6 +3086,13 @@ export default function App() {
                   variant="success"
                   label="Erledigt"
                   onPress={() => handleCompleteTask(task.id)}
+                  disabled={actionBusy}
+                />
+                <ActionButton
+                  small
+                  variant="ghost"
+                  label="Auf morgen"
+                  onPress={() => handleSnoozeTask(task.id)}
                   disabled={actionBusy}
                 />
                 <ActionButton
