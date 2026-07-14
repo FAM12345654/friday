@@ -169,7 +169,7 @@ from friday.app.semantic_index import (
 )
 from friday.app.local_ollama_runtime import check_ollama_health
 from friday.app.unified_search import search_unified
-from friday.app import voice_synthesis, voice_transcription
+from friday.app import briefing_pregeneration, open_meteo_weather, voice_synthesis, voice_transcription
 from friday.app.voice_briefing import build_briefing_text, select_overdue_tasks
 from friday.app import voice_intent_llm
 from friday.app.voice_intent import VoiceIntent, match_task_by_title, parse_voice_command
@@ -1355,17 +1355,20 @@ class VoiceCommandRequest(BaseModel):
 
 
 def _voice_briefing_text(language: str) -> str:
-    """Snooze-aware spoken briefing for today (tasks, overdue, calendar)."""
+    """Snooze-aware spoken briefing for today (weather, tasks, overdue, calendar)."""
     day = _today()
     tasks_today = task_agent.get_tasks_for_date(day)
     open_tasks = task_agent.get_open_tasks()
     calendar_items = calendar_agent.get_items_for_date(day)
+    # Weather is opt-in (ENABLE_WEATHER_BRIEFING) and degrades to None silently.
+    weather_text = open_meteo_weather.weather_briefing_text(date.fromisoformat(day), language)
     return build_briefing_text(
         day_iso=day,
         tasks_today=tasks_today,
         overdue_tasks=select_overdue_tasks(open_tasks, day),
         calendar_items=calendar_items,
         language=language,
+        weather_text=weather_text,
     )
 
 
@@ -1573,11 +1576,23 @@ async def voice_command_audio(
 def voice_morning_briefing(
     language: str = Query(default="de"),
     speak: bool = Query(default=False),
+    prefer_pregenerated: bool = Query(default=False),
 ) -> dict[str, Any]:
-    """Spoken morning briefing: today's tasks (snooze-aware), overdue, calendar."""
+    """Spoken morning briefing: today's tasks (snooze-aware), overdue, calendar.
+
+    With ``prefer_pregenerated`` and a pre-generated file for today present,
+    that finished audio is returned instead of synthesizing live.
+    """
     lang = normalize_language(language)
     text = _voice_briefing_text(lang)
     response: dict[str, Any] = {"date": _today(), "language": lang, "text": text}
+    if prefer_pregenerated:
+        audio = briefing_pregeneration.read_pregenerated_audio(date.fromisoformat(_today()))
+        if audio is not None:
+            response["audio_base64"] = base64.b64encode(audio).decode("ascii")
+            response["tts_error"] = None
+            response["pregenerated"] = True
+            return _envelope(response)
     if speak:
         audio_base64, tts_error = _voice_audio_payload(text, lang)
         response["audio_base64"] = audio_base64
