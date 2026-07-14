@@ -48,6 +48,8 @@ ALLOWED_LOCAL_NETWORK_FILES: tuple[str, ...] = (
     "calendar_provider_google.py",
     "calendar_provider_ics.py",
     "ms_mail_provider.py",
+    "open_meteo_weather.py",
+    "briefing_push.py",
 )
 
 DEFAULT_EXCLUDED_PATH_PARTS: tuple[str, ...] = (

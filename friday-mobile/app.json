@@ -36,6 +36,7 @@
     "extra": {
       "fridayApiUrls": [
         "http://192.168.178.42:8000",
+        "https://stockholm-sri-answers-uniprotkb.trycloudflare.com",
         "http://100.122.129.101:8000"
       ],
       "fridayApiDefaultUrl": "http://192.168.178.42:8000",
@@ -53,7 +54,9 @@
         }
       ],
       "expo-font",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-notifications",
+      "expo-task-manager"
     ]
   }
 }

@@ -30,6 +30,13 @@ import {
   setSyncStatus as persistSyncStatus,
   writeLocalCacheEntry,
 } from "./src/data/sync";
+import {
+  initializeMorningBriefing,
+  playMorningBriefing,
+  setMorningAutomationStatus,
+  stopMorningBriefing,
+  subscribeMorningBriefingEvents,
+} from "./src/morning/morningBriefingRuntime";
 
 import {
   approveMessageSuggestion,
@@ -941,6 +948,9 @@ export default function App() {
   const [error, setError] = useState("");
   const [updateStatus, setUpdateStatus] = useState("Update: prüfe…");
   const [online, setOnline] = useState(null);
+  const [morningRoutine, setMorningRoutine] = useState(null);
+  const [morningRoutineMessage, setMorningRoutineMessage] = useState("Morning Routine wird vorbereitet…");
+  const [morningBriefingPlaying, setMorningBriefingPlaying] = useState(false);
   const [syncStatus, setSyncStatus] = useState({
     online: false,
     lastSyncedAt: null,
@@ -1059,7 +1069,12 @@ export default function App() {
   styles = createStyles(colors);
   const currentScreen = active === "Mehr" && moreScreen ? moreScreen : active;
   const openLearningCount = Number(learning?.open_count || isArray(learning?.open_questions).length || 0);
-  const connectionKind = getApiUrl().includes("100.") ? "Tailscale" : "LAN";
+  const currentApiUrl = getApiUrl();
+  const connectionKind = currentApiUrl.includes("trycloudflare.com")
+    ? "Tunnel"
+    : currentApiUrl.includes("100.")
+      ? "Tailscale"
+      : "LAN";
   const homeCalendarItems = isArray(calendar?.merged_items || calendar?.items || calendar?.calendar_items || []);
   const homeRelevantMails = isArray(msMailInbox?.items || []);
   const todayIso = formatDateOnly(new Date());
@@ -1180,6 +1195,37 @@ export default function App() {
 
   useEffect(() => {
     refreshSyncStatusState().catch(() => null);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const play = async (force = false) => {
+      const result = await playMorningBriefing({
+        force,
+        onFinished: () => mounted && setMorningBriefingPlaying(false),
+      });
+      if (mounted) {
+        setMorningRoutine(result.state);
+        setMorningBriefingPlaying(Boolean(result.played));
+      }
+    };
+    initializeMorningBriefing()
+      .then(async ({ state, push, shouldAutoPlay }) => {
+        if (!mounted) return;
+        setMorningRoutine(state);
+        setMorningRoutineMessage(push?.message || "Morning Routine bereit.");
+        if (shouldAutoPlay) await play(false);
+      })
+      .catch((err) => mounted && setMorningRoutineMessage(`Morning Routine: ${normalizeApiError(err)}`));
+    const unsubscribe = subscribeMorningBriefingEvents(
+      (state) => mounted && setMorningRoutine(state),
+      () => play(true),
+    );
+    return () => {
+      mounted = false;
+      unsubscribe();
+      stopMorningBriefing().catch(() => null);
+    };
   }, []);
 
   useEffect(() => {
@@ -1588,6 +1634,38 @@ export default function App() {
       await refreshSyncStatusState();
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleMorningPlay = async () => {
+    const result = await playMorningBriefing({
+      force: true,
+      onFinished: () => setMorningBriefingPlaying(false),
+    });
+    setMorningRoutine(result.state);
+    setMorningBriefingPlaying(Boolean(result.played));
+    if (!result.played) setMorningRoutineMessage("Keine lokale Briefing-Datei verfügbar.");
+  };
+
+  const handleMorningSkip = async () => {
+    await stopMorningBriefing();
+    setMorningBriefingPlaying(false);
+    setMorningRoutineMessage("Briefing für heute beendet.");
+  };
+
+  const handleMorningAutomation = async (status) => {
+    try {
+      const state = await setMorningAutomationStatus(status);
+      setMorningRoutine(state);
+      setMorningRoutineMessage(
+        status === "paused"
+          ? "Weckautomatik pausiert."
+          : status === "skip_once"
+            ? "Morgen wird einmalig übersprungen."
+            : "Weckautomatik ist aktiv.",
+      );
+    } catch (err) {
+      setMorningRoutineMessage(`Morning Routine: ${normalizeApiError(err)}`);
     }
   };
 
@@ -2698,6 +2776,43 @@ export default function App() {
           </View>
           <Text style={[styles.cardBody, { color: colors.onAccent }]}>{headerSummary}</Text>
         </View>
+
+        <Card>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Morning Briefing</Text>
+            <Chip
+              label={morningRoutine?.automation_status || "active"}
+              color={morningRoutine?.automation_status === "paused" ? colors.warn : colors.accent}
+            />
+          </View>
+          <Text style={styles.cardBody}>
+            {morningRoutine?.alarm_date && morningRoutine?.alarm_time
+              ? `Nächster Wecker: ${morningRoutine.alarm_date} um ${morningRoutine.alarm_time}`
+              : "Der nächste Wecker wird vorbereitet."}
+          </Text>
+          <Text style={styles.cardMeta}>{morningRoutine?.alarm_reason || morningRoutineMessage}</Text>
+          <Text style={styles.cardMeta}>
+            Audio: {morningRoutine?.briefing_date ? `lokal für ${morningRoutine.briefing_date}` : "noch nicht geladen"}
+          </Text>
+          <View style={styles.row}>
+            <ActionButton
+              label={morningBriefingPlaying ? "Läuft…" : "Abspielen"}
+              onPress={handleMorningPlay}
+              disabled={morningBriefingPlaying || !morningRoutine?.local_uri}
+              small
+            />
+            <ActionButton label="Überspringen" onPress={handleMorningSkip} variant="ghost" small />
+          </View>
+          <View style={styles.row}>
+            <ActionButton label="Morgen auslassen" onPress={() => handleMorningAutomation("skip_once")} variant="ghost" small />
+            <ActionButton
+              label={morningRoutine?.automation_status === "paused" ? "Automatik starten" : "Automatik pausieren"}
+              onPress={() => handleMorningAutomation(morningRoutine?.automation_status === "paused" ? "active" : "paused")}
+              variant="ghost"
+              small
+            />
+          </View>
+        </Card>
 
         <Card onPress={() => navigateTo("Kalender")}>
           <View style={styles.cardHeader}>

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "expo-app",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start", "--", "--web"],
+      "port": 19006
+    }
+  ]
+}

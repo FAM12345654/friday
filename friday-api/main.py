@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 API_DIR = Path(__file__).resolve().parent
@@ -73,6 +74,20 @@ from friday.app.calendar_provider_google import (
     exchange_google_oauth_authorization_response,
 )
 from friday.app.calendar_provider_ics import OutlookIcsCalendarProvider
+from friday.app.briefing_generator import (
+    build_briefing_status,
+    current_briefing_audio,
+    generate_briefing_script,
+    read_briefing_status,
+    render_briefing_audio,
+    write_briefing_status,
+)
+from friday.app.briefing_push import notify_briefing_ready, save_expo_push_token
+from friday.app.morning_routine import WakeTimeResult, compute_wake_time
+from friday.app.morning_briefing_scheduler import (
+    build_morning_briefing_scheduler,
+    register_morning_briefing_job,
+)
 from friday.app.contact_category_classifier import classify_contact_category
 from friday.app.email_account_store import (
     EMAIL_ACCOUNT_DELETE_TOKEN,
@@ -183,6 +198,11 @@ app = FastAPI(
 
 register_timing(app)
 cache = TTLCache(ttl=120)
+morning_briefing_scheduler = build_morning_briefing_scheduler()
+
+
+class MorningBriefingPushTokenRequest(BaseModel):
+    expo_push_token: str
 
 app.add_middleware(
     CORSMiddleware,
@@ -194,8 +214,17 @@ app.add_middleware(
 
 
 @app.on_event("startup")
-def _startup() -> None:
+async def _startup() -> None:
     setup_local_database()
+    if config.ENABLE_MORNING_BRIEFING_SCHEDULER and not morning_briefing_scheduler.running:
+        register_morning_briefing_job(morning_briefing_scheduler, _scheduled_morning_briefing_job)
+        morning_briefing_scheduler.start()
+
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    if morning_briefing_scheduler.running:
+        morning_briefing_scheduler.shutdown(wait=False)
 
 
 task_agent = TaskAgent()
@@ -1849,6 +1878,146 @@ async def get_calendar(
         _load_payload,
     )
     return etag_response(payload, if_none_match=if_none_match, response=response)
+
+
+@app.get("/morning-routine/wake-time", response_model=WakeTimeResult)
+async def get_morning_routine_wake_time(
+    date_value: str = Query(alias="date", description="Datum im Format YYYY-MM-DD"),
+) -> WakeTimeResult:
+    try:
+        target_date = date.fromisoformat(date_value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Datum muss YYYY-MM-DD entsprechen.") from exc
+
+    try:
+        calendar_payload = await get_calendar(
+            date=date_value,
+            range_start=None,
+            range_end=None,
+            day_start="00:00",
+            day_end="23:59",
+            if_none_match=None,
+            response=None,
+        )
+        if not isinstance(calendar_payload, dict):
+            raise RuntimeError("Kalender-Cache lieferte keine Daten.")
+        calendar_data = calendar_payload.get("data")
+        if not isinstance(calendar_data, dict):
+            raise RuntimeError("Kalender-Cache lieferte kein Datenobjekt.")
+        calendar_events = calendar_data.get("merged_items")
+        if not isinstance(calendar_events, list):
+            raise RuntimeError("Kalender-Cache lieferte keine Terminliste.")
+        return compute_wake_time(
+            target_date,
+            calendar_events=calendar_events,
+            calendar_failed=bool(calendar_data.get("source_errors")),
+        )
+    except Exception:
+        return compute_wake_time(target_date, calendar_failed=True)
+
+
+async def _generate_nightly_morning_briefing(target_date: date | None = None) -> dict[str, Any]:
+    briefing_date = target_date or date.today()
+    try:
+        calendar_payload = await get_calendar(
+            date=briefing_date.isoformat(),
+            range_start=None,
+            range_end=None,
+            day_start="00:00",
+            day_end="23:59",
+            if_none_match=None,
+            response=None,
+        )
+        calendar_data = calendar_payload.get("data") if isinstance(calendar_payload, dict) else None
+        if not isinstance(calendar_data, dict):
+            raise RuntimeError("Calendar cache returned no data object.")
+        appointments = calendar_data.get("merged_items")
+        if not isinstance(appointments, list):
+            raise RuntimeError("Calendar cache returned no appointment list.")
+        calendar_failed = bool(calendar_data.get("source_errors"))
+        wake_result = compute_wake_time(
+            briefing_date,
+            calendar_events=appointments,
+            calendar_failed=calendar_failed,
+        )
+        tasks = task_agent.get_open_tasks()[:3]
+        script = await asyncio.to_thread(
+            generate_briefing_script,
+            briefing_date,
+            tasks=tasks,
+            appointments=appointments,
+        )
+        audio_path = await asyncio.to_thread(render_briefing_audio, script, briefing_date)
+        push_result = await asyncio.to_thread(
+            notify_briefing_ready,
+            briefing_date=briefing_date.isoformat(),
+            audio_url="/morning-routine/briefing-audio",
+        )
+        status = build_briefing_status(
+            target_date=briefing_date,
+            success=True,
+            audio_path=audio_path,
+            extra={
+                "script": script,
+                "wake_time": wake_result.to_dict(),
+                "push": push_result.to_dict(),
+            },
+        )
+        write_briefing_status(status)
+        return status
+    except Exception as exc:
+        old_audio = current_briefing_audio()
+        status = build_briefing_status(
+            target_date=briefing_date,
+            success=False,
+            audio_path=old_audio,
+            error=str(exc),
+        )
+        write_briefing_status(status)
+        return status
+
+
+async def _scheduled_morning_briefing_job() -> None:
+    await _generate_nightly_morning_briefing()
+
+
+@app.get("/morning-routine/briefing-audio")
+def get_morning_routine_briefing_audio() -> FileResponse:
+    audio_path = current_briefing_audio()
+    if audio_path is None or not audio_path.exists():
+        raise HTTPException(status_code=404, detail="No morning briefing audio is available.")
+    return FileResponse(audio_path, media_type="audio/mpeg", filename=audio_path.name)
+
+
+@app.get("/morning-routine/briefing-status")
+def get_morning_routine_briefing_status() -> dict[str, Any]:
+    return read_briefing_status()
+
+
+@app.post("/morning-routine/notify-ready")
+async def notify_morning_routine_ready(
+    internal_token: str | None = Header(default=None, alias="X-Friday-Internal-Token"),
+) -> dict[str, Any]:
+    expected_token = config.MORNING_BRIEFING_INTERNAL_TOKEN
+    if not expected_token or internal_token != expected_token:
+        raise HTTPException(status_code=403, detail="Internal morning briefing token is missing or invalid.")
+    status = read_briefing_status()
+    if not status.get("success"):
+        raise HTTPException(status_code=404, detail="No successful morning briefing is ready.")
+    result = await asyncio.to_thread(
+        notify_briefing_ready,
+        briefing_date=str(status.get("date") or ""),
+        audio_url="/morning-routine/briefing-audio",
+    )
+    return result.to_dict()
+
+
+@app.post("/morning-routine/push-token")
+def register_morning_routine_push_token(payload: MorningBriefingPushTokenRequest) -> dict[str, Any]:
+    try:
+        return save_expo_push_token(payload.expo_push_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/calendar/extract-event")

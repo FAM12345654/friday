@@ -1,5 +1,7 @@
 """Configuration constants for the local Friday assistant."""
 
+import os
+
 from pathlib import Path
 
 
@@ -22,7 +24,7 @@ ENABLE_REAL_MUSIC = False
 
 # WhatsApp Read-Bridge bleibt getrennt von echtem WhatsApp-Senden.
 # Default: aus. Aktivierung braucht ein eigenes Gate.
-ENABLE_WHATSAPP_BRIDGE_READ = False
+ENABLE_WHATSAPP_BRIDGE_READ = True
 
 # Microsoft Graph Mail bleibt read-only und getrennt von echtem E-Mail-Senden.
 # Vom Nutzer bewusst aktiviert (MAIL LESEN AKTIVIEREN); Konto-Test war erfolgreich.
@@ -60,11 +62,32 @@ OLLAMA_TIMEOUT_SECONDS = 30
 # Lokale Benachrichtigungen bleiben standardmäßig deaktiviert.
 ENABLE_LOCAL_NOTIFICATIONS = False
 
+# Konfiguration fuer die lokale Morning-Routine.
+prep_buffer_minutes = 90
+default_wake_time = "08:00"
+workday_cutoff = "10:00"
+fallback_alarm = "07:00"
+
+# Nightly English audio briefing. Kokoro remains local on the Home PC.
+MORNING_BRIEFING_VOICE = "af_heart"
+MORNING_BRIEFING_LANG_CODE = "a"
+MORNING_BRIEFING_SCHEDULE_HOUR = 3
+MORNING_BRIEFING_TIMEZONE = "Europe/Berlin"
+ENABLE_MORNING_BRIEFING_SCHEDULER = True
+ENABLE_MORNING_BRIEFING_PUSH = True
+MORNING_BRIEFING_EXPO_PUSH_TOKEN = os.getenv("FRIDAY_EXPO_PUSH_TOKEN", "").strip()
+MORNING_BRIEFING_INTERNAL_TOKEN = os.getenv("FRIDAY_MORNING_INTERNAL_TOKEN", "").strip()
+
+# Open-Meteo needs no API key. Coordinates remain locally configurable.
+OPEN_METEO_LATITUDE = float(os.getenv("FRIDAY_WEATHER_LATITUDE", "52.5200"))
+OPEN_METEO_LONGITUDE = float(os.getenv("FRIDAY_WEATHER_LONGITUDE", "13.4050"))
+
 # E-Mail-Versand bleibt deaktiviert, bis der Nutzer spaeter EMAIL AKTIVIEREN nutzt.
 EMAIL_DAILY_SEND_LIMIT = 20
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = PACKAGE_DIR.parent
+MORNING_BRIEFING_AUDIO_DIR = PROJECT_ROOT / "audio_output"
 
 # Nur die Seed-Dateien liegen im Paket.
 DATA_DIR = PACKAGE_DIR / "data"

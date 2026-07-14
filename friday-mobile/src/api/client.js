@@ -28,7 +28,7 @@ const CANDIDATES = buildCandidates();
 
 let activeUrl = null;
 
-async function probe(url, timeoutMs = 4000) {
+async function probe(url, timeoutMs = 2500) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -46,9 +46,14 @@ async function resolveApiUrl(force = false) {
     return activeUrl;
   }
 
-  const results = await Promise.all(CANDIDATES.map((url) => probe(url)));
-  const index = results.findIndex(Boolean);
-  activeUrl = index >= 0 ? CANDIDATES[index] : null;
+  activeUrl = null;
+  await Promise.all(
+    CANDIDATES.map(async (url) => {
+      if (await probe(url)) {
+        activeUrl = activeUrl || url;
+      }
+    }),
+  );
   return activeUrl || CANDIDATES[0];
 }
 
@@ -77,7 +82,7 @@ async function request(baseUrl, path, options = {}) {
   if (!response.ok || payload?.ok === false) {
     throw new Error(payload?.detail || payload?.message || `HTTP ${response.status}`);
   }
-  return payload.data;
+  return Object.prototype.hasOwnProperty.call(payload, "data") ? payload.data : payload;
 }
 
 async function callApi(path, options = {}) {
@@ -546,4 +551,24 @@ export async function getCalendarSlots(messageId, durationMinutes = 60) {
     duration_minutes: String(durationMinutes),
   }).toString();
   return callApi(`/api/calendar/${messageId}/slots?${query}`);
+}
+
+export async function getMorningWakeTime(date) {
+  return callApi(`/morning-routine/wake-time?date=${encodeURIComponent(String(date))}`);
+}
+
+export async function getMorningBriefingStatus() {
+  return callApi("/morning-routine/briefing-status");
+}
+
+export async function registerMorningBriefingPushToken(expoPushToken) {
+  return callApi("/morning-routine/push-token", {
+    method: "POST",
+    body: JSON.stringify({ expo_push_token: expoPushToken }),
+  });
+}
+
+export async function getMorningBriefingAudioUrl() {
+  const baseUrl = await resolveApiUrl();
+  return `${baseUrl}/morning-routine/briefing-audio`;
 }
