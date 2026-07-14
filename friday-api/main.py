@@ -171,6 +171,7 @@ from friday.app.local_ollama_runtime import check_ollama_health
 from friday.app.unified_search import search_unified
 from friday.app import voice_synthesis, voice_transcription
 from friday.app.voice_briefing import build_briefing_text, select_overdue_tasks
+from friday.app import voice_intent_llm
 from friday.app.voice_intent import VoiceIntent, match_task_by_title, parse_voice_command
 from friday.app.voice_synthesis import normalize_language
 from friday.app.setup_status import build_setup_status
@@ -1368,6 +1369,17 @@ def _voice_briefing_text(language: str) -> str:
     )
 
 
+def _parse_with_fallback(text: str) -> VoiceIntent:
+    """Parse a sentence deterministically; on ``unknown`` try the local LLM."""
+    intent = parse_voice_command(text, _today())
+    if intent.intent == "unknown" and intent.argument:
+        # Argument holds the cleaned, non-empty sentence for unknown intents.
+        resolved = voice_intent_llm.resolve_intent_with_llm(text, today=_today())
+        if resolved is not None:
+            return resolved
+    return intent
+
+
 def _execute_voice_intent(intent: VoiceIntent) -> tuple[str, dict[str, Any]]:
     """Run one parsed voice command against the agents; return (reply, data)."""
     german = intent.language != "en"
@@ -1519,7 +1531,7 @@ def voice_speak(payload: VoiceSpeakRequest) -> Response:
 @app.post("/api/voice/command")
 def voice_command(payload: VoiceCommandRequest) -> dict[str, Any]:
     """Route one transcribed sentence to the agents and reply (optionally spoken)."""
-    intent = parse_voice_command(payload.text, _today())
+    intent = _parse_with_fallback(payload.text)
     reply_text, data = _execute_voice_intent(intent)
     response: dict[str, Any] = {
         "intent": intent.to_dict(),
@@ -1540,7 +1552,7 @@ async def voice_command_audio(
 ) -> dict[str, Any]:
     """Push-to-talk round trip: audio in -> transcribe -> execute -> spoken reply."""
     transcription = await _transcribe_upload(audio)
-    intent = parse_voice_command(transcription["text"], _today())
+    intent = _parse_with_fallback(transcription["text"])
     reply_text, data = _execute_voice_intent(intent)
     response: dict[str, Any] = {
         "transcription": transcription,

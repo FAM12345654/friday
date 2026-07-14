@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 
 import main
 from friday.app import voice_synthesis, voice_transcription
+from friday.app import voice_intent_llm
+from friday.app.voice_intent import VoiceIntent
 from friday.app.voice_synthesis import SynthesisResult
 from friday.app.voice_transcription import TranscriptionResult
 
@@ -145,6 +147,32 @@ def test_command_audio_full_pipeline(client, monkeypatch: pytest.MonkeyPatch) ->
     assert data["intent"]["intent"] == "briefing"
     assert data["reply_text"].startswith("Guten Morgen")
     assert base64.b64decode(data["audio_base64"]) == WAV
+
+
+def test_command_llm_fallback_resolves_unknown(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A free phrasing the deterministic parser cannot classify; the LLM
+    # fallback maps it to a briefing.
+    monkeypatch.setattr(
+        voice_intent_llm,
+        "resolve_intent_with_llm",
+        lambda text, **kwargs: VoiceIntent(intent="briefing", argument="", language="de"),
+    )
+    data = client.post(
+        "/api/voice/command",
+        json={"text": "kannst du mir sagen was ich heute alles erledigen muss"},
+    ).json()["data"]
+    assert data["intent"]["intent"] == "briefing"
+    assert data["reply_text"].startswith("Guten Morgen")
+
+
+def test_command_llm_fallback_none_keeps_unknown(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(voice_intent_llm, "resolve_intent_with_llm", lambda text, **kwargs: None)
+    data = client.post(
+        "/api/voice/command",
+        json={"text": "blubb blubb unbekannt xyz"},
+    ).json()["data"]
+    assert data["intent"]["intent"] == "unknown"
+    assert "nicht verstanden" in data["reply_text"]
 
 
 def test_morning_briefing_endpoint(client, monkeypatch: pytest.MonkeyPatch) -> None:
