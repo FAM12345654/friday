@@ -49,14 +49,15 @@ def test_whatsapp_ingest_stores_and_processes_when_enabled(tmp_path, monkeypatch
     setup_local_database(db_path, seed_demo_data=False)
     api.message_agent = MessageAgent(db_path=db_path)
     monkeypatch.setattr(api.config, "ENABLE_WHATSAPP_BRIDGE_READ", True)
-    # Isolate from a real bridge token in local_data: point the token lookup
-    # at a nonexistent file so the guard accepts requests without a token.
     from friday.app import whatsapp_inbox_store
 
+    bridge_token = "test-whatsapp-bridge-token-with-32-chars"
+    token_path = tmp_path / "bridge-token.txt"
+    token_path.write_text(bridge_token, encoding="utf-8")
     monkeypatch.setattr(
         whatsapp_inbox_store,
         "get_whatsapp_bridge_token_path",
-        lambda: tmp_path / "no-bridge-token.txt",
+        lambda: token_path,
     )
 
     client = TestClient(api.app)
@@ -69,6 +70,7 @@ def test_whatsapp_ingest_stores_and_processes_when_enabled(tmp_path, monkeypatch
             "body": "todo",
             "received_at": "2026-07-09T10:10:00+00:00",
         },
+        headers={"X-Friday-WhatsApp-Bridge-Token": bridge_token},
     )
 
     assert response.status_code == 200
@@ -80,6 +82,47 @@ def test_whatsapp_ingest_stores_and_processes_when_enabled(tmp_path, monkeypatch
     messages = client.get("/api/whatsapp/messages").json()["data"]
     assert messages["count"] == 1
     assert messages["items"][0]["sender_number_masked"].startswith("hash:")
+
+
+def test_whatsapp_story_is_ignored_without_storage(tmp_path, monkeypatch) -> None:
+    api = _load_api_module()
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    api.message_agent = MessageAgent(db_path=db_path)
+    monkeypatch.setattr(api.config, "ENABLE_WHATSAPP_BRIDGE_READ", True)
+    from friday.app import whatsapp_inbox_store
+
+    bridge_token = "test-whatsapp-bridge-token-with-32-chars"
+    token_path = tmp_path / "bridge-token.txt"
+    token_path.write_text(bridge_token, encoding="utf-8")
+    monkeypatch.setattr(
+        whatsapp_inbox_store,
+        "get_whatsapp_bridge_token_path",
+        lambda: token_path,
+    )
+
+    client = TestClient(api.app)
+    response = client.post(
+        "/api/whatsapp/ingest",
+        json={
+            "chat_id": "status@broadcast",
+            "sender_name": "WhatsApp Status",
+            "sender_number": "status@broadcast",
+            "body": "Diese Story darf nicht gespeichert werden.",
+            "received_at": "2026-07-15T10:30:00+00:00",
+        },
+        headers={"X-Friday-WhatsApp-Bridge-Token": bridge_token},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["stored"] is False
+    assert payload["ignored"] is True
+    assert payload["ignore_reason"] == "whatsapp_story"
+    assert payload["processed_count"] == 0
+
+    messages = client.get("/api/whatsapp/messages").json()["data"]
+    assert messages["count"] == 0
 
 
 def test_whatsapp_activation_gate_requires_hard_token(monkeypatch) -> None:

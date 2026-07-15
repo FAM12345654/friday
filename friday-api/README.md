@@ -10,12 +10,15 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 ## Wichtige Settings
 
-- `FRIDAY_CORS_ORIGINS` (Komma-getrennte Liste) für Mobile/Desktop-Clients.
+- `FRIDAY_CORS_ORIGINS` (Komma-getrennte Liste) für Web-/Desktop-Origins.
+- `FRIDAY_API_TOKEN` ist für jeden LAN-, Docker-, Tailscale- oder
+  Tunnel-Zugriff erforderlich. Ohne Token werden nur direkte
+  Loopback-Anfragen akzeptiert.
 - `FRIDAY_API_PORT` / `FRIDAY_API_HOST` werden optional vom Desktop-Launcher genutzt.
-- `FRIDAY_API_TOKEN` (optional): Wenn gesetzt, verlangen alle Endpunkte außer
-  `/health` und den Docs einen `Authorization: Bearer <token>`- oder
-  `X-Friday-Token`-Header. Ohne die Variable bleibt die API offen (lokaler
-  Betrieb wie bisher).
+- `FRIDAY_OAUTH_LEDGER_SECRET` ist ein optionales separates Secret mit
+  mindestens 32 Zeichen für die verschlüsselten, kurzlebigen OAuth-Flows. Ohne
+  DPAPI wird andernfalls der starke `FRIDAY_API_TOKEN` als Schlüsselquelle
+  verwendet.
 
 ## API-Vereinheitlicher JSON-Vertrag
 

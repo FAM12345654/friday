@@ -19,15 +19,20 @@ class _FakePublicClient:
         self.client_id = client_id
         self.authority = authority
 
-    def get_authorization_request_url(self, scopes, redirect_uri, state):
+    def initiate_auth_code_flow(self, scopes, redirect_uri, state):
         assert scopes == list(MS_MAIL_SCOPES)
         assert "Mail.Send" not in scopes
-        return f"https://login.test/auth?client_id={self.client_id}&redirect_uri={redirect_uri}&state={state}"
+        return {
+            "auth_uri": f"https://login.test/auth?client_id={self.client_id}&redirect_uri={redirect_uri}&state={state}",
+            "state": state,
+            "code_verifier": "private-pkce-verifier",
+        }
 
-    def acquire_token_by_authorization_code(self, code, scopes, redirect_uri):
-        assert code == "abc"
+    def acquire_token_by_auth_code_flow(self, auth_flow, auth_response, scopes):
+        assert auth_flow["state"] == "secure-state"
+        assert auth_response["code"] == "abc"
+        assert auth_response["state"] == "secure-state"
         assert scopes == list(MS_MAIL_SCOPES)
-        assert redirect_uri == "http://localhost"
         return {"access_token": "runtime-token", "refresh_token": "refresh-token"}
 
     def acquire_token_by_refresh_token(self, refresh_token, scopes):
@@ -72,13 +77,27 @@ def test_build_authorization_url_uses_read_only_scopes() -> None:
 def test_exchange_auth_response_returns_token_bundle_without_logging_secret() -> None:
     result = exchange_auth_response(
         client_id="client-1",
-        authorization_response="http://localhost/?code=abc&state=ok",
+        authorization_response="http://localhost/?code=abc&state=secure-state",
+        auth_flow={"state": "secure-state", "code_verifier": "private-pkce-verifier"},
         msal_module=_FakeMsal,
     )
 
     assert result.ok is True
     assert result.token_bundle == {"access_token": "runtime-token", "refresh_token": "refresh-token"}
     assert result.external_call_used is True
+
+
+def test_exchange_auth_response_rejects_mismatched_state() -> None:
+    result = exchange_auth_response(
+        client_id="client-1",
+        authorization_response="http://localhost/?code=abc&state=attacker",
+        auth_flow={"state": "secure-state", "code_verifier": "private-pkce-verifier"},
+        msal_module=_FakeMsal,
+    )
+
+    assert result.ok is False
+    assert "oauth_state_invalid" in result.blocked_reasons
+    assert result.external_call_used is False
 
 
 def test_ensure_fresh_access_token_refreshes_stored_bundle() -> None:

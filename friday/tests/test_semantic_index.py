@@ -63,6 +63,38 @@ def test_reindex_upserts_instead_of_duplicating(tmp_path) -> None:
     assert stats["per_source"] == {"mail": 1, "task": 1, "whatsapp": 1}
 
 
+def test_full_reindex_prunes_documents_missing_from_snapshot(tmp_path) -> None:
+    db = _db(tmp_path)
+    index_documents(DOCS, FakeEmbedder(), db_path=db)
+
+    indexed = index_documents(
+        DOCS[:1],
+        FakeEmbedder(),
+        db_path=db,
+        replace_existing=True,
+    )
+
+    assert indexed == 1
+    assert index_stats(db_path=db) == {"total": 1, "per_source": {"mail": 1}}
+
+
+def test_empty_full_reindex_clears_index_without_embedding(tmp_path) -> None:
+    db = _db(tmp_path)
+    index_documents(DOCS, FakeEmbedder(), db_path=db)
+
+    class FailIfCalledEmbedder:
+        def embed(self, texts):
+            raise AssertionError("An empty snapshot must not invoke the embedder")
+
+    assert index_documents(
+        [],
+        FailIfCalledEmbedder(),
+        db_path=db,
+        replace_existing=True,
+    ) == 0
+    assert index_stats(db_path=db) == {"total": 0, "per_source": {}}
+
+
 def test_updated_document_gets_new_embedding(tmp_path) -> None:
     db = _db(tmp_path)
     index_documents(DOCS, FakeEmbedder(), db_path=db)

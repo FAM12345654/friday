@@ -7,35 +7,42 @@
 // silent — the app simply falls back to its usual refresh behavior.
 import EventSource from "react-native-sse";
 
-import { getApiUrl } from "../api/client";
+import { getApiAuthHeaders, getApiUrl } from "../api/client";
 
 export function subscribeLiveEvents(onChange) {
   let source = null;
-  try {
-    source = new EventSource(`${getApiUrl()}/api/events`, {
-      // Keep retrying quietly; the server sends keepalives every 15s.
-      pollingInterval: 15000,
-    });
-    source.addEventListener("change", (event) => {
-      let payload = null;
-      try {
-        payload = JSON.parse(event.data);
-      } catch (error) {
-        payload = null;
+  let cancelled = false;
+  const baseUrl = getApiUrl();
+  getApiAuthHeaders(baseUrl)
+    .then((headers) => {
+      if (cancelled) {
+        return;
       }
-      onChange(payload);
-    });
-    source.addEventListener("error", () => {
-      // Offline or server restart: the library reconnects on its own.
-    });
-  } catch (error) {
-    return () => {};
-  }
+      source = new EventSource(`${baseUrl}/api/events`, {
+        headers,
+        // Keep retrying quietly; the server sends keepalives every 15s.
+        pollingInterval: 15000,
+      });
+      source.addEventListener("change", (event) => {
+        let payload = null;
+        try {
+          payload = JSON.parse(event.data);
+        } catch (error) {
+          payload = null;
+        }
+        onChange(payload);
+      });
+      source.addEventListener("error", () => {
+        // Offline or server restart: the library reconnects on its own.
+      });
+    })
+    .catch(() => {});
 
   return () => {
+    cancelled = true;
     try {
-      source.removeAllEventListeners();
-      source.close();
+      source?.removeAllEventListeners();
+      source?.close();
     } catch (error) {
       // already closed
     }

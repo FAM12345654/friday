@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -67,6 +68,19 @@ def decrypt_google_calendar_credentials(account: GoogleCalendarAccount) -> dict[
     return parsed
 
 
+def google_calendar_account_fingerprint(account: GoogleCalendarAccount) -> str:
+    """Return a non-secret binding for approvals targeting this exact account snapshot."""
+    material = "\0".join(
+        (
+            account.calendar_id,
+            account.encryption_method,
+            account.encrypted_credentials_json,
+            account.connected_at,
+        )
+    ).encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
+
+
 def save_google_calendar_account(
     account: GoogleCalendarAccount,
     *,
@@ -119,9 +133,9 @@ def google_calendar_account_status(account_path: Path | str | None = None) -> di
     return {
         "connected": True,
         "calendar_id": account.calendar_id,
+        "account_fingerprint": google_calendar_account_fingerprint(account),
         "connected_at": account.connected_at,
         "last_test_ok": account.last_test_ok,
         "encryption_method": account.encryption_method,
         "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,
     }
-

@@ -11,6 +11,7 @@ const localDataDir = path.join(projectRoot, "local_data", "whatsapp");
 const tokenPath = path.join(localDataDir, "bridge_token.txt");
 const configPath = path.join(localDataDir, "bridge.config.json");
 const apiUrl = process.env.FRIDAY_API_URL || "http://127.0.0.1:8000";
+const apiToken = String(process.env.FRIDAY_API_TOKEN || "").trim();
 
 process.env.PUPPETEER_CACHE_DIR = path.join(localDataDir, "puppeteer-cache");
 
@@ -21,11 +22,18 @@ function ensureDir(dirPath) {
 function ensureBridgeToken() {
   ensureDir(localDataDir);
   if (fs.existsSync(tokenPath)) {
-    return fs.readFileSync(tokenPath, "utf8").trim();
+    const existing = fs.readFileSync(tokenPath, "utf8").trim();
+    if (existing.length >= 32) {
+      return existing;
+    }
   }
   const token = crypto.randomBytes(32).toString("base64url");
-  fs.writeFileSync(tokenPath, token, "utf8");
+  fs.writeFileSync(tokenPath, token, { encoding: "utf8", mode: 0o600 });
   return token;
+}
+
+function apiAuthHeaders() {
+  return apiToken ? { Authorization: `Bearer ${apiToken}` } : {};
 }
 
 function loadBridgeConfig() {
@@ -70,12 +78,29 @@ async function postMessageToFriday(payload, token) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Friday-WhatsApp-Bridge-Token": token
+      "X-Friday-WhatsApp-Bridge-Token": token,
+      ...apiAuthHeaders()
     },
     body: JSON.stringify(payload)
   });
   if (!response.ok) {
     throw new Error(`Friday API rejected mirror event with HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+async function postReplyToFriday(payload, token) {
+  const response = await fetch(`${apiUrl}/api/whatsapp/reply`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Friday-WhatsApp-Bridge-Token": token,
+      ...apiAuthHeaders()
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    throw new Error(`Friday API rejected reply event with HTTP ${response.status}`);
   }
   return response.json();
 }
@@ -117,6 +142,9 @@ async function main() {
       if (message.fromMe) {
         return;
       }
+      if (message.isStatus || message.from === "status@broadcast") {
+        return;
+      }
 
       const chat = await message.getChat();
       if (!shouldMirrorChat(chat.id._serialized, chat.isGroup, bridgeConfig)) {
@@ -137,6 +165,31 @@ async function main() {
       console.log("Eingehende WhatsApp-Nachricht lokal gespiegelt.");
     } catch (error) {
       console.log(`WhatsApp Read-Bridge konnte ein Ereignis nicht spiegeln: ${error.message}`);
+    }
+  });
+
+  client.on("message_create", async (message) => {
+    try {
+      if (!message.fromMe || message.isStatus || message.to === "status@broadcast") {
+        return;
+      }
+      const chat = await message.getChat();
+      if (!shouldMirrorChat(chat.id._serialized, chat.isGroup, bridgeConfig)) {
+        return;
+      }
+      const result = await postReplyToFriday(
+        {
+          chat_id: chat.id._serialized,
+          body: message.body || "",
+          sent_at: new Date((message.timestamp || Date.now() / 1000) * 1000).toISOString()
+        },
+        token
+      );
+      if (result?.data?.resolved) {
+        console.log("Erledigter WhatsApp-Verlauf wurde lokal aus dem aktiven Posteingang ausgeblendet.");
+      }
+    } catch (error) {
+      console.log(`Friday konnte die eigene WhatsApp-Antwort nicht lokal auswerten: ${error.message}`);
     }
   });
 

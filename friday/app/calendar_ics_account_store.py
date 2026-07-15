@@ -11,6 +11,7 @@ from typing import Any
 from friday import config
 from friday.app.account_policy_store import POLICY_SAVE_TOKEN
 from friday.app.email_account_store import protect_secret, unprotect_secret
+from friday.app.network_url_safety import validate_external_https_url
 
 
 OUTLOOK_ICS_ACCOUNT_FILE_NAME = "outlook_ics_accounts.json"
@@ -43,9 +44,7 @@ def build_outlook_ics_account(
     last_test_ok: bool = False,
 ) -> OutlookIcsAccount:
     """Build an encrypted Outlook ICS account object without exposing the URL."""
-    clean_url = str(ics_url or "").strip()
-    if not clean_url:
-        raise ValueError("Outlook-ICS-URL fehlt.")
+    clean_url = validate_external_https_url(ics_url)
     encrypted, method = protect_secret(clean_url.encode("utf-8"))
     return OutlookIcsAccount(
         policy_id=int(policy_id),

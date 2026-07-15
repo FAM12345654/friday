@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from friday.app.account_policy_store import AccountPolicy, AccountPolicyWriteResult
@@ -306,6 +307,18 @@ def test_google_calendar_connect_endpoint_does_not_return_credentials(monkeypatc
         "exchange_google_oauth_authorization_response",
         lambda **_kwargs: _ExchangeResult(),
     )
+    canonical_path = str(Path("client.json").resolve())
+    monkeypatch.setattr(
+        api.oauth_transactions,
+        "consume",
+        lambda **kwargs: SimpleNamespace(
+            state=kwargs["state"],
+            context={
+                "client_secrets_path": canonical_path,
+                "code_verifier": "pkce-code-verifier-with-at-least-forty-three-characters-123456",
+            },
+        ),
+    )
     monkeypatch.setattr(
         api,
         "save_google_calendar_account",
@@ -321,7 +334,7 @@ def test_google_calendar_connect_endpoint_does_not_return_credentials(monkeypatc
         "/api/accounts/calendar/google/connect",
         json={
             "client_secrets_path": "client.json",
-            "authorization_response": "http://localhost/?code=abc",
+            "authorization_response": "http://localhost/?code=abc&state=secure-state-value",
             "approval_token": "KALENDER VERBINDEN",
             "calendar_id": "primary",
         },
@@ -450,16 +463,18 @@ def test_calendar_event_write_guard_endpoint_creates_one_mocked_google_event_and
         created_at="2026-07-09T00:00:00+00:00",
     )
     created_events: list[CalendarProviderEvent] = []
+    account_status = {
+        "connected": True,
+        "calendar_id": "primary",
+        "account_fingerprint": "account-a",
+        "last_test_ok": True,
+        "real_calendar_enabled": True,
+    }
     monkeypatch.setattr(api, "list_account_policies", lambda: [policy])
     monkeypatch.setattr(
         api,
         "google_calendar_account_status",
-        lambda: {
-            "connected": True,
-            "calendar_id": "primary",
-            "last_test_ok": True,
-            "real_calendar_enabled": True,
-        },
+        lambda: dict(account_status),
     )
 
     class _CreateResult:
@@ -486,15 +501,44 @@ def test_calendar_event_write_guard_endpoint_creates_one_mocked_google_event_and
 
     monkeypatch.setattr(api, "GoogleCalendarProvider", lambda: _Provider())
 
+    request_payload = {
+        "approval_token": "TERMIN SPEICHERN",
+        "title": "Termin",
+        "start": "2026-07-15T10:00:00+02:00",
+        "end": "2026-07-15T11:00:00+02:00",
+        "location": "Buero",
+    }
+    preview_response = client.post(
+        "/api/calendar/events/write-guard",
+        json=request_payload,
+    )
+    preview = preview_response.json()["data"]
+    assert preview["guard"]["allowed"] is False
+    assert preview["guard"]["blocked_reasons"] == ["one_time_approval_required"]
+    assert preview["provider_event_created"] is False
+    assert created_events == []
+
+    account_status["account_fingerprint"] = "account-b"
+    stale_response = client.post(
+        "/api/calendar/events/write-guard",
+        json={**request_payload, "approval_id": preview["approval"]["id"]},
+    )
+    assert stale_response.json()["data"]["guard"]["blocked_reasons"] == [
+        "one_time_approval_invalid"
+    ]
+    assert created_events == []
+
+    refreshed_preview = client.post(
+        "/api/calendar/events/write-guard",
+        json=request_payload,
+    ).json()["data"]
+    second_preview = client.post(
+        "/api/calendar/events/write-guard",
+        json=request_payload,
+    ).json()["data"]
     response = client.post(
         "/api/calendar/events/write-guard",
-        json={
-            "approval_token": "TERMIN SPEICHERN",
-            "title": "Termin",
-            "start": "2026-07-15T10:00:00+02:00",
-            "end": "2026-07-15T11:00:00+02:00",
-            "location": "Buero",
-        },
+        json={**request_payload, "approval_id": refreshed_preview["approval"]["id"]},
     )
 
     assert response.status_code == 200
@@ -505,6 +549,15 @@ def test_calendar_event_write_guard_endpoint_creates_one_mocked_google_event_and
     assert payload["calendar_entry"]["provider"] == "google_calendar"
     assert payload["calendar_entry"]["provider_event_id"] == "created-1"
     assert payload["calendar_entry"]["policy_id"] == 1
+    assert len(created_events) == 1
+
+    duplicate_execution = client.post(
+        "/api/calendar/events/write-guard",
+        json={**request_payload, "approval_id": second_preview["approval"]["id"]},
+    ).json()["data"]
+    assert duplicate_execution["guard"]["blocked_reasons"] == [
+        "one_time_approval_invalid"
+    ]
     assert len(created_events) == 1
 
 
@@ -936,18 +989,27 @@ def test_calendar_from_message_endpoint_writes_edited_suggestion_with_guard(
 
     monkeypatch.setattr(api, "GoogleCalendarProvider", lambda: _Provider())
 
+    request_payload = {
+        "approval_token": "TERMIN SPEICHERN",
+        "text": "Termin am 15.07.2026 um 10:00 im Buero",
+        "base_date": "2026-07-09",
+        "title": "Editierter Termin",
+        "date": "2026-07-15",
+        "start": "11:30",
+        "end": "12:30",
+        "location": "Raum 1",
+    }
+    preview_response = client.post(
+        "/api/calendar/events/from-message",
+        json=request_payload,
+    )
+    preview = preview_response.json()["data"]
+    assert preview["provider_event_created"] is False
+    assert preview["approval"]["one_time"] is True
+
     response = client.post(
         "/api/calendar/events/from-message",
-        json={
-            "approval_token": "TERMIN SPEICHERN",
-            "text": "Termin am 15.07.2026 um 10:00 im Buero",
-            "base_date": "2026-07-09",
-            "title": "Editierter Termin",
-            "date": "2026-07-15",
-            "start": "11:30",
-            "end": "12:30",
-            "location": "Raum 1",
-        },
+        json={**request_payload, "approval_id": preview["approval"]["id"]},
     )
 
     assert response.status_code == 200
@@ -1002,7 +1064,26 @@ def test_calendar_delete_guard_endpoint_deletes_provider_and_local_entry(
         },
     )
 
+    revision = ['"revision-1"']
+
     class _Provider:
+        def get_event(self, *, event_id: str, calendar_id: str):
+            return CalendarProviderResult(
+                ok=True,
+                event=CalendarProviderEvent(
+                    id=event_id,
+                    provider="google_calendar",
+                    calendar_id=calendar_id,
+                    title="Termin",
+                    start="2026-07-15T10:00:00+02:00",
+                    end="2026-07-15T11:00:00+02:00",
+                    raw={"etag": revision[0]},
+                ),
+                message="Google-Kalendertermin gelesen.",
+                provider_event_id=event_id,
+                external_call_used=True,
+            )
+
         def delete_event(self, *, event_id: str, calendar_id: str):
             deleted.append(f"{calendar_id}:{event_id}")
             return CalendarProviderResult(
@@ -1014,13 +1095,50 @@ def test_calendar_delete_guard_endpoint_deletes_provider_and_local_entry(
 
     monkeypatch.setattr(api, "GoogleCalendarProvider", lambda: _Provider())
 
-    response = client.post(
+    foreign_target_response = client.post(
         "/api/calendar/events/delete-guard",
         json={
             "approval_token": "TERMIN LOESCHEN",
             "provider_event_id": "created-1",
-            "calendar_id": "primary",
+            "calendar_id": "secondary-calendar",
         },
+    )
+    assert foreign_target_response.json()["data"]["guard"]["blocked_reasons"] == [
+        "calendar_target_not_main"
+    ]
+
+    request_payload = {
+        "approval_token": "TERMIN LOESCHEN",
+        "provider_event_id": "created-1",
+        "calendar_id": "primary",
+    }
+    preview_response = client.post(
+        "/api/calendar/events/delete-guard",
+        json=request_payload,
+    )
+    preview = preview_response.json()["data"]
+    assert preview["provider_event_deleted"] is False
+    assert preview["approval"]["payload_bound"] is True
+    assert preview["event_preview"]["etag"] == '"revision-1"'
+    assert deleted == []
+
+    revision[0] = '"revision-2"'
+    stale_response = client.post(
+        "/api/calendar/events/delete-guard",
+        json={**request_payload, "approval_id": preview["approval"]["id"]},
+    )
+    assert stale_response.json()["data"]["guard"]["blocked_reasons"] == [
+        "one_time_approval_invalid"
+    ]
+    assert deleted == []
+
+    refreshed_preview = client.post(
+        "/api/calendar/events/delete-guard",
+        json=request_payload,
+    ).json()["data"]
+    response = client.post(
+        "/api/calendar/events/delete-guard",
+        json={**request_payload, "approval_id": refreshed_preview["approval"]["id"]},
     )
 
     assert response.status_code == 200

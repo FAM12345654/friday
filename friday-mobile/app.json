@@ -40,10 +40,9 @@
     },
     "extra": {
       "fridayApiUrls": [
-        "http://192.168.178.42:8000",
-        "http://100.122.129.101:8000"
+        "https://pc.tail4c6152.ts.net"
       ],
-      "fridayApiDefaultUrl": "http://192.168.178.42:8000",
+      "fridayApiDefaultUrl": "https://pc.tail4c6152.ts.net",
       "eas": {
         "projectId": "72728242-5f76-4994-9d19-1033b0db7fe6"
       }
@@ -53,7 +52,7 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": false
           }
         }
       ],

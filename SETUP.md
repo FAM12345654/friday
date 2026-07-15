@@ -134,7 +134,9 @@ npm start
 
 `EXPO_PUBLIC_FRIDAY_API_URL` muss auf die API zeigen:
 
-Standard fuer physisches Handy im lokalen WLAN: `http://192.168.178.42:8000`
+Standard für ein physisches Handy: die HTTPS-Adresse von Tailscale Serve oder
+einem abgesicherten Tunnel. Friday sendet API-Tokens nicht über unverschlüsseltes
+WLAN-HTTP. Die aktuelle Geräteadresse ist `https://pc.tail4c6152.ts.net`.
 
 Der vollstaendige Mobile-/Desktop-Guide steht hier:
 
@@ -249,8 +251,11 @@ docker compose up friday-api
 
 ## 6) Neue Funktionen (Kurzüberblick)
 
-- **API-Token (optional)**: `FRIDAY_API_TOKEN` setzen, sobald die API im
-  LAN erreichbar ist. Clients senden dann `Authorization: Bearer <token>`.
+- **API-Token (für Netzwerkzugriff erforderlich)**: Ohne `FRIDAY_API_TOKEN`
+  akzeptiert die API ausschließlich direkte Loopback-Anfragen. Für WLAN,
+  Tailscale, Docker oder Tunnel einen zufälligen Token mit mindestens 32
+  Zeichen setzen. Mobile speichert ihn unter **Mehr > Datenschutz** im
+  Geräte-Keystore; Desktop übernimmt ihn aus der Prozessumgebung.
 - **Metriken**: `GET /metrics` zeigt Cache-Trefferquote und Endpunkt-Latenzen.
 - **Suche**: `GET /api/search?q=...` (Volltext) und
   `GET /api/search/semantic?q=...` (Ollama-Embeddings, vorher einmal
@@ -297,7 +302,43 @@ menschlichen Stimme antworten (lokale TTS-Server, kein Abo, alles offline):
      Suche laden qwen3/Embeddings bei Bedarf.
 3. **Englische Stimme (Kokoro, läuft auf CPU)**:
    `docker run -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:latest`
-4. Testen ohne App:
+4. **Optionaler Voicebox-Pilot (nicht standardmäßig aktiv)**:
+   Gemeint ist [jamiepine/voicebox](https://github.com/jamiepine/voicebox),
+   der lokale Multi-Engine-Host — nicht Metas unveröffentlichtes
+   Voicebox-Forschungsmodell. Voicebox ab v0.5 stellt WAV-Audio synchron über
+   `POST /generate/stream` bereit und kann deshalb als Friday-TTS-Backend
+   getestet werden.
+
+   - Voicebox lokal auf `127.0.0.1:17493` starten.
+   - In Voicebox ein deutsches Qwen-Base-Referenzprofil für Jana anlegen; die
+     0.6B-Variante benötigt laut Voicebox ungefähr 2 GB VRAM. CustomVoice ist
+     hierfür ungeeignet, weil es Preset-Stimmen statt Janas Referenzstimme nutzt.
+   - In `friday/config.py` `VOICEBOX_DE_PROFILE_ID` setzen und danach
+     `VOICE_TTS_DE_PROVIDER = "voicebox"` aktivieren. Englisch bleibt direkt
+     auf Kokoro.
+   - Orpheus/Kokoro bleibt der Standard, bis ein lokaler A/B-Hörtest Qualität,
+     erste Audio-Latenz, Gesamt-Latenz und Stabilität auf dem Ziel-PC belegt.
+
+   `/generate/stream` liefert Friday kompatibles WAV, puffert aber die gesamte
+   Erzeugung vor der Antwort und ist kein echtes Low-Latency-Streaming.
+   Voicebox ist kein automatisch besseres Modell, sondern bündelt mehrere
+   Engines. Für Deutsch sind Qwen3-TTS und Chatterbox interessant; ein
+   belastbarer direkter Benchmark gegen Orpheus-Kartoffel ist nicht
+   veröffentlicht und muss deshalb mit Fridays echten Sätzen gemessen werden.
+
+   Der reproduzierbare Benchmark läuft bewusst mit nur einer GPU-Engine pro
+   Prozess. Zuerst Orpheus messen, anschließend Orpheus vollständig stoppen und
+   erst dann Voicebox starten:
+
+```powershell
+python scripts\benchmark_voice_tts.py --engine orpheus --format json --output local_data\voice-bench-orpheus.json
+python scripts\benchmark_voice_tts.py --engine voicebox --profile-id <PROFILE_ID> --model-size 0.6B --format json --output local_data\voice-bench-voicebox.json
+```
+
+   Der Harness akzeptiert ausschließlich Loopback-Endpunkte, folgt keinen
+   Redirects und misst vollständige WAV-Latenz, p50/p95, WAV-Dauer, Real-Time-
+   Factor und Fehlerrate. Für CSV `--format csv` verwenden.
+5. Testen ohne App:
 
 ```bash
 curl -s "http://127.0.0.1:8000/api/voice/morning-briefing" | python -m json.tool

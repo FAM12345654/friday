@@ -456,28 +456,75 @@ class TaskRepository:
         return self.get_task_by_id(task_id)
 
     def mark_task_done(self, task_id: int) -> dict | None:
-        """Set one task status to done."""
-        task = self.get_task_by_id(task_id)
-        if task is not None and str(task.get("status", "")).lower() == "done":
-            return task
+        """Atomically complete one task and create at most one recurrence."""
+        with get_connection(self.db_path) as connection:
+            # Acquire the SQLite write lock before reading the status. Concurrent
+            # callers therefore cannot both observe the recurring task as open.
+            connection.execute("BEGIN IMMEDIATE")
+            task_row = connection.execute(
+                f"""
+                {_task_select_sql()}
+                WHERE id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+            if task_row is None:
+                return None
 
-        done = self.update_task(task_id, status="done")
-        if done is None or task is None:
-            return done
+            task = row_to_dict(task_row)
+            if str(task.get("status", "")).lower() == "done":
+                return task
 
-        recurrence = task.get("recurrence")
-        due_date = task.get("due_date")
-        if recurrence and due_date:
-            next_due_date = calculate_next_recurrence_due_date(due_date, recurrence)
-            self.create_task(
-                title=str(task.get("title") or ""),
-                category=task.get("category"),
-                due_date=next_due_date,
-                notes=task.get("notes"),
-                priority=task.get("priority"),
-                recurrence=recurrence,
+            updated = connection.execute(
+                """
+                UPDATE tasks
+                SET status = 'done'
+                WHERE id = :task_id
+                    AND (status IS NULL OR LOWER(status) != 'done')
+                """,
+                {"task_id": task_id},
             )
-        return done
+            if updated.rowcount != 1:
+                current_row = connection.execute(
+                    f"""
+                    {_task_select_sql()}
+                    WHERE id = ?
+                    """,
+                    (task_id,),
+                ).fetchone()
+                return row_to_dict(current_row) if current_row is not None else None
+
+            recurrence = task.get("recurrence")
+            due_date = task.get("due_date")
+            if recurrence and due_date:
+                next_due_date = calculate_next_recurrence_due_date(due_date, recurrence)
+                connection.execute(
+                    """
+                    INSERT INTO tasks (
+                        title, category, status, due_date, notes, priority, recurrence
+                    )
+                    VALUES (
+                        :title, :category, 'open', :due_date, :notes, :priority, :recurrence
+                    )
+                    """,
+                    {
+                        "title": str(task.get("title") or ""),
+                        "category": task.get("category"),
+                        "due_date": next_due_date,
+                        "notes": task.get("notes"),
+                        "priority": task.get("priority"),
+                        "recurrence": recurrence,
+                    },
+                )
+
+            done_row = connection.execute(
+                f"""
+                {_task_select_sql()}
+                WHERE id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+            return row_to_dict(done_row)
 
     def archive_task(self, task_id: int) -> dict | None:
         """Set one task status to archived."""

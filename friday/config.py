@@ -60,7 +60,7 @@ OLLAMA_TIMEOUT_SECONDS = 30
 
 # Push-Benachrichtigungen (Expo) sind ein externer Dienst und bleiben
 # standardmäßig deaktiviert.
-ENABLE_PUSH_NOTIFICATIONS = False
+ENABLE_PUSH_NOTIFICATIONS = True
 
 # Sprachmodul: Whisper-STT lokal, TTS über lokale OpenAI-kompatible Server
 # (Deutsch: Orpheus "Kartoffel" z. B. via Orpheus-FastAPI auf Port 5005,
@@ -76,6 +76,19 @@ VOICE_TTS_EN_BASE_URL = "http://localhost:8880"
 VOICE_TTS_EN_MODEL = "kokoro"
 VOICE_TTS_EN_VOICE = "af_heart"
 VOICE_TTS_TIMEOUT_SECONDS = 60
+
+# Optional German-only Voicebox pilot. English remains on Friday's direct
+# Kokoro path because routing it through Voicebox adds no model-quality benefit.
+# Voicebox's /generate/stream route returns WAV only after generation completes;
+# it is therefore compatible with Friday, but is not low-latency token streaming.
+VOICE_TTS_DE_PROVIDER = "orpheus"  # or "voicebox"
+VOICE_TTS_EN_PROVIDER = "kokoro"
+VOICEBOX_BASE_URL = "http://127.0.0.1:17493"
+VOICEBOX_DE_PROFILE_ID = ""
+# Qwen Base accepts a reference profile and preserves Jana's voice identity.
+# CustomVoice exposes preset voices and is not a drop-in clone of Jana.
+VOICEBOX_DE_ENGINE = "qwen"
+VOICEBOX_DE_MODEL_SIZE = "0.6B"
 
 # Lokale Benachrichtigungen bleiben standardmäßig deaktiviert.
 ENABLE_LOCAL_NOTIFICATIONS = False

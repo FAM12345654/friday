@@ -81,11 +81,11 @@ function Get-TunnelUrlFromLogs {
   return $null
 }
 
-function Wait-ForUrl($Url, $Path) {
+function Wait-ForUrl($Url, $Path, $Headers = @{}) {
   $target = "$Url$Path"
   for ($i = 0; $i -lt 120; $i++) {
     try {
-      $response = Invoke-WebRequest -Uri $target -UseBasicParsing -TimeoutSec 5
+      $response = Invoke-WebRequest -Uri $target -UseBasicParsing -TimeoutSec 5 -Headers $Headers
       if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 300) {
         return $true
       }
@@ -130,6 +130,13 @@ function Start-QuickTunnel {
 Write-Step "Friday Mobile live schalten"
 New-Item -ItemType Directory -Force -Path $ToolsDir, $LogsDir | Out-Null
 
+$ApiToken = [string]$env:FRIDAY_API_TOKEN
+if ([string]::IsNullOrWhiteSpace($ApiToken) -or $ApiToken.Trim().Length -lt 32) {
+  throw "FRIDAY_API_TOKEN muss vor einem öffentlichen Tunnel gesetzt sein und mindestens 32 Zeichen haben."
+}
+$ApiHeaders = @{ Authorization = "Bearer $($ApiToken.Trim())" }
+Write-Host "API-Schutz aktiv. Der Token wird nicht in App-Konfiguration oder Update-Bundles geschrieben."
+
 if (-not (Test-Path $Cloudflared)) {
   Write-Step "Cloudflare Tunnel Client herunterladen"
   Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile $Cloudflared
@@ -159,7 +166,7 @@ for ($attempt = 1; $attempt -le 3; $attempt++) {
 
   Write-Step "Remote API vom Handy-Weg simulieren"
   $healthOk = Wait-ForUrl -Url $remoteUrl -Path "/health"
-  $dashboardOk = Wait-ForUrl -Url $remoteUrl -Path "/api/dashboard"
+  $dashboardOk = Wait-ForUrl -Url $remoteUrl -Path "/api/dashboard" -Headers $ApiHeaders
   if ($healthOk -and $dashboardOk) {
     break
   }
@@ -220,7 +227,8 @@ $summary = @(
   "Handy-Hinweis:",
   "1. Installierte Friday-App komplett schließen.",
   "2. Wieder öffnen.",
-  "3. Falls kein Update erscheint, App noch einmal schließen und öffnen."
+  "3. Unter Mehr > Datenschutz denselben API-Token sicher im Geräte-Keystore speichern.",
+  "4. Falls kein Update erscheint, App noch einmal schließen und öffnen."
 )
 
 Set-Content -Path $LiveSummaryPath -Value $summary -Encoding UTF8

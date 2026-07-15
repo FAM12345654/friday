@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import os
 import sys
 import tempfile
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 from datetime import date, timedelta
 import json
@@ -15,7 +17,7 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, File, Header, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 API_DIR = Path(__file__).resolve().parent
 ROOT_DIR = API_DIR.parent
@@ -28,6 +30,10 @@ from perf import TTLCache, etag_response, register_timing, request_metrics
 from security import register_auth
 
 from friday import config
+from friday.app.action_approval_store import (
+    ActionApprovalCapacityError,
+    action_approvals,
+)
 from friday.agents import (
     CalendarAgent,
     ContactContextAgent,
@@ -54,10 +60,20 @@ from friday.app.agent_context_builder import build_agent_context
 from friday.app.calendar_activation_gate import build_calendar_activation_gate
 from friday.app.calendar_event_extraction import extract_calendar_event_candidate
 from friday.app.calendar_event_delete_guard import check_calendar_event_delete_allowed
-from friday.app.calendar_event_write_guard import check_calendar_event_write_allowed
+from friday.app.calendar_event_write_guard import (
+    CALENDAR_EVENT_SAVE_TOKEN,
+    check_calendar_event_write_allowed,
+)
+from friday.app.calendar_source_sync import (
+    build_google_sync_event_id,
+    build_google_sync_metadata,
+    build_source_sync_plan,
+    public_sync_item,
+)
 from friday.app.calendar_google_account_store import (
     GOOGLE_CALENDAR_CONNECT_TOKEN,
     build_google_calendar_account,
+    google_calendar_account_fingerprint,
     google_calendar_account_status,
     save_google_calendar_account,
 )
@@ -129,7 +145,7 @@ from friday.app.ms_mail_account_store import (
     save_ms_mail_account,
 )
 from friday.app.ms_mail_provider import (
-    build_authorization_url as build_ms_mail_authorization_url,
+    build_authorization_flow as build_ms_mail_authorization_flow,
     ensure_fresh_access_token as ensure_fresh_ms_mail_access_token,
     exchange_auth_response as exchange_ms_mail_auth_response,
     list_messages as list_ms_mail_messages,
@@ -154,6 +170,7 @@ from friday.app.local_ollama_config_preview import build_local_ollama_config_pre
 from friday.app.local_model_provider import get_local_model_fallback_count
 from friday.app.messaging_audit_preview import build_messaging_audit_preview
 from friday.app.push_notifications import (
+    build_expo_push_messages,
     build_due_task_notifications,
     list_push_tokens,
     register_push_token,
@@ -187,6 +204,15 @@ from friday.app.whatsapp_inbox_store import (
     read_recent_whatsapp_messages,
     save_whatsapp_agent_notes,
 )
+from friday.app.oauth_transaction_store import (
+    OAuthTransactionCapacityError,
+    OAuthTransactionProtectionError,
+    extract_oauth_state,
+    generate_oauth_state,
+    generate_pkce_code_verifier,
+    oauth_transactions,
+)
+from friday.app.whatsapp_resolution import classify_and_resolve_whatsapp_reply
 from friday.config import DEMO_DATE, USE_REAL_TODAY
 from friday.storage.database import setup_local_database
 from friday.storage.learning_repository import LearningRepository
@@ -201,14 +227,27 @@ from friday.storage.repositories import (
 def _allowed_origins() -> list[str]:
     raw_origins = os.getenv("FRIDAY_CORS_ORIGINS", "").strip()
     if not raw_origins:
-        return ["*"]
+        return [
+            "http://localhost:19006",
+            "http://127.0.0.1:19006",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "friday://app",
+        ]
     return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    setup_local_database()
+    yield
 
 
 app = FastAPI(
     title="Friday API",
     version="1.0.0",
     description="Local REST API for Friday task, message, calendar, contact and privacy views.",
+    lifespan=_lifespan,
 )
 
 register_timing(app)
@@ -223,10 +262,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+_APPROVAL_RESPONSE_PATHS = {
+    "/api/calendar/events/write-guard",
+    "/api/calendar/events/from-message",
+    "/api/calendar/events/delete-guard",
+    "/api/calendar/source-sync",
+    "/api/push/send-due-reminders",
+}
 
-@app.on_event("startup")
-def _startup() -> None:
-    setup_local_database()
+
+@app.middleware("http")
+async def _prevent_approval_response_caching(request, call_next):
+    response = await call_next(request)
+    if request.url.path in _APPROVAL_RESPONSE_PATHS:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+    return response
 
 
 task_agent = TaskAgent()
@@ -383,6 +434,12 @@ class WhatsAppIngestRequest(BaseModel):
     received_at: str | None = None
 
 
+class WhatsAppReplyRequest(BaseModel):
+    chat_id: str
+    body: str
+    sent_at: str | None = None
+
+
 class WhatsAppBridgeActivationGateRequest(BaseModel):
     approval_token: str
     scanner_smoke_passed: bool = False
@@ -444,15 +501,26 @@ class CalendarActivationGateRequest(BaseModel):
 
 class CalendarEventWriteGuardRequest(BaseModel):
     approval_token: str
+    approval_id: str = Field(default="", max_length=128)
     title: str
     start: str
     end: str
     location: str | None = None
 
 
+class CalendarSourceSyncRequest(BaseModel):
+    dry_run: bool = True
+    days: int | None = None
+    days_back: int = 30
+    days_forward: int = 365
+    approval_token: str = ""
+    approval_id: str = Field(default="", max_length=128)
+
+
 class CalendarEventFromMessageWriteRequest(BaseModel):
     approval_token: str
-    text: str
+    approval_id: str = Field(default="", max_length=128)
+    text: str = Field(max_length=20_000)
     base_date: str | None = None
     duration_minutes: int = 60
     title: str | None = None
@@ -464,7 +532,8 @@ class CalendarEventFromMessageWriteRequest(BaseModel):
 
 class CalendarEventDeleteGuardRequest(BaseModel):
     approval_token: str
-    provider_event_id: str
+    approval_id: str = Field(default="", max_length=128)
+    provider_event_id: str = Field(max_length=1024)
     calendar_id: str | None = None
 
 
@@ -494,6 +563,7 @@ for _request_model in (
     GoogleOAuthConnectRequest,
     CalendarActivationGateRequest,
     CalendarEventWriteGuardRequest,
+    CalendarSourceSyncRequest,
     CalendarEventFromMessageWriteRequest,
     CalendarEventDeleteGuardRequest,
     CalendarViewPrefsRequest,
@@ -511,6 +581,62 @@ def _today() -> str:
 
 def _envelope(data: Any) -> dict[str, Any]:
     return {"ok": True, "data": data}
+
+
+def _try_issue_action_approval(
+    *,
+    action: str,
+    payload: dict[str, Any],
+) -> dict[str, Any] | None:
+    try:
+        approval = action_approvals.try_issue(action=action, payload=payload)
+    except ActionApprovalCapacityError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+            headers={"Retry-After": "30"},
+        ) from exc
+    return approval.to_public_dict() if approval is not None else None
+
+
+def _put_oauth_transaction(
+    *,
+    provider: str,
+    state: str,
+    context: dict[str, Any],
+) -> None:
+    try:
+        oauth_transactions.put(provider=provider, state=state, context=context)
+    except OAuthTransactionCapacityError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+            headers={"Retry-After": "30"},
+        ) from exc
+    except OAuthTransactionProtectionError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _google_account_binding(
+    account_status: dict[str, Any],
+    provider: Any | None = None,
+) -> str | None:
+    expected = str(account_status.get("account_fingerprint") or "").strip()
+    account = getattr(provider, "account", None) if provider is not None else None
+    if account is not None:
+        actual = google_calendar_account_fingerprint(account)
+        if expected and actual != expected:
+            return None
+        return actual
+    if expected:
+        return expected
+    fallback = "\0".join(
+        (
+            str(account_status.get("calendar_id") or "primary"),
+            str(account_status.get("connected_at") or "test-or-legacy-account"),
+        )
+    )
+    return hashlib.sha256(fallback.encode("utf-8")).hexdigest()
 
 
 def _invalidate_google_calendar_read_cache() -> None:
@@ -882,6 +1008,7 @@ async def _collect_source_calendar_events(
 def _write_google_calendar_event_after_guard(
     *,
     approval_token: str,
+    approval_id: str = "",
     title: str,
     start: str,
     end: str,
@@ -900,9 +1027,72 @@ def _write_google_calendar_event_after_guard(
     provider_event_created = False
     provider_result_payload: dict[str, Any] | None = None
     local_calendar_entry: dict[str, Any] | None = None
+    approval_payload: dict[str, Any] | None = None
+    calendar_id = str(account_status.get("calendar_id") or "primary")
+    provider = GoogleCalendarProvider() if guard.allowed else None
+    account_binding = _google_account_binding(account_status, provider)
+    action_payload = {
+        "account_fingerprint": str(account_binding or ""),
+        "calendar_id": calendar_id,
+        "title": str(title),
+        "start": str(start),
+        "end": str(end),
+        "location": str(location or ""),
+        "notes": str(notes or ""),
+    }
+    guard_payload = guard.to_dict()
 
-    if guard.allowed:
-        calendar_id = str(account_status.get("calendar_id") or "primary")
+    if guard.allowed and account_binding is None:
+        guard_payload.update(
+            {
+                "allowed": False,
+                "message": "Kalenderkonto hat sich während der Freigabe geändert.",
+                "blocked_reasons": ("calendar_account_changed",),
+                "preview_only": True,
+                "external_call_allowed": False,
+            }
+        )
+    elif guard.allowed:
+        if not approval_id:
+            approval_payload = _try_issue_action_approval(
+                action="calendar.event.create",
+                payload=action_payload,
+            )
+            guard_payload.update(
+                {
+                    "allowed": False,
+                    "message": (
+                        "Vorschau bestätigt. Bitte dieselbe Aktion innerhalb von fünf Minuten erneut freigeben."
+                        if approval_payload is not None
+                        else "Eine identische Aktion wurde vor kurzem bereits ausgeführt."
+                    ),
+                    "blocked_reasons": (
+                        "one_time_approval_required"
+                        if approval_payload is not None
+                        else "action_recently_consumed",
+                    ),
+                    "preview_only": True,
+                    "external_call_allowed": False,
+                }
+            )
+        elif not action_approvals.consume(
+            approval_id=approval_id,
+            action="calendar.event.create",
+            payload=action_payload,
+        ):
+            guard_payload.update(
+                {
+                    "allowed": False,
+                    "message": "Einmalfreigabe ist ungültig, abgelaufen oder passt nicht zur Vorschau.",
+                    "blocked_reasons": ("one_time_approval_invalid",),
+                    "preview_only": True,
+                    "external_call_allowed": False,
+                }
+            )
+        else:
+            guard_payload["external_call_allowed"] = True
+
+    if guard.allowed and guard_payload["allowed"]:
         provider_event = CalendarProviderEvent(
             id=None,
             provider="google_calendar",
@@ -913,7 +1103,7 @@ def _write_google_calendar_event_after_guard(
             location=location,
             raw=None,
         )
-        provider_result = GoogleCalendarProvider().create_event(provider_event)
+        provider_result = provider.create_event(provider_event)
         provider_result_payload = _calendar_provider_result_payload(provider_result)
         if provider_result.ok and provider_result.event is not None:
             provider_event_created = True
@@ -932,7 +1122,8 @@ def _write_google_calendar_event_after_guard(
                     notes=notes,
                 )
     return {
-        "guard": guard.to_dict(),
+        "guard": guard_payload,
+        "approval": approval_payload,
         "event_preview": {
             "title": title,
             "start": start,
@@ -1192,6 +1383,12 @@ class PushRegisterRequest(BaseModel):
     platform: Optional[str] = "unknown"
 
 
+class PushDueRemindersRequest(BaseModel):
+    dry_run: bool = True
+    approval_token: str = Field(default="", max_length=64)
+    approval_id: str = Field(default="", max_length=128)
+
+
 @app.post("/api/push/register")
 def push_register(payload: PushRegisterRequest) -> dict[str, Any]:
     """Register one Expo push token for reminders."""
@@ -1220,18 +1417,102 @@ def push_status() -> dict[str, Any]:
 
 
 @app.post("/api/push/send-due-reminders")
-def push_send_due_reminders() -> dict[str, Any]:
-    """Build due/overdue task reminders and send them to registered devices."""
+def push_send_due_reminders(
+    payload: PushDueRemindersRequest | None = None,
+) -> dict[str, Any]:
+    """Preview due reminders or send one exactly approved notification batch."""
+    payload = payload or PushDueRemindersRequest()
     today = _today()
     tasks = task_agent.repository.filter_tasks() if task_agent.repository is not None else []
     notifications = build_due_task_notifications(tasks, today)
-    result = send_push_notifications(notifications, db_path=message_agent.db_path)
+    devices = list_push_tokens(db_path=message_agent.db_path)
+    recipient_tokens = [str(device["token"]) for device in devices]
+    outgoing_messages = build_expo_push_messages(notifications, recipient_tokens)
+    action_payload = {
+        "date": today,
+        "messages": [
+            {
+                "recipient_sha256": hashlib.sha256(message["to"].encode("utf-8")).hexdigest(),
+                "title": message["title"],
+                "body": message["body"],
+                "sound": message["sound"],
+            }
+            for message in outgoing_messages
+        ],
+    }
+    approval_payload: dict[str, Any] | None = None
+    executable = bool(
+        getattr(config, "ENABLE_PUSH_NOTIFICATIONS", False)
+        and outgoing_messages
+    )
+
+    if payload.dry_run:
+        if executable:
+            approval_payload = _try_issue_action_approval(
+                action="push.due_reminders.send",
+                payload=action_payload,
+            )
+        return _envelope(
+            {
+                "ok": True,
+                "dry_run": True,
+                "sent": 0,
+                "message": (
+                    "Push-Vorschau erstellt. Der Versand benötigt die einmalige Freigabe PUSH SENDEN."
+                    if executable and approval_payload is not None
+                    else "Ein identischer Push-Batch wurde vor kurzem bereits freigegeben."
+                    if executable
+                    else "Nichts zu senden oder Push-Benachrichtigungen sind deaktiviert."
+                ),
+                "notifications": notifications,
+                "devices": len(devices),
+                "approval": approval_payload,
+                "external_call_used": False,
+            },
+        )
+
+    blocked_reasons: list[str] = []
+    if payload.approval_token != "PUSH SENDEN":
+        blocked_reasons.append("approval_token_invalid")
+    if not executable:
+        blocked_reasons.append("push_batch_not_executable")
+    if not blocked_reasons and not action_approvals.consume(
+        approval_id=payload.approval_id,
+        action="push.due_reminders.send",
+        payload=action_payload,
+    ):
+        blocked_reasons.append("one_time_approval_invalid")
+    if blocked_reasons:
+        return _envelope(
+            {
+                "ok": False,
+                "dry_run": False,
+                "sent": 0,
+                "message": "Push-Versand wurde blockiert.",
+                "notifications": notifications,
+                "devices": len(devices),
+                "approval": None,
+                "blocked_reasons": blocked_reasons,
+                "external_call_used": False,
+            },
+        )
+
+    result = send_push_notifications(
+        notifications,
+        db_path=message_agent.db_path,
+        recipient_tokens=recipient_tokens,
+    )
     return _envelope(
         {
             "ok": result.ok,
+            "dry_run": False,
             "sent": result.sent,
             "message": result.message,
             "notifications": notifications,
+            "devices": len(devices),
+            "approval": None,
+            "blocked_reasons": [],
+            "external_call_used": result.external_call_used,
         },
     )
 
@@ -1304,7 +1585,12 @@ def semantic_reindex() -> dict[str, Any]:
     embedder = _require_ollama_embeddings()
     documents = _collect_semantic_documents()
     try:
-        indexed = index_documents(documents, embedder, db_path=message_agent.db_path)
+        indexed = index_documents(
+            documents,
+            embedder,
+            db_path=message_agent.db_path,
+            replace_existing=True,
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return _envelope({"indexed": indexed, **index_stats(db_path=message_agent.db_path)})
@@ -1482,12 +1768,34 @@ def _voice_audio_payload(text: str, language: str) -> tuple[str | None, str | No
 @app.get("/api/voice/status")
 def voice_status() -> dict[str, Any]:
     """Availability of the local STT/TTS engines."""
+    de_provider = str(getattr(config, "VOICE_TTS_DE_PROVIDER", "orpheus"))
+    if de_provider == "voicebox":
+        tts_de = {
+            "provider": "voicebox",
+            "base_url": config.VOICEBOX_BASE_URL,
+            "voice": "configured" if config.VOICEBOX_DE_PROFILE_ID else "missing",
+            "engine": config.VOICEBOX_DE_ENGINE,
+            "model": config.VOICEBOX_DE_MODEL_SIZE,
+        }
+    else:
+        tts_de = {
+            "provider": "orpheus",
+            "base_url": config.VOICE_TTS_DE_BASE_URL,
+            "voice": config.VOICE_TTS_DE_VOICE,
+            "engine": config.VOICE_TTS_DE_MODEL,
+        }
+    tts_en = {
+        "provider": "kokoro",
+        "base_url": config.VOICE_TTS_EN_BASE_URL,
+        "voice": config.VOICE_TTS_EN_VOICE,
+        "engine": config.VOICE_TTS_EN_MODEL,
+    }
     return _envelope(
         {
             "stt_available": voice_transcription.transcription_available(),
             "stt_model": config.VOICE_STT_MODEL,
-            "tts_de": {"base_url": config.VOICE_TTS_DE_BASE_URL, "voice": config.VOICE_TTS_DE_VOICE},
-            "tts_en": {"base_url": config.VOICE_TTS_EN_BASE_URL, "voice": config.VOICE_TTS_EN_VOICE},
+            "tts_de": tts_de,
+            "tts_en": tts_en,
         },
     )
 
@@ -1817,7 +2125,7 @@ def create_policy(payload: AccountPolicyCreateRequest) -> dict[str, Any]:
 
 @app.patch("/api/accounts/policies/{policy_id}")
 def update_policy(policy_id: int, payload: AccountPolicyUpdateRequest) -> dict[str, Any]:
-    values = payload.dict(exclude={"approval_token", "ics_url"}, exclude_none=True)
+    values = payload.model_dump(exclude={"approval_token", "ics_url"}, exclude_none=True)
     try:
         result = update_account_policy(
             policy_id,
@@ -1893,12 +2201,26 @@ def get_calendar_account_status() -> dict[str, Any]:
 
 @app.post("/api/accounts/calendar/google/oauth-url")
 def get_google_calendar_oauth_url(payload: GoogleOAuthUrlRequest) -> dict[str, Any]:
+    state = generate_oauth_state()
+    code_verifier = generate_pkce_code_verifier()
+    canonical_path = str(Path(payload.client_secrets_path).expanduser().resolve())
     try:
         preview = build_google_oauth_authorization_url(
-            client_secrets_path=payload.client_secrets_path,
+            client_secrets_path=canonical_path,
+            state=state,
+            code_verifier=code_verifier,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if preview.ok:
+        _put_oauth_transaction(
+            provider="google_calendar",
+            state=state,
+            context={
+                "client_secrets_path": canonical_path,
+                "code_verifier": code_verifier,
+            },
+        )
     return _envelope(preview.__dict__)
 
 
@@ -1917,10 +2239,31 @@ def connect_google_calendar_account(payload: GoogleOAuthConnectRequest) -> dict[
                 "external_call_used": False,
             }
         )
+    response_state = extract_oauth_state(payload.authorization_response)
+    transaction = oauth_transactions.consume(
+        provider="google_calendar",
+        state=response_state,
+    )
+    canonical_path = str(Path(payload.client_secrets_path).expanduser().resolve())
+    if transaction is None or transaction.context.get("client_secrets_path") != canonical_path:
+        return _envelope(
+            {
+                "allowed": False,
+                "persisted": False,
+                "connected": False,
+                "calendar_id": None,
+                "real_calendar_enabled": config.ENABLE_REAL_CALENDAR,
+                "message": "Google OAuth Vorgang ist ungültig, abgelaufen oder bereits verwendet.",
+                "blocked_reasons": ("oauth_transaction_invalid",),
+                "external_call_used": False,
+            }
+        )
     try:
         exchange = exchange_google_oauth_authorization_response(
-            client_secrets_path=payload.client_secrets_path,
+            client_secrets_path=canonical_path,
             authorization_response=payload.authorization_response,
+            expected_state=transaction.state,
+            code_verifier=str(transaction.context.get("code_verifier") or ""),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -2062,7 +2405,7 @@ def create_task(payload: TaskCreateRequest) -> dict[str, Any]:
 
 @app.patch("/api/tasks/{task_id}")
 def update_task(task_id: int, payload: TaskUpdateRequest) -> dict[str, Any]:
-    values = payload.dict(exclude_none=True)
+    values = payload.model_dump(exclude_none=True)
     if not values:
         task = task_agent.get_task_by_id(task_id)
         if task is None:
@@ -2412,6 +2755,7 @@ def preview_calendar_event_write(payload: CalendarEventWriteGuardRequest) -> dic
     return _envelope(
         _write_google_calendar_event_after_guard(
             approval_token=payload.approval_token,
+            approval_id=payload.approval_id,
             title=payload.title,
             start=payload.start,
             end=payload.end,
@@ -2450,6 +2794,7 @@ def create_calendar_event_from_message(payload: CalendarEventFromMessageWriteReq
     end_text = payload.end or extraction.proposed_end
     result = _write_google_calendar_event_after_guard(
         approval_token=payload.approval_token,
+        approval_id=payload.approval_id,
         title=payload.title or extraction.title,
         start=_build_datetime_value(date_text, start_text),
         end=_build_datetime_value(date_text, end_text),
@@ -2475,9 +2820,108 @@ def preview_calendar_event_delete(payload: CalendarEventDeleteGuardRequest) -> d
     provider_result_payload: dict[str, Any] | None = None
     provider_event_deleted = False
     deleted_calendar_entry: dict[str, Any] | None = None
-    if guard.allowed:
-        calendar_id = payload.calendar_id or str(account_status.get("calendar_id") or "primary")
-        provider_result = GoogleCalendarProvider().delete_event(
+    approval_payload: dict[str, Any] | None = None
+    event_preview: dict[str, Any] | None = None
+    provider: Any | None = None
+    configured_calendar_id = str(account_status.get("calendar_id") or "primary")
+    calendar_id = str(payload.calendar_id or configured_calendar_id)
+    guard_payload = guard.to_dict()
+    action_payload: dict[str, Any] | None = None
+    if guard.allowed and calendar_id != configured_calendar_id:
+        guard_payload.update(
+            {
+                "allowed": False,
+                "message": "Löschen ist nur im konfigurierten Hauptkalender erlaubt.",
+                "blocked_reasons": ("calendar_target_not_main",),
+                "preview_only": True,
+                "external_call_allowed": False,
+            }
+        )
+    elif guard.allowed:
+        provider = GoogleCalendarProvider()
+        account_binding = _google_account_binding(account_status, provider)
+        if account_binding is None:
+            guard_payload.update(
+                {
+                    "allowed": False,
+                    "message": "Kalenderkonto hat sich während der Freigabe geändert.",
+                    "blocked_reasons": ("calendar_account_changed",),
+                    "preview_only": True,
+                    "external_call_allowed": False,
+                }
+            )
+        else:
+            lookup_result = provider.get_event(
+                event_id=payload.provider_event_id,
+                calendar_id=calendar_id,
+            )
+            if not lookup_result.ok or lookup_result.event is None:
+                guard_payload.update(
+                    {
+                        "allowed": False,
+                        "message": "Termin konnte vor dem Löschen nicht unverändert bestätigt werden.",
+                        "blocked_reasons": ("calendar_event_read_failed",),
+                        "preview_only": True,
+                        "external_call_allowed": False,
+                    }
+                )
+            else:
+                event = lookup_result.event
+                raw = event.raw if isinstance(event.raw, dict) else {}
+                event_preview = {
+                    "title": event.title,
+                    "start": event.start,
+                    "end": event.end,
+                    "location": event.location,
+                    "etag": str(raw.get("etag") or ""),
+                }
+                action_payload = {
+                    "account_fingerprint": account_binding,
+                    "calendar_id": calendar_id,
+                    "provider_event_id": str(payload.provider_event_id),
+                    "event": event_preview,
+                }
+    if guard.allowed and guard_payload["allowed"] and action_payload is not None:
+        if not payload.approval_id:
+            approval_payload = _try_issue_action_approval(
+                action="calendar.event.delete",
+                payload=action_payload,
+            )
+            guard_payload.update(
+                {
+                    "allowed": False,
+                    "message": (
+                        "Löschvorschau bestätigt. Bitte dieselbe Aktion innerhalb von fünf Minuten erneut freigeben."
+                        if approval_payload is not None
+                        else "Eine identische Löschaktion wurde vor kurzem bereits ausgeführt."
+                    ),
+                    "blocked_reasons": (
+                        "one_time_approval_required"
+                        if approval_payload is not None
+                        else "action_recently_consumed",
+                    ),
+                    "preview_only": True,
+                    "external_call_allowed": False,
+                }
+            )
+        elif not action_approvals.consume(
+            approval_id=payload.approval_id,
+            action="calendar.event.delete",
+            payload=action_payload,
+        ):
+            guard_payload.update(
+                {
+                    "allowed": False,
+                    "message": "Einmalfreigabe ist ungültig, abgelaufen oder passt nicht zur Löschvorschau.",
+                    "blocked_reasons": ("one_time_approval_invalid",),
+                    "preview_only": True,
+                    "external_call_allowed": False,
+                }
+            )
+        else:
+            guard_payload["external_call_allowed"] = True
+    if guard.allowed and guard_payload["allowed"] and provider is not None:
+        provider_result = provider.delete_event(
             event_id=payload.provider_event_id,
             calendar_id=calendar_id,
         )
@@ -2494,8 +2938,10 @@ def preview_calendar_event_delete(payload: CalendarEventDeleteGuardRequest) -> d
                 )
     return _envelope(
         {
-            "guard": guard.to_dict(),
+            "guard": guard_payload,
+            "approval": approval_payload,
             "provider_event_id": payload.provider_event_id,
+            "event_preview": event_preview,
             "provider_event_deleted": provider_event_deleted,
             "provider_result": provider_result_payload,
             "calendar_entry_deleted": deleted_calendar_entry,
@@ -2543,7 +2989,7 @@ def create_contact(payload: ContactCreateRequest) -> dict[str, Any]:
 
 @app.patch("/api/contacts/{contact_id}")
 def update_contact(contact_id: int, payload: ContactUpdateRequest) -> dict[str, Any]:
-    values = payload.dict(exclude_none=True)
+    values = payload.model_dump(exclude_none=True)
     try:
         contact = contact_agent.update_contact(contact_id, **values)
     except ValueError as exc:
@@ -2760,18 +3206,58 @@ def get_ms_mail_status() -> dict[str, Any]:
 @app.post("/api/accounts/ms-mail/connect")
 def connect_ms_mail_account(payload: MsMailConnectRequest) -> dict[str, Any]:
     if not payload.authorization_response:
-        preview = build_ms_mail_authorization_url(
+        state = generate_oauth_state()
+        preview, auth_flow = build_ms_mail_authorization_flow(
             client_id=payload.client_id,
             tenant=payload.tenant,
+            state=state,
         )
         if not preview.ok:
             raise HTTPException(status_code=400, detail=preview.message)
+        if auth_flow is None:
+            raise HTTPException(status_code=400, detail="Microsoft OAuth Flow fehlt.")
+        _put_oauth_transaction(
+            provider="microsoft_mail",
+            state=state,
+            context={
+                "client_id": str(payload.client_id or "").strip(),
+                "tenant": str(payload.tenant or "common").strip() or "common",
+                "auth_flow": auth_flow,
+            },
+        )
         return _envelope(asdict(preview))
+
+    if payload.approval_token != MS_MAIL_ACCOUNT_SAVE_TOKEN:
+        raise HTTPException(status_code=403, detail="Microsoft-Konto wurde nicht gespeichert: Token fehlt.")
+    response_state = extract_oauth_state(payload.authorization_response)
+    transaction = oauth_transactions.consume(
+        provider="microsoft_mail",
+        state=response_state,
+    )
+    expected_client_id = str(payload.client_id or "").strip()
+    expected_tenant = str(payload.tenant or "common").strip() or "common"
+    if (
+        transaction is None
+        or transaction.context.get("client_id") != expected_client_id
+        or transaction.context.get("tenant") != expected_tenant
+    ):
+        return _envelope(
+            {
+                "ok": False,
+                "connected": False,
+                "saved": False,
+                "message": "Microsoft OAuth Vorgang ist ungültig, abgelaufen oder bereits verwendet.",
+                "blocked_reasons": ("oauth_transaction_invalid",),
+                "external_call_used": False,
+                "read_only": True,
+            }
+        )
 
     exchange = exchange_ms_mail_auth_response(
         client_id=payload.client_id,
         tenant=payload.tenant,
         authorization_response=payload.authorization_response,
+        auth_flow=dict(transaction.context.get("auth_flow") or {}),
     )
     if not exchange.ok or exchange.token_bundle is None:
         return _envelope(asdict(exchange))
@@ -3459,6 +3945,25 @@ def ingest_whatsapp_message(
             detail="WhatsApp Bridge Token wurde abgelehnt.",
         )
 
+    source_ids = {
+        str(payload.chat_id or "").strip().lower(),
+        str(payload.sender_number or "").strip().lower(),
+    }
+    if "status@broadcast" in source_ids:
+        return _envelope(
+            {
+                "stored": False,
+                "duplicate": False,
+                "message_id": None,
+                "processed_count": 0,
+                "message_suggestions_created": 0,
+                "task_suggestions_created": 0,
+                "send_via_bridge": False,
+                "ignored": True,
+                "ignore_reason": "whatsapp_story",
+            }
+        )
+
     result = insert_whatsapp_message(
         chat_id=payload.chat_id,
         sender_name=payload.sender_name,
@@ -3477,6 +3982,260 @@ def ingest_whatsapp_message(
             "message_suggestions_created": process_result.message_suggestions_created,
             "task_suggestions_created": process_result.task_suggestions_created,
             "send_via_bridge": False,
+        }
+    )
+
+
+@app.post("/api/calendar/source-sync")
+async def sync_source_calendars_to_google(
+    payload: CalendarSourceSyncRequest,
+) -> dict[str, Any]:
+    """Preview or copy configured read-only calendar sources into Google."""
+    days_back = max(0, min(int(payload.days_back), 365))
+    requested_forward = payload.days if payload.days is not None else payload.days_forward
+    days_forward = max(1, min(int(requested_forward), 730))
+    today = date.today()
+    range_start = (today - timedelta(days=days_back)).isoformat()
+    range_end = (today + timedelta(days=days_forward)).isoformat()
+
+    policies = list_account_policies()
+    source_policies = [
+        policy
+        for policy in policies
+        if policy.enabled
+        and policy.role == "source"
+        and policy.access in {"read", "read_write"}
+        and policy.provider == "outlook_ics"
+    ]
+    source_events, source_errors = await _collect_source_calendar_events(
+        source_policies,
+        range_start=range_start,
+        range_end=range_end,
+    )
+    google_result = await _list_google_calendar_events_cached(
+        range_start=range_start,
+        range_end=range_end,
+    )
+    google_events = [event.to_dict() for event in google_result.events] if google_result.ok else []
+    plan = build_source_sync_plan(source_events, google_events)
+    preview = [public_sync_item(item) for item in plan["create"]]
+    skipped = [public_sync_item(item) for item in plan["skipped"]]
+
+    main_target = resolve_write_target(policies)
+    account_status = google_calendar_account_status()
+    calendar_id = str(account_status.get("calendar_id") or "primary")
+    readiness_guard = check_calendar_event_write_allowed(
+        approval_token=CALENDAR_EVENT_SAVE_TOKEN,
+        real_calendar_enabled=config.ENABLE_REAL_CALENDAR,
+        main_policy_ok=main_target.ok,
+        connection_ok=bool(account_status["last_test_ok"]) and google_result.ok,
+    )
+    guard = readiness_guard if payload.dry_run else check_calendar_event_write_allowed(
+        approval_token=payload.approval_token,
+        real_calendar_enabled=config.ENABLE_REAL_CALENDAR,
+        main_policy_ok=main_target.ok,
+        connection_ok=bool(account_status["last_test_ok"]) and google_result.ok,
+    )
+    provider = GoogleCalendarProvider() if not payload.dry_run and guard.allowed else None
+    account_binding = _google_account_binding(account_status, provider)
+    action_payload = {
+        "account_fingerprint": str(account_binding or ""),
+        "calendar_id": calendar_id,
+        "range_start": range_start,
+        "range_end": range_end,
+        "items": sorted(
+            (
+                {
+                    "google_event_id": build_google_sync_event_id(item),
+                    "source_key": str(item.get("source_key") or ""),
+                    "title": str(item.get("title") or ""),
+                    "start": str(item.get("start") or ""),
+                    "end": str(item.get("end") or ""),
+                    "location": str(item.get("location") or ""),
+                    "metadata": build_google_sync_metadata(item),
+                }
+                for item in plan["create"]
+            ),
+            key=lambda item: item["source_key"],
+        ),
+    }
+    approval_payload: dict[str, Any] | None = None
+    guard_payload = guard.to_dict()
+    batch_limit_exceeded = len(preview) > 100
+    if guard.allowed and account_binding is None:
+        guard_payload.update(
+            {
+                "allowed": False,
+                "message": "Kalenderkonto hat sich während der Freigabe geändert.",
+                "blocked_reasons": ("calendar_account_changed",),
+                "preview_only": True,
+                "external_call_allowed": False,
+            }
+        )
+    elif batch_limit_exceeded:
+        guard_payload.update(
+            {
+                "allowed": False,
+                "message": "Synchronisierung überschreitet das Sicherheitslimit von 100 Terminen.",
+                "blocked_reasons": ("calendar_sync_batch_limit_exceeded",),
+                "preview_only": True,
+                "external_call_allowed": False,
+            }
+        )
+    elif payload.dry_run and readiness_guard.allowed:
+        approval_payload = _try_issue_action_approval(
+            action="calendar.source_sync.create_batch",
+            payload=action_payload,
+        )
+        guard_payload.update(
+            {
+                "allowed": False,
+                "message": (
+                    "Synchronisierungsvorschau erstellt. Bitte den unveränderten Plan einmalig freigeben."
+                    if approval_payload is not None
+                    else "Ein identischer Synchronisierungsplan wurde vor kurzem bereits ausgeführt."
+                ),
+                "blocked_reasons": (
+                    "one_time_approval_required"
+                    if approval_payload is not None
+                    else "action_recently_consumed",
+                ),
+                "preview_only": True,
+                "external_call_allowed": False,
+            }
+        )
+    elif not payload.dry_run and guard.allowed:
+        if not payload.approval_id:
+            approval_payload = _try_issue_action_approval(
+                action="calendar.source_sync.create_batch",
+                payload=action_payload,
+            )
+            guard_payload.update(
+                {
+                    "allowed": False,
+                    "message": (
+                        "Synchronisierungsvorschau erstellt. Bitte den unveränderten Plan einmalig freigeben."
+                        if approval_payload is not None
+                        else "Ein identischer Synchronisierungsplan wurde vor kurzem bereits ausgeführt."
+                    ),
+                    "blocked_reasons": (
+                        "one_time_approval_required"
+                        if approval_payload is not None
+                        else "action_recently_consumed",
+                    ),
+                    "preview_only": True,
+                    "external_call_allowed": False,
+                }
+            )
+        elif not action_approvals.consume(
+            approval_id=payload.approval_id,
+            action="calendar.source_sync.create_batch",
+            payload=action_payload,
+        ):
+            guard_payload.update(
+                {
+                    "allowed": False,
+                    "message": "Einmalfreigabe ist ungültig, abgelaufen oder der Synchronisierungsplan hat sich geändert.",
+                    "blocked_reasons": ("one_time_approval_invalid",),
+                    "preview_only": True,
+                    "external_call_allowed": False,
+                }
+            )
+        else:
+            guard_payload["external_call_allowed"] = True
+    created: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    if not payload.dry_run and guard.allowed and guard_payload["allowed"] and provider is not None:
+        write_attempted = False
+        try:
+            for item in plan["create"]:
+                event = item["event"]
+                provider_event = CalendarProviderEvent(
+                    id=build_google_sync_event_id(item),
+                    provider="google_calendar",
+                    calendar_id=calendar_id,
+                    title=str(event.get("title") or "Kalendertermin"),
+                    start=str(event.get("start") or ""),
+                    end=str(event.get("end") or ""),
+                    location=event.get("location"),
+                    raw=build_google_sync_metadata(item),
+                )
+                write_attempted = True
+                result = await asyncio.to_thread(provider.create_event, provider_event)
+                public_item = public_sync_item(item)
+                if result.ok:
+                    created.append(
+                        {
+                            **public_item,
+                            "provider_event_id": result.provider_event_id,
+                        }
+                    )
+                else:
+                    failed.append(
+                        {
+                            **public_item,
+                            "message": result.message,
+                            "blocked_reasons": result.blocked_reasons,
+                        }
+                    )
+        finally:
+            if write_attempted:
+                _invalidate_google_calendar_read_cache()
+                _invalidate_dashboard_cache()
+    if payload.dry_run:
+        message = f"Vorschau: {len(preview)} Termine fehlen im Google-Kalender."
+    elif not guard_payload["allowed"]:
+        message = "Kalender-Synchronisierung wurde durch den Write-Guard blockiert."
+    else:
+        message = f"{len(created)} Termine wurden in Google eingetragen."
+    return _envelope(
+        {
+            "dry_run": payload.dry_run,
+            "range_start": range_start,
+            "range_end": range_end,
+            "sources": [policy.label for policy in source_policies],
+            "source_event_count": len(source_events),
+            "google_event_count": len(google_events),
+            "planned_count": len(preview),
+            "skipped_count": len(skipped),
+            "created_count": len(created),
+            "failed_count": len(failed),
+            "preview": preview,
+            "skipped": skipped,
+            "created": created,
+            "failed": failed,
+            "source_errors": source_errors,
+            "google_read_error": None if google_result.ok else google_result.message,
+            "guard": guard_payload,
+            "approval": approval_payload,
+            "message": message,
+        }
+    )
+
+
+@app.post("/api/whatsapp/reply")
+def process_whatsapp_reply(
+    payload: WhatsAppReplyRequest,
+    x_friday_whatsapp_bridge_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    if not config.ENABLE_WHATSAPP_BRIDGE_READ:
+        raise HTTPException(status_code=403, detail="WhatsApp Read-Bridge ist deaktiviert.")
+    if not bridge_token_matches(x_friday_whatsapp_bridge_token):
+        raise HTTPException(status_code=403, detail="WhatsApp Bridge Token wurde abgelehnt.")
+    result = classify_and_resolve_whatsapp_reply(
+        chat_id=payload.chat_id,
+        reply_text=payload.body,
+        db_path=message_agent.db_path,
+    )
+    return _envelope(
+        {
+            "resolved": result.resolved,
+            "hidden_count": result.hidden_count,
+            "confidence": result.confidence,
+            "reason": result.reason,
+            "provider": result.provider,
+            "external_action_used": False,
         }
     )
 

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
 import pytest
 
 from friday.storage.database import initialize_database
@@ -324,6 +327,31 @@ def test_mark_already_done_recurring_task_does_not_duplicate_next_instance(tmp_p
 
     assert len(open_tasks) == 1
     assert open_tasks[0]["title"] == "Täglich stabil"
+    assert open_tasks[0]["due_date"] == "2026-07-06"
+
+
+def test_concurrent_done_calls_create_only_one_recurring_instance(tmp_path) -> None:
+    repo = _build_task_repo(tmp_path)
+    created = repo.create_task(
+        "Parallel stabil",
+        due_date="2026-07-05",
+        priority="high",
+        recurrence="taeglich",
+    )
+    callers = 8
+    start = Barrier(callers)
+
+    def mark_done() -> dict | None:
+        start.wait()
+        return repo.mark_task_done(created["id"])
+
+    with ThreadPoolExecutor(max_workers=callers) as executor:
+        results = list(executor.map(lambda _index: mark_done(), range(callers)))
+
+    assert all(result is not None and result["status"] == "done" for result in results)
+    open_tasks = repo.get_open_tasks()
+    assert len(open_tasks) == 1
+    assert open_tasks[0]["title"] == "Parallel stabil"
     assert open_tasks[0]["due_date"] == "2026-07-06"
 
 

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import secrets
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,17 @@ class WhatsAppProcessResult:
     processed_count: int
     message_suggestions_created: int
     task_suggestions_created: int
+
+
+@dataclass(frozen=True)
+class WhatsAppConversationResolution:
+    """Result of reversibly hiding one locally resolved conversation."""
+
+    resolved: bool
+    hidden_count: int
+    confidence: float
+    reason: str
+    provider: str
 
 
 def get_whatsapp_local_data_dir() -> Path:
@@ -91,9 +103,12 @@ def ensure_whatsapp_bridge_token(token_path: Path | None = None) -> str:
     path = token_path or get_whatsapp_bridge_token_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
-        return path.read_text(encoding="utf-8").strip()
+        existing = path.read_text(encoding="utf-8").strip()
+        if len(existing) >= 32:
+            return existing
     token = secrets.token_urlsafe(32)
     path.write_text(token, encoding="utf-8")
+    path.chmod(stat.S_IRUSR | stat.S_IWUSR)
     return token
 
 
@@ -110,7 +125,7 @@ def bridge_token_matches(provided_token: str | None, token_path: Path | None = N
     """Return whether the provided local bridge token is accepted."""
     expected = read_whatsapp_bridge_token(token_path=token_path)
     if expected is None:
-        return True
+        return False
     return secrets.compare_digest(provided_token or "", expected)
 
 
@@ -225,10 +240,14 @@ def read_recent_whatsapp_messages(
     initialize_database(db_path)
     safe_limit = max(1, min(int(limit or 10), 50))
     with get_connection(db_path) as connection:
-        where = "" if include_spam else "WHERE is_spam = 0"
+        where = "WHERE resolved_at IS NULL"
+        if not include_spam:
+            where += " AND is_spam = 0"
         rows = connection.execute(
             f"""
-            SELECT id, chat_id, sender_name, sender_number_hash, body, received_at, processed, suggestion_created, is_spam
+            SELECT id, chat_id, sender_name, sender_number_hash, body, received_at, processed,
+                   suggestion_created, is_spam, resolved_at, resolution_reason,
+                   resolution_confidence
             FROM whatsapp_messages
             {where}
             ORDER BY received_at DESC, id DESC
@@ -248,9 +267,11 @@ def get_unprocessed_whatsapp_messages(
     with get_connection(db_path) as connection:
         rows = connection.execute(
             """
-            SELECT id, chat_id, sender_name, sender_number_hash, body, received_at, processed, suggestion_created, is_spam
+            SELECT id, chat_id, sender_name, sender_number_hash, body, received_at, processed,
+                   suggestion_created, is_spam, resolved_at, resolution_reason,
+                   resolution_confidence
             FROM whatsapp_messages
-            WHERE processed = 0 AND is_spam = 0
+            WHERE processed = 0 AND is_spam = 0 AND resolved_at IS NULL
             ORDER BY received_at, id
             """
         ).fetchall()
@@ -277,6 +298,65 @@ def mark_whatsapp_message_processed(
         )
 
 
+def read_whatsapp_conversation(
+    chat_id: str,
+    *,
+    limit: int = 12,
+    db_path: Path | str | None = None,
+) -> list[dict[str, Any]]:
+    """Return one active conversation for local resolution classification."""
+    initialize_database(db_path)
+    safe_chat_id = hash_whatsapp_identifier(chat_id)
+    safe_limit = max(1, min(int(limit or 12), 30))
+    with get_connection(db_path) as connection:
+        rows = connection.execute(
+            """
+            SELECT id, chat_id, sender_name, sender_number_hash, body, received_at, processed,
+                   suggestion_created, is_spam, resolved_at, resolution_reason,
+                   resolution_confidence
+            FROM whatsapp_messages
+            WHERE chat_id = ? AND resolved_at IS NULL AND is_spam = 0
+            ORDER BY received_at DESC, id DESC
+            LIMIT ?
+            """,
+            (safe_chat_id, safe_limit),
+        ).fetchall()
+    return [_public_row(row) for row in reversed(rows)]
+
+
+def resolve_whatsapp_conversation(
+    chat_id: str,
+    *,
+    confidence: float,
+    reason: str,
+    provider: str,
+    db_path: Path | str | None = None,
+) -> WhatsAppConversationResolution:
+    """Hide an active local conversation without irreversible data loss."""
+    initialize_database(db_path)
+    safe_chat_id = hash_whatsapp_identifier(chat_id)
+    resolved_at = _now_iso()
+    safe_confidence = max(0.0, min(float(confidence), 1.0))
+    safe_reason = (reason or "conversation_resolved").strip() or "conversation_resolved"
+    with get_connection(db_path) as connection:
+        cursor = connection.execute(
+            """
+            UPDATE whatsapp_messages
+            SET resolved_at = ?, resolution_reason = ?, resolution_confidence = ?
+            WHERE chat_id = ? AND resolved_at IS NULL
+            """,
+            (resolved_at, safe_reason, safe_confidence, safe_chat_id),
+        )
+        hidden_count = max(int(cursor.rowcount or 0), 0)
+    return WhatsAppConversationResolution(
+        resolved=hidden_count > 0,
+        hidden_count=hidden_count,
+        confidence=safe_confidence,
+        reason=safe_reason,
+        provider=(provider or "deterministic").strip() or "deterministic",
+    )
+
+
 def get_whatsapp_bridge_status(db_path: Path | str | None = None) -> dict[str, Any]:
     """Return password-free/read-only bridge status."""
     initialize_database(db_path)
@@ -285,6 +365,7 @@ def get_whatsapp_bridge_status(db_path: Path | str | None = None) -> dict[str, A
             """
             SELECT COUNT(*) AS count, MAX(received_at) AS last_received_at
             FROM whatsapp_messages
+            WHERE resolved_at IS NULL
             """
         ).fetchone()
     count = int(row["count"] or 0)

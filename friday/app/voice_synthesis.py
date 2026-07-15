@@ -22,6 +22,7 @@ from friday.app.local_ollama_runtime import is_local_ollama_url
 Poster = Callable[[str, bytes, int], tuple[int, bytes]]
 
 SUPPORTED_LANGUAGES = ("de", "en")
+MAX_TTS_AUDIO_BYTES = 25 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -103,10 +104,112 @@ class SpeechSynthesizer:
                 ok=False, audio=b"", media_type="", engine=self.engine,
                 error=f"TTS-Server antwortete mit HTTP {status}.",
             )
+        if len(body) > MAX_TTS_AUDIO_BYTES:
+            return SynthesisResult(
+                ok=False, audio=b"", media_type="", engine=self.engine,
+                error="TTS-Antwort überschreitet das Sicherheitslimit.",
+            )
         return SynthesisResult(ok=True, audio=body, media_type="audio/wav", engine=self.engine)
 
 
-def _synthesizer_for_language(language: str, poster: Poster | None = None) -> SpeechSynthesizer:
+class VoiceboxSpeechSynthesizer:
+    """Client for Voicebox v0.5+'s synchronous ``/generate/stream`` API."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        profile_id: str,
+        language: str,
+        engine: str,
+        model_size: str,
+        poster: Poster | None = None,
+        timeout_seconds: int | None = None,
+    ) -> None:
+        self.base_url = str(base_url or "").strip().rstrip("/")
+        self.profile_id = str(profile_id or "").strip()
+        self.language = normalize_language(language)
+        self.voicebox_engine = str(engine or "").strip()
+        self.model_size = str(model_size or "").strip()
+        self.engine = f"voicebox-{self.voicebox_engine}-{self.language}"
+        self.poster = poster or _default_poster
+        self.timeout_seconds = timeout_seconds or config.VOICE_TTS_TIMEOUT_SECONDS
+
+    def synthesize(self, text: str) -> SynthesisResult:
+        cleaned = " ".join(str(text or "").split())
+        if not cleaned:
+            return SynthesisResult(
+                ok=False, audio=b"", media_type="", engine=self.engine,
+                error="Kein Text zum Sprechen.",
+            )
+        if not self.profile_id:
+            return SynthesisResult(
+                ok=False, audio=b"", media_type="", engine=self.engine,
+                error="Voicebox-Profil ist für diese Sprache nicht konfiguriert.",
+            )
+        if not is_local_ollama_url(self.base_url):
+            return SynthesisResult(
+                ok=False, audio=b"", media_type="", engine=self.engine,
+                error="Voicebox ist nur über 127.0.0.1 oder localhost erlaubt.",
+            )
+        payload = json.dumps(
+            {
+                "profile_id": self.profile_id,
+                "text": cleaned,
+                "language": self.language,
+                "engine": self.voicebox_engine,
+                "model_size": self.model_size,
+                "normalize": True,
+                "max_chunk_chars": 800,
+                "crossfade_ms": 50,
+            }
+        ).encode("utf-8")
+        try:
+            status, body = self.poster(
+                f"{self.base_url}/generate/stream",
+                payload,
+                self.timeout_seconds,
+            )
+        except (OSError, error.URLError, TimeoutError) as exc:
+            return SynthesisResult(
+                ok=False, audio=b"", media_type="", engine=self.engine,
+                error=f"Voicebox nicht erreichbar ({self.base_url}): {exc}",
+            )
+        if not (200 <= status < 300) or not body:
+            return SynthesisResult(
+                ok=False, audio=b"", media_type="", engine=self.engine,
+                error=f"Voicebox antwortete mit HTTP {status}.",
+            )
+        if len(body) > MAX_TTS_AUDIO_BYTES:
+            return SynthesisResult(
+                ok=False, audio=b"", media_type="", engine=self.engine,
+                error="Voicebox-Antwort überschreitet das Sicherheitslimit.",
+            )
+        return SynthesisResult(
+            ok=True,
+            audio=body,
+            media_type="audio/wav",
+            engine=self.engine,
+        )
+
+
+def _synthesizer_for_language(
+    language: str,
+    poster: Poster | None = None,
+) -> SpeechSynthesizer | VoiceboxSpeechSynthesizer:
+    if (
+        language == "de"
+        and str(getattr(config, "VOICE_TTS_DE_PROVIDER", "orpheus")).strip()
+        == "voicebox"
+    ):
+        return VoiceboxSpeechSynthesizer(
+            base_url=config.VOICEBOX_BASE_URL,
+            profile_id=config.VOICEBOX_DE_PROFILE_ID,
+            language=language,
+            engine=config.VOICEBOX_DE_ENGINE,
+            model_size=config.VOICEBOX_DE_MODEL_SIZE,
+            poster=poster,
+        )
     if language == "de":
         return SpeechSynthesizer(
             base_url=config.VOICE_TTS_DE_BASE_URL,

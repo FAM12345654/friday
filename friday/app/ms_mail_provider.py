@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
+import hmac
 import json
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from urllib import error, parse, request
+
+from friday.app.oauth_transaction_store import extract_oauth_state, generate_oauth_state
 
 
 # offline_access wird von MSAL automatisch ergaenzt (fuer Refresh-Token) und darf
@@ -104,29 +107,67 @@ def build_authorization_url(
     client_id: str,
     tenant: str | None = "common",
     redirect_uri: str = DEFAULT_REDIRECT_URI,
-    state: str = "friday-ms-mail",
+    state: str | None = None,
     msal_module: Any | None = None,
 ) -> MsMailProviderResult:
-    """Build a Microsoft OAuth URL without performing a network call."""
+    """Build a Microsoft OAuth URL without exposing its private flow state."""
+    result, _flow = build_authorization_flow(
+        client_id=client_id,
+        tenant=tenant,
+        redirect_uri=redirect_uri,
+        state=state,
+        msal_module=msal_module,
+    )
+    return result
+
+
+def build_authorization_flow(
+    *,
+    client_id: str,
+    tenant: str | None = "common",
+    redirect_uri: str = DEFAULT_REDIRECT_URI,
+    state: str | None = None,
+    msal_module: Any | None = None,
+) -> tuple[MsMailProviderResult, dict[str, Any] | None]:
+    """Initiate MSAL's state- and PKCE-protected authorization code flow."""
+    active_state = str(state or generate_oauth_state()).strip()
     try:
         app = _public_client(client_id, tenant, msal_module=msal_module)
-        url = app.get_authorization_request_url(
+        flow = app.initiate_auth_code_flow(
             scopes=list(MS_MAIL_SCOPES),
             redirect_uri=redirect_uri,
-            state=state,
+            state=active_state,
         )
     except (RuntimeError, ValueError) as exc:
-        return MsMailProviderResult(
-            ok=False,
-            message="Microsoft-Mail-Verbindung konnte nicht vorbereitet werden.",
-            blocked_reasons=(str(exc),),
-            external_call_used=False,
+        return (
+            MsMailProviderResult(
+                ok=False,
+                message="Microsoft-Mail-Verbindung konnte nicht vorbereitet werden.",
+                blocked_reasons=(str(exc),),
+                external_call_used=False,
+            ),
+            None,
         )
-    return MsMailProviderResult(
-        ok=True,
-        message="Microsoft OAuth-Link wurde lokal vorbereitet.",
-        authorization_url=url,
-        external_call_used=False,
+    url = str((flow or {}).get("auth_uri") or "").strip()
+    flow_state = str((flow or {}).get("state") or "").strip()
+    if not url or not flow_state or not hmac.compare_digest(flow_state, active_state):
+        return (
+            MsMailProviderResult(
+                ok=False,
+                message="Microsoft OAuth Sicherheitszustand konnte nicht erzeugt werden.",
+                blocked_reasons=("oauth_flow_invalid",),
+                external_call_used=False,
+            ),
+            None,
+        )
+    return (
+        MsMailProviderResult(
+            ok=True,
+            message="Microsoft OAuth-Link wurde lokal vorbereitet.",
+            authorization_url=url,
+            external_call_used=False,
+        ),
+        dict(flow),
     )
 
 
@@ -147,13 +188,29 @@ def exchange_auth_response(
     *,
     client_id: str,
     authorization_response: str,
+    auth_flow: Mapping[str, Any],
     tenant: str | None = "common",
     redirect_uri: str = DEFAULT_REDIRECT_URI,
     msal_module: Any | None = None,
 ) -> MsMailProviderResult:
     """Exchange an OAuth callback/code for a local token bundle via MSAL."""
-    code = _extract_authorization_code(authorization_response)
-    if not code:
+    raw_response = str(authorization_response or "").strip()
+    response_state = extract_oauth_state(raw_response)
+    expected_state = str((auth_flow or {}).get("state") or "").strip()
+    if not response_state or not expected_state or not hmac.compare_digest(response_state, expected_state):
+        return MsMailProviderResult(
+            ok=False,
+            message="Microsoft OAuth State ist ungültig oder abgelaufen.",
+            blocked_reasons=("oauth_state_invalid",),
+            external_call_used=False,
+        )
+    parsed_response = parse.urlparse(raw_response)
+    auth_response = {
+        key: values[0]
+        for key, values in parse.parse_qs(parsed_response.query or parsed_response.fragment).items()
+        if values
+    }
+    if not auth_response.get("code"):
         return MsMailProviderResult(
             ok=False,
             message="Microsoft OAuth-Code fehlt.",
@@ -162,10 +219,10 @@ def exchange_auth_response(
         )
     try:
         app = _public_client(client_id, tenant, msal_module=msal_module)
-        token_bundle = app.acquire_token_by_authorization_code(
-            code,
+        token_bundle = app.acquire_token_by_auth_code_flow(
+            dict(auth_flow),
+            auth_response,
             scopes=list(MS_MAIL_SCOPES),
-            redirect_uri=redirect_uri,
         )
     except (RuntimeError, ValueError):
         return MsMailProviderResult(

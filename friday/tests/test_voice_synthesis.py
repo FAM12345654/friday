@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from friday import config
 from friday.app.voice_synthesis import (
     SpeechSynthesizer,
     normalize_language,
@@ -111,6 +112,58 @@ def test_language_routing_de_and_en() -> None:
     result_en = synthesize_for_language("Hello", "en", poster=_capture_poster(captured_en))
     assert result_en.engine == "kokoro-en"
     assert captured_en["payload"]["model"] == "kokoro"
+
+
+def test_voicebox_pilot_uses_synchronous_local_wav_endpoint(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(config, "VOICE_TTS_DE_PROVIDER", "voicebox")
+    monkeypatch.setattr(config, "VOICEBOX_BASE_URL", "http://127.0.0.1:17493")
+    monkeypatch.setattr(config, "VOICEBOX_DE_PROFILE_ID", "friday-de-profile")
+    monkeypatch.setattr(config, "VOICEBOX_DE_ENGINE", "qwen")
+    monkeypatch.setattr(config, "VOICEBOX_DE_MODEL_SIZE", "0.6B")
+
+    result = synthesize_for_language(
+        "Guten Morgen, Philip.",
+        "de",
+        poster=_capture_poster(captured),
+    )
+
+    assert result.ok is True
+    assert result.engine == "voicebox-qwen-de"
+    assert captured["url"] == "http://127.0.0.1:17493/generate/stream"
+    assert captured["payload"] == {
+        "profile_id": "friday-de-profile",
+        "text": "Guten Morgen, Philip.",
+        "language": "de",
+        "engine": "qwen",
+        "model_size": "0.6B",
+        "normalize": True,
+        "max_chunk_chars": 800,
+        "crossfade_ms": 50,
+    }
+
+
+def test_voicebox_pilot_fails_closed_without_profile(monkeypatch) -> None:
+    calls: dict = {}
+    monkeypatch.setattr(config, "VOICE_TTS_DE_PROVIDER", "voicebox")
+    monkeypatch.setattr(config, "VOICEBOX_DE_PROFILE_ID", "")
+
+    result = synthesize_for_language("Hallo", "de", poster=_capture_poster(calls))
+
+    assert result.ok is False
+    assert "Profil" in str(result.error)
+    assert calls == {}
+
+
+def test_german_voicebox_pilot_does_not_reroute_english(monkeypatch) -> None:
+    captured: dict = {}
+    monkeypatch.setattr(config, "VOICE_TTS_DE_PROVIDER", "voicebox")
+
+    result = synthesize_for_language("Good morning.", "en", poster=_capture_poster(captured))
+
+    assert result.ok is True
+    assert result.engine == "kokoro-en"
+    assert captured["url"] == "http://localhost:8880/v1/audio/speech"
 
 
 def test_normalize_language() -> None:

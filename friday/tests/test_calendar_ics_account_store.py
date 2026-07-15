@@ -10,6 +10,7 @@ from friday.app.calendar_ics_account_store import (
     outlook_ics_account_status,
     save_outlook_ics_account,
 )
+import pytest
 
 
 def test_outlook_ics_account_store_encrypts_url_and_returns_url_free_status(tmp_path) -> None:
@@ -50,3 +51,9 @@ def test_outlook_ics_account_store_rejects_soft_token(tmp_path) -> None:
 
     assert result["persisted"] is False
     assert "approval_token_invalid" in result["blocked_reasons"]
+
+
+@pytest.mark.parametrize("url", ("http://example.com/feed.ics", "file:///tmp/feed.ics", "https://127.0.0.1/feed.ics"))
+def test_outlook_ics_account_rejects_ssrf_urls(url: str) -> None:
+    with pytest.raises(ValueError):
+        build_outlook_ics_account(policy_id=7, ics_url=url)

@@ -141,10 +141,30 @@ def _default_poster(url: str, payload: bytes, timeout_seconds: int) -> tuple[int
         return exc.code, exc.read()
 
 
+def build_expo_push_messages(
+    notifications: Iterable[Mapping[str, str]],
+    recipient_tokens: Iterable[str],
+) -> list[dict[str, str]]:
+    """Build the exact, bounded Expo request vector from approved inputs."""
+    items = [dict(item) for item in notifications if str(item.get("title") or "").strip()]
+    tokens = [str(token).strip() for token in recipient_tokens if is_valid_expo_token(str(token))]
+    return [
+        {
+            "to": token,
+            "title": str(item["title"]),
+            "body": str(item.get("body", "")),
+            "sound": "default",
+        }
+        for item in items
+        for token in tokens
+    ][:MAX_BATCH]
+
+
 def send_push_notifications(
     notifications: Iterable[Mapping[str, str]],
     *,
     db_path: Path | str | None = None,
+    recipient_tokens: Iterable[str] | None = None,
     poster: Poster | None = None,
     timeout_seconds: int = 10,
 ) -> PushSendResult:
@@ -158,25 +178,19 @@ def send_push_notifications(
         )
 
     items = [dict(item) for item in notifications if str(item.get("title") or "").strip()]
-    tokens = [row["token"] for row in list_push_tokens(db_path=db_path)]
-    if not items or not tokens:
+    tokens = (
+        [str(token) for token in recipient_tokens]
+        if recipient_tokens is not None
+        else [row["token"] for row in list_push_tokens(db_path=db_path)]
+    )
+    messages = build_expo_push_messages(items, tokens)
+    if not messages:
         return PushSendResult(
             ok=True,
             sent=0,
             message="Nichts zu senden (keine Nachrichten oder keine Geräte).",
             external_call_used=False,
         )
-
-    messages = [
-        {
-            "to": token,
-            "title": item["title"],
-            "body": item.get("body", ""),
-            "sound": "default",
-        }
-        for item in items
-        for token in tokens
-    ][:MAX_BATCH]
 
     active_poster = poster or _default_poster
     status, _body = active_poster(

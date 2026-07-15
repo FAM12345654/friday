@@ -27,15 +27,31 @@ def _build_app() -> FastAPI:
     return app
 
 
-def test_no_token_configured_allows_everything(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_token_configured_allows_direct_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("FRIDAY_API_TOKEN", raising=False)
     client = TestClient(_build_app())
     assert client.get("/api/tasks").status_code == 200
     assert client.get("/health").status_code == 200
 
 
+def test_no_token_configured_blocks_forwarded_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FRIDAY_API_TOKEN", raising=False)
+    client = TestClient(_build_app())
+    denied = client.get("/api/tasks", headers={"X-Forwarded-For": "203.0.113.10"})
+    assert denied.status_code == 503
+    assert "FRIDAY_API_TOKEN" in denied.json()["detail"]
+
+
+def test_no_token_configured_blocks_non_loopback_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("FRIDAY_API_TOKEN", raising=False)
+    client = TestClient(_build_app(), client=("203.0.113.10", 50000))
+    assert client.get("/api/tasks").status_code == 503
+    assert client.get("/health").status_code == 200
+
+
 def test_token_required_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("FRIDAY_API_TOKEN", "secret-token")
+    token = "a-secure-friday-token-with-32-characters"
+    monkeypatch.setenv("FRIDAY_API_TOKEN", token)
     client = TestClient(_build_app())
 
     denied = client.get("/api/tasks")
@@ -45,22 +61,36 @@ def test_token_required_when_configured(monkeypatch: pytest.MonkeyPatch) -> None
     wrong = client.get("/api/tasks", headers={"Authorization": "Bearer nope"})
     assert wrong.status_code == 401
 
-    ok = client.get("/api/tasks", headers={"Authorization": "Bearer secret-token"})
+    ok = client.get("/api/tasks", headers={"Authorization": f"Bearer {token}"})
     assert ok.status_code == 200
 
-    header_ok = client.get("/api/tasks", headers={"X-Friday-Token": "secret-token"})
+    header_ok = client.get("/api/tasks", headers={"X-Friday-Token": token})
     assert header_ok.status_code == 200
 
 
-def test_health_and_docs_stay_open(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("FRIDAY_API_TOKEN", "secret-token")
+def test_weak_configured_token_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FRIDAY_API_TOKEN", "too-short")
+    client = TestClient(_build_app())
+    response = client.get(
+        "/api/tasks", headers={"Authorization": "Bearer too-short"}
+    )
+    assert response.status_code == 503
+    assert "mindestens 32 Zeichen" in response.json()["detail"]
+
+
+def test_health_stays_open_but_docs_require_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    token = "a-secure-friday-token-with-32-characters"
+    monkeypatch.setenv("FRIDAY_API_TOKEN", token)
     client = TestClient(_build_app())
     assert client.get("/health").status_code == 200
-    assert client.get("/openapi.json").status_code == 200
+    assert client.get("/openapi.json").status_code == 401
+    assert client.get(
+        "/openapi.json", headers={"Authorization": f"Bearer {token}"}
+    ).status_code == 200
 
 
 def test_preflight_options_not_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("FRIDAY_API_TOKEN", "secret-token")
+    monkeypatch.setenv("FRIDAY_API_TOKEN", "a-secure-friday-token-with-32-characters")
     client = TestClient(_build_app())
     response = client.options(
         "/api/tasks",
