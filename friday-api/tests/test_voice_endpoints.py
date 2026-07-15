@@ -195,21 +195,37 @@ def test_morning_briefing_prefers_pregenerated_when_present(
     from datetime import date
 
     from friday import config
+    from friday.app import briefing_pregeneration
 
     pregen = b"RIFF-pregenerated"
+    stored_text = "Vorproduziertes Briefing."
     monkeypatch.setattr(config, "BRIEFING_PREGEN_DIR", tmp_path)
-    (tmp_path / f"briefing_{date.today().isoformat()}.wav").write_bytes(pregen)
 
-    # Live synthesis must NOT be used when a pre-generated file exists.
+    # Produce a real pre-generated file (audio + stored text) for today/de.
+    def _synth(text, language):
+        return SynthesisResult(ok=True, audio=pregen, media_type="audio/wav", engine="fake")
+
+    briefing_pregeneration.pregenerate_briefing(
+        target_date=date.today(),
+        language="de",
+        briefing_text=stored_text,
+        synthesizer=_synth,
+    )
+
+    # Neither live synthesis nor the live text/weather builder may run on the
+    # cache hit. main imports the module, so patch the attribute on it.
     def _boom(*_a, **_k):  # pragma: no cover - guard
-        raise AssertionError("live synthesis must not run when pregenerated audio exists")
+        raise AssertionError("live work must not run when pregenerated audio exists")
 
     monkeypatch.setattr(voice_synthesis, "synthesize_for_language", _boom)
+    monkeypatch.setattr(main.open_meteo_weather, "weather_briefing_text", _boom)
+
     data = client.get(
         "/api/voice/morning-briefing", params={"prefer_pregenerated": "true"}
     ).json()["data"]
 
     assert data["pregenerated"] is True
+    assert data["text"] == stored_text
     assert base64.b64decode(data["audio_base64"]) == pregen
 
 

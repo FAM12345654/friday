@@ -115,20 +115,26 @@ async function main() {
   };
 
   const client = new Client(clientOptions);
-  let pairingRequested = false;
+  // Only one pairing-code cycle may be pending at a time. Overlapping "qr"
+  // events must not stack a second timer; a retry is allowed only after the
+  // previous attempt has fully settled (timer fired and request resolved).
+  let pairingInFlight = false;
 
   function requestPairingCodeAfterAuthFlow() {
-    if (!pairingPhoneNumber || pairingRequested) {
+    if (!pairingPhoneNumber || pairingInFlight) {
       return;
     }
-    pairingRequested = true;
+    pairingInFlight = true;
     console.log("WhatsApp Web Auth-Flow geladen. Pairing-Code wird in 5 Sekunden angefordert.");
     setTimeout(async () => {
       try {
         await client.requestPairingCode(pairingPhoneNumber, true, 180000);
       } catch (error) {
         console.log(`WhatsApp Pairing-Code konnte nicht angefordert werden: ${error.message}`);
-        pairingRequested = false;
+      } finally {
+        // Release only after the attempt fully settled, so a new timer is
+        // never scheduled while one is still pending.
+        pairingInFlight = false;
       }
     }, 5000);
   }

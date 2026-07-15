@@ -61,6 +61,16 @@ def test_valid_create_task_mapping() -> None:
     assert result.snooze_until is None
 
 
+def test_language_en_us_normalizes_to_en() -> None:
+    # Delegates to voice_synthesis.normalize_language, so region tags collapse.
+    provider = FakeProvider(
+        _result({"intent": "create_task", "argument": "buy milk", "language": "en-US"})
+    )
+    result = voice_intent_llm.resolve_intent_with_llm("x", provider=provider, today=TODAY)
+    assert result is not None
+    assert result.language == "en"
+
+
 def test_snooze_task_days_offset_arithmetic() -> None:
     provider = FakeProvider(
         _result(

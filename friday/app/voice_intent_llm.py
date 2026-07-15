@@ -15,6 +15,7 @@ from typing import Any, Mapping
 
 from friday.app import voice_intent
 from friday.app.voice_intent import VoiceIntent
+from friday.app.voice_synthesis import normalize_language
 
 # Schema shape mirrors the other generate_json callers (todo_relevance,
 # ai_task_forwarding_draft): a "required"/"properties" dict with simple
@@ -56,9 +57,12 @@ def _is_mock_provider(provider: Any) -> bool:
 
 
 def _normalize_language(value: Any) -> str:
-    """Normalize the model's language field to \"de\" or \"en\" (default \"de\")."""
-    language = str(value or "").strip().lower()
-    return "en" if language == "en" else "de"
+    """Normalize the model's language field to \"de\" or \"en\" (default \"de\").
+
+    Delegates to :func:`voice_synthesis.normalize_language` so language
+    handling stays consistent across the voice stack (e.g. ``en-US`` -> ``en``).
+    """
+    return normalize_language(value)
 
 
 def _clean_argument(value: Any) -> str:
