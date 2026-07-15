@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from friday import config
 from friday.app.approval_token_scanner import (
     iter_python_files as iter_approval_python_files,
     scan_paths_for_approval_token_regressions,
@@ -16,7 +17,10 @@ from friday.app.approval_token_scanner import (
 from friday.app.forbidden_import_scanner import scan_python_paths_for_forbidden_imports
 from friday.app.no_input_print_scanner import scan_paths_for_input_print
 from friday.app.no_network_scanner import scan_paths_for_network_usage
-from friday.app.safety_flag_regression_scanner import scan_paths_for_safety_flag_regressions
+from friday.app.safety_flag_regression_scanner import (
+    EXPECTED_SAFETY_FLAGS,
+    scan_paths_for_safety_flag_regressions,
+)
 
 
 DEFAULT_SCAN_ROOTS: tuple[str, ...] = (
@@ -69,10 +73,22 @@ def run_safety_smoke(
     approval_token_excluded_files: tuple[
         str | Path, ...
     ] = DEFAULT_APPROVAL_TOKEN_EXCLUDED_FILES,
+    safety_flag_overrides: dict[str, bool] | None = None,
 ) -> SafetySmokeResult:
     """Run all local safety scanners and return a structured result."""
-    roots_tuple = tuple(roots)
-    excluded_approval_paths = {Path(path) for path in approval_token_excluded_files}
+    def _resolve_path(path: str | Path) -> Path:
+        candidate = Path(path)
+        if candidate.is_absolute():
+            return candidate
+        return config.PROJECT_ROOT / candidate
+
+    roots_tuple = tuple(_resolve_path(path) for path in roots)
+    input_print_excluded_paths = tuple(
+        _resolve_path(path) for path in input_print_excluded_files
+    )
+    excluded_approval_paths = {
+        _resolve_path(path) for path in approval_token_excluded_files
+    }
     approval_scan_files = tuple(
         file_path
         for file_path in iter_approval_python_files(roots_tuple)
@@ -83,9 +99,14 @@ def run_safety_smoke(
     no_network = scan_paths_for_network_usage(roots_tuple)
     no_input_print = scan_paths_for_input_print(
         roots_tuple,
-        excluded_file_paths=input_print_excluded_files,
+        excluded_file_paths=input_print_excluded_paths,
     )
-    safety_flags = scan_paths_for_safety_flag_regressions(roots_tuple)
+    expected_safety_flags = dict(EXPECTED_SAFETY_FLAGS)
+    expected_safety_flags.update(safety_flag_overrides or {})
+    safety_flags = scan_paths_for_safety_flag_regressions(
+        roots_tuple,
+        expected_flags=expected_safety_flags,
+    )
     approval_tokens = scan_paths_for_approval_token_regressions(
         approval_scan_files,
         allow_soft_token_values={"ja"},

@@ -8,11 +8,10 @@ npm install
 copy .env.example .env
 ```
 
-Setze `EXPO_PUBLIC_FRIDAY_API_URL` in `.env` auf die erreichbare API-URL:
+Setze `EXPO_PUBLIC_FRIDAY_API_URL` in `.env` auf die geschützte Geräte-URL:
 
-- Emulator: `http://10.0.2.2:8000`
-- iOS Sim: `http://127.0.0.1:8000`
-- Physisches Gerät: `http://<deine-PC-IP>:8000`
+- Android, iOS, Emulator und physisches Gerät: `https://pc.tail4c6152.ts.net`
+- Unverschlüsseltes LAN-HTTP ist absichtlich deaktiviert.
 
 ## Start
 
@@ -22,6 +21,12 @@ Mit dem zentralen Startskript:
 cd ..
 start_friday_stack.bat
 ```
+
+Für WLAN, Tailscale oder Tunnel muss auf dem API-Rechner zusätzlich ein
+zufälliger `FRIDAY_API_TOKEN` mit mindestens 32 Zeichen gesetzt sein. Den
+gleichen Token in der App unter **Mehr > Datenschutz** speichern. Er bleibt im
+Geräte-Keystore und gehört nicht in `EXPO_PUBLIC_*`, `app.json` oder EAS-Updates.
+Friday sendet diesen Token niemals über unverschlüsseltes WLAN-HTTP.
 
 oder nur Mobile:
 

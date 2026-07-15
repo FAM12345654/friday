@@ -5,14 +5,28 @@ from __future__ import annotations
 from friday.agents.message_agent import MessageAgent
 from friday.app.whatsapp_inbox_store import (
     WHATSAPP_MESSAGE_ID_OFFSET,
+    bridge_token_matches,
+    ensure_whatsapp_bridge_token,
     get_whatsapp_bridge_status,
     insert_whatsapp_message,
     load_whatsapp_agent_notes,
     read_recent_whatsapp_messages,
+    resolve_whatsapp_conversation,
     save_whatsapp_agent_notes,
 )
 from friday.storage.database import setup_local_database
 from friday.storage.repositories import BlockedSenderRepository
+
+
+def test_bridge_token_is_required_and_created_with_strong_value(tmp_path) -> None:
+    token_path = tmp_path / "bridge-token.txt"
+
+    assert bridge_token_matches(None, token_path=token_path) is False
+    token = ensure_whatsapp_bridge_token(token_path=token_path)
+
+    assert len(token) >= 32
+    assert bridge_token_matches(token, token_path=token_path) is True
+    assert bridge_token_matches("wrong", token_path=token_path) is False
 
 
 def test_insert_whatsapp_message_hashes_identifiers_and_deduplicates(tmp_path) -> None:
@@ -112,3 +126,28 @@ def test_blocked_whatsapp_sender_is_hidden_and_does_not_create_suggestions(tmp_p
     assert processed.processed_count == 0
     assert processed.message_suggestions_created == 0
     assert processed.task_suggestions_created == 0
+
+
+def test_resolved_whatsapp_conversation_is_hidden_reversibly(tmp_path) -> None:
+    db_path = tmp_path / "friday.db"
+    setup_local_database(db_path, seed_demo_data=False)
+    insert_whatsapp_message(
+        chat_id="resolved-chat",
+        sender_name="Kontakt",
+        sender_number="resolved-number",
+        body="Kannst du das bitte klaeren?",
+        received_at="2026-07-15T10:00:00+00:00",
+        db_path=db_path,
+    )
+
+    result = resolve_whatsapp_conversation(
+        "resolved-chat",
+        confidence=1.0,
+        reason="explicit_completion_reply",
+        provider="deterministic",
+        db_path=db_path,
+    )
+
+    assert result.resolved is True
+    assert result.hidden_count == 1
+    assert read_recent_whatsapp_messages(db_path=db_path) == []

@@ -38,6 +38,21 @@ ENABLE_MAIL_ORGANIZE = False
 # Jede Aktion braucht eine Nutzerfreigabe im Vorschaumodus.
 REQUIRE_USER_APPROVAL = True
 
+# Kalenderquellen werden regelmäßig nur lesend auf neue Sync-Kandidaten geprüft.
+# Der Hintergrundlauf erzeugt weder Freigaben noch Google-Schreibvorgänge.
+CALENDAR_SOURCE_SYNC_PREVIEW_ENABLED = True
+CALENDAR_SOURCE_SYNC_PREVIEW_INTERVAL_SECONDS = 15 * 60
+CALENDAR_SOURCE_SYNC_PREVIEW_INITIAL_DELAY_SECONDS = 30
+CALENDAR_SOURCE_SYNC_DAYS_BACK = 30
+CALENDAR_SOURCE_SYNC_DAYS_FORWARD = 365
+
+# Microsoft-Mail wird nur mit Mail.Read regelmäßig gelesen. Der Scheduler
+# versendet nichts und serialisiert alle Läufe in einem Prozess.
+MS_MAIL_SYNC_SCHEDULER_ENABLED = True
+MS_MAIL_SYNC_INTERVAL_SECONDS = 15 * 60
+MS_MAIL_SYNC_INITIAL_DELAY_SECONDS = 60
+MS_MAIL_SYNC_TOP = 25
+
 # Feste Demo-Daten für die lokale Anzeige.
 DEMO_DATE = "2026-07-05"
 USE_REAL_TODAY = True
@@ -62,7 +77,7 @@ OLLAMA_TIMEOUT_SECONDS = 30
 
 # Push-Benachrichtigungen (Expo) sind ein externer Dienst und bleiben
 # standardmäßig deaktiviert.
-ENABLE_PUSH_NOTIFICATIONS = False
+ENABLE_PUSH_NOTIFICATIONS = True
 
 # Sprachmodul: Whisper-STT lokal, TTS über lokale OpenAI-kompatible Server
 # (Deutsch: Orpheus "Kartoffel" z. B. via Orpheus-FastAPI auf Port 5005,
@@ -78,6 +93,19 @@ VOICE_TTS_EN_BASE_URL = "http://localhost:8880"
 VOICE_TTS_EN_MODEL = "kokoro"
 VOICE_TTS_EN_VOICE = "af_heart"
 VOICE_TTS_TIMEOUT_SECONDS = 60
+
+# Optional German-only Voicebox pilot. English remains on Friday's direct
+# Kokoro path because routing it through Voicebox adds no model-quality benefit.
+# Voicebox's /generate/stream route returns WAV only after generation completes;
+# it is therefore compatible with Friday, but is not low-latency token streaming.
+VOICE_TTS_DE_PROVIDER = "orpheus"  # or "voicebox"
+VOICE_TTS_EN_PROVIDER = "kokoro"
+VOICEBOX_BASE_URL = "http://127.0.0.1:17493"
+VOICEBOX_DE_PROFILE_ID = ""
+# Qwen Base accepts a reference profile and preserves Jana's voice identity.
+# CustomVoice exposes preset voices and is not a drop-in clone of Jana.
+VOICEBOX_DE_ENGINE = "qwen"
+VOICEBOX_DE_MODEL_SIZE = "0.6B"
 
 # Lokale Benachrichtigungen bleiben standardmäßig deaktiviert.
 ENABLE_LOCAL_NOTIFICATIONS = False

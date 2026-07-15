@@ -61,11 +61,14 @@ def test_ms_mail_connect_without_callback_returns_auth_url(monkeypatch) -> None:
     api = _load_api_module()
     monkeypatch.setattr(
         api,
-        "build_ms_mail_authorization_url",
-        lambda **_kwargs: MsMailProviderResult(
-            ok=True,
-            message="ok",
-            authorization_url="https://login.microsoftonline.com/auth",
+        "build_ms_mail_authorization_flow",
+        lambda **kwargs: (
+            MsMailProviderResult(
+                ok=True,
+                message="ok",
+                authorization_url=f"https://login.microsoftonline.com/auth?state={kwargs['state']}",
+            ),
+            {"state": kwargs["state"], "code_verifier": "private"},
         ),
     )
 
@@ -89,6 +92,18 @@ def test_ms_mail_connect_callback_adds_accounts_without_overwriting(monkeypatch)
             ok=True,
             message="ok",
             token_bundle={"access_token": "token"},
+        ),
+    )
+    monkeypatch.setattr(
+        api.oauth_transactions,
+        "consume",
+        lambda **kwargs: SimpleNamespace(
+            state=kwargs["state"],
+            context={
+                "client_id": "client-1",
+                "tenant": "common",
+                "auth_flow": {"state": kwargs["state"], "code_verifier": "private"},
+            },
         ),
     )
     monkeypatch.setattr(
@@ -117,14 +132,14 @@ def test_ms_mail_connect_callback_adds_accounts_without_overwriting(monkeypatch)
     first = api.connect_ms_mail_account(
         api.MsMailConnectRequest(
             client_id="client-1",
-            authorization_response="http://localhost/?code=one",
+            authorization_response="http://localhost/?code=one&state=state-one",
             approval_token="KONTO SPEICHERN",
         )
     )
     second = api.connect_ms_mail_account(
         api.MsMailConnectRequest(
             client_id="client-1",
-            authorization_response="http://localhost/?code=two",
+            authorization_response="http://localhost/?code=two&state=state-two",
             approval_token="KONTO SPEICHERN",
         )
     )

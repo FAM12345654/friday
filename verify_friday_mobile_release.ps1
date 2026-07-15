@@ -14,6 +14,7 @@ $packagePath = Join-Path $mobileRoot "package.json"
 $appConfigPath = Join-Path $mobileRoot "app.json"
 $easConfigPath = Join-Path $mobileRoot "eas.json"
 $envPath = Join-Path $mobileRoot ".env"
+$appJsConfigPath = Join-Path $mobileRoot "app.config.js"
 
 $failed = [System.Collections.Generic.List[string]]::new()
 $warnings = [System.Collections.Generic.List[string]]::new()
@@ -61,6 +62,12 @@ else {
     else {
         Add-Result -Status "FAIL" -Message "expo-updates fehlt. Bitte in friday-mobile 'npx expo install expo-updates' ausführen."
     }
+    if ($packageJson.dependencies.PSObject.Properties.Name -contains "expo-secure-store") {
+        Add-Result -Status "OK" -Message "expo-secure-store ist als native Abhängigkeit installiert."
+    }
+    else {
+        Add-Result -Status "FAIL" -Message "expo-secure-store fehlt; API-Token darf nicht unsicher gespeichert werden."
+    }
 }
 
 $appConfig = Read-JsonFile -Path $appConfigPath
@@ -83,11 +90,21 @@ else {
         Add-Result -Status "WARN" -Message "iOS bundleIdentifier fehlt."
     }
 
-    if ($appConfig.expo.runtimeVersion) {
-        Add-Result -Status "OK" -Message "runtimeVersion ist gesetzt."
+    if ($appConfig.expo.runtimeVersion -and $appConfig.expo.runtimeVersion -ne "1.0.0-sdk54") {
+        Add-Result -Status "OK" -Message "runtimeVersion trennt den SecureStore-Build vom Legacy-Build."
     }
     else {
-        Add-Result -Status "FAIL" -Message "runtimeVersion fehlt; EAS Update braucht eine Runtime-Zuordnung."
+        Add-Result -Status "FAIL" -Message "runtimeVersion fehlt oder entspricht noch dem inkompatiblen Build-15-Legacywert."
+    }
+
+    $buildProperties = @($appConfig.expo.plugins) | Where-Object {
+        $_ -is [System.Array] -and $_[0] -eq "expo-build-properties"
+    } | Select-Object -First 1
+    if ($buildProperties -and $buildProperties[1].android.usesCleartextTraffic -eq $false) {
+        Add-Result -Status "OK" -Message "Android-Cleartext ist deaktiviert."
+    }
+    else {
+        Add-Result -Status "FAIL" -Message "Android-Cleartext muss deaktiviert sein."
     }
 
     if ($appConfig.expo.updates.enabled -eq $true -and $appConfig.expo.updates.checkAutomatically -eq "ON_LOAD") {
@@ -103,6 +120,13 @@ else {
     else {
         Add-Result -Status "FAIL" -Message "EAS Update ist noch nicht mit Projekt-ID verbunden. Ausführen: cd friday-mobile && npm run eas:configure"
     }
+}
+
+if ((Test-Path $appJsConfigPath) -and (Get-Content -Raw $appJsConfigPath) -match "expo-secure-store") {
+    Add-Result -Status "OK" -Message "expo-secure-store ist im nativen Expo-Plugin-Set registriert."
+}
+else {
+    Add-Result -Status "FAIL" -Message "expo-secure-store fehlt im nativen Expo-Plugin-Set."
 }
 
 $easConfig = Read-JsonFile -Path $easConfigPath
@@ -132,7 +156,36 @@ if (Test-Path $envPath) {
         Add-Result -Status "WARN" -Message "friday-mobile/.env nutzt noch den Platzhalter 192.168.x.x."
     }
     elseif ($envContent -match "EXPO_PUBLIC_FRIDAY_API_URL=") {
-        Add-Result -Status "OK" -Message "friday-mobile/.env enthält eine API-URL."
+        $urlMatch = [regex]::Match($envContent, "(?m)^EXPO_PUBLIC_FRIDAY_API_URL=([^\r\n]+)")
+        $apiUrl = $urlMatch.Groups[1].Value.Trim().Trim('"')
+        try {
+            $uri = [Uri]$apiUrl
+            if ($uri.Scheme -ne "https") {
+                Add-Result -Status "FAIL" -Message "Mobile API muss HTTPS verwenden."
+            }
+            else {
+                Add-Result -Status "OK" -Message "Mobile API verwendet HTTPS."
+            }
+            $token = [string]$env:FRIDAY_API_TOKEN
+            if ([string]::IsNullOrWhiteSpace($token)) {
+                $token = [string][Environment]::GetEnvironmentVariable("FRIDAY_API_TOKEN", "User")
+            }
+            $headers = @{}
+            if (-not [string]::IsNullOrWhiteSpace($token)) {
+                $headers.Authorization = "Bearer $($token.Trim())"
+            }
+            $health = Invoke-RestMethod -Uri "$apiUrl/health" -TimeoutSec 8 -ErrorAction Stop
+            $contract = Invoke-RestMethod -Uri "$apiUrl/api/setup/status" -Headers $headers -TimeoutSec 8 -ErrorAction Stop
+            if ($health.ok -eq $true -and $contract.ok -eq $true) {
+                Add-Result -Status "OK" -Message "Mobile HTTPS-API und geschützter Vertragsendpunkt sind erreichbar."
+            }
+            else {
+                Add-Result -Status "FAIL" -Message "Mobile HTTPS-API liefert nicht den erwarteten Vertrag."
+            }
+        }
+        catch {
+            Add-Result -Status "FAIL" -Message "Mobile HTTPS-API ist nicht vollständig erreichbar: $($_.Exception.Message)"
+        }
     }
     else {
         Add-Result -Status "WARN" -Message "friday-mobile/.env enthält keine EXPO_PUBLIC_FRIDAY_API_URL."

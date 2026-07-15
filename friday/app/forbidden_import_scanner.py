@@ -34,6 +34,8 @@ ALLOWED_FORBIDDEN_IMPORT_FILES: dict[str, tuple[str, ...]] = {
     "imap_mail_writer.py": ("imaplib",),
     "calendar_provider_google.py": ("googleapiclient",),
     "ms_mail_provider.py": ("msal",),
+    # Resolves/validates hosts only; the module does not open a socket.
+    "network_url_safety.py": ("socket",),
 }
 
 

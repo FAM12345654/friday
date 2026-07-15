@@ -8,6 +8,7 @@ import pytest
 
 from friday import config
 from friday.app.push_notifications import (
+    build_expo_push_messages,
     build_due_task_notifications,
     is_valid_expo_token,
     list_push_tokens,
@@ -88,8 +89,9 @@ def test_snoozed_task_does_not_trigger_reminder() -> None:
     assert "Überfällig aber snoozed" not in notifications[0]["body"]
 
 
-def test_send_disabled_by_default(tmp_path) -> None:
+def test_send_disabled_by_gate(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     db = _db(tmp_path)
+    monkeypatch.setattr(config, "ENABLE_PUSH_NOTIFICATIONS", False, raising=False)
     register_push_token(TOKEN, db_path=db)
     result = send_push_notifications(
         [{"title": "Test"}], db_path=db, poster=lambda *a: (200, b"{}")
@@ -142,3 +144,42 @@ def test_send_maps_http_error(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None
     )
     assert not result.ok
     assert "500" in result.message
+
+
+def test_explicit_recipient_snapshot_ignores_later_database_changes(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _db(tmp_path)
+    monkeypatch.setattr(config, "ENABLE_PUSH_NOTIFICATIONS", True, raising=False)
+    register_push_token(TOKEN, db_path=db)
+    approved_tokens = [TOKEN]
+    remove_push_token(TOKEN, db_path=db)
+    register_push_token("ExpoPushToken[new-device]", db_path=db)
+    captured = {}
+
+    def poster(_url, payload, _timeout):
+        captured["messages"] = json.loads(payload)
+        return 200, b"{}"
+
+    result = send_push_notifications(
+        [{"title": "Friday", "body": "Genehmigt"}],
+        db_path=db,
+        recipient_tokens=approved_tokens,
+        poster=poster,
+    )
+
+    assert result.sent == 1
+    assert captured["messages"][0]["to"] == TOKEN
+
+
+def test_push_message_builder_approves_exact_bounded_vector() -> None:
+    notifications = [{"title": f"N{i}"} for i in range(60)]
+    messages = build_expo_push_messages(
+        notifications,
+        [TOKEN, "ExpoPushToken[second]"],
+    )
+
+    assert len(messages) == 100
+    assert messages[0]["to"] == TOKEN
+    assert messages[-1]["to"] == "ExpoPushToken[second]"

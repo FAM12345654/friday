@@ -36,6 +36,7 @@ import PushToTalk from "./src/voice/PushToTalk";
 import AlarmSettings from "./src/alarm/AlarmSettings";
 import { initAlarmHandlers, playMorningBriefing, restoreScheduledAlarm } from "./src/alarm/alarm";
 import { subscribeLiveEvents } from "./src/data/liveEvents";
+import { groupInboxItems } from "./src/inboxGrouping";
 
 import {
   approveMessageSuggestion,
@@ -45,7 +46,9 @@ import {
   buildTaskForwardDraft,
   checkHealth,
   completeTask,
+  activateEmailSend,
   activateMailOrganize,
+  activateWhatsAppReadBridge,
   connectEmailAccount,
   connectImapMailAccount,
   connectMsMailAccount,
@@ -69,6 +72,7 @@ import {
   getWhatsAppStatus,
   generateTaskSuggestionsForMessage,
   getApiUrl,
+  getApiTokenStatus,
   getCalendar,
   getGoogleCalendarReadPreview,
   getCalendarViewPrefs,
@@ -96,6 +100,7 @@ import {
   syncWorkdaysToGoogle,
   markMessageSpam,
   sendTaskForwardEmail,
+  saveApiToken,
   testEmailAccountConnection,
   unblockSender,
   rejectMessageSuggestion,
@@ -112,7 +117,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const bottomTabs = [
   { key: "Home", label: "Home", icon: "home" },
-  { key: "Kalender", label: "Kalender", icon: "calendar" },
+  { key: "Kalender", label: "Termine", icon: "calendar" },
   { key: "Tasks", label: "Aufgaben", icon: "check" },
   { key: "Nachrichten", label: "Posteingang", icon: "mail" },
   { key: "Mehr", label: "Mehr", icon: "more" },
@@ -988,6 +993,9 @@ export default function App() {
   const [learning, setLearning] = useState(null);
   const [learningResult, setLearningResult] = useState("");
   const [privacy, setPrivacy] = useState(null);
+  const [apiTokenDraft, setApiTokenDraft] = useState("");
+  const [apiTokenConfigured, setApiTokenConfigured] = useState(false);
+  const [apiTokenResult, setApiTokenResult] = useState("");
   const [setupStatus, setSetupStatus] = useState(null);
   const [accountPolicies, setAccountPolicies] = useState(null);
   const [calendarAccountStatus, setCalendarAccountStatus] = useState(null);
@@ -1014,8 +1022,11 @@ export default function App() {
   const [mailOrganizeLog, setMailOrganizeLog] = useState(null);
   const [mailOrganizeResult, setMailOrganizeResult] = useState("");
   const [mailOrganizeToken, setMailOrganizeToken] = useState("");
+  const [mailOrganizeApproval, setMailOrganizeApproval] = useState(null);
+  const [mailOrganizeUndoApproval, setMailOrganizeUndoApproval] = useState(null);
   const [whatsappStatus, setWhatsappStatus] = useState(null);
   const [whatsappInbox, setWhatsappInbox] = useState(null);
+  const [expandedInboxGroups, setExpandedInboxGroups] = useState({});
   const [blockedSenders, setBlockedSenders] = useState([]);
   const [spamMessages, setSpamMessages] = useState({ messages: [], msMail: [], whatsapp: [] });
   const [spamResult, setSpamResult] = useState("");
@@ -1026,6 +1037,7 @@ export default function App() {
   const [emailAgentNotes, setEmailAgentNotes] = useState("");
   const [emailAgentNotesResult, setEmailAgentNotesResult] = useState("");
   const [emailAccountToken, setEmailAccountToken] = useState("");
+  const [emailActivationToken, setEmailActivationToken] = useState("");
   const [emailAccountResult, setEmailAccountResult] = useState("");
   const [msMailClientId, setMsMailClientId] = useState("");
   const [msMailTenant, setMsMailTenant] = useState("common");
@@ -1042,6 +1054,8 @@ export default function App() {
   const [imapMailResult, setImapMailResult] = useState("");
   const [whatsappAgentNotes, setWhatsappAgentNotes] = useState("");
   const [whatsappAgentNotesResult, setWhatsappAgentNotesResult] = useState("");
+  const [whatsappActivationToken, setWhatsappActivationToken] = useState("");
+  const [whatsappActivationResult, setWhatsappActivationResult] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskForwardTo, setNewTaskForwardTo] = useState("");
   const [forwardTask, setForwardTask] = useState(null);
@@ -1063,10 +1077,13 @@ export default function App() {
   const [calendarDraftEnd, setCalendarDraftEnd] = useState("");
   const [calendarDraftLocation, setCalendarDraftLocation] = useState("");
   const [calendarWriteToken, setCalendarWriteToken] = useState("");
+  const [calendarWriteApprovalId, setCalendarWriteApprovalId] = useState("");
   const [calendarWriteResult, setCalendarWriteResult] = useState("");
   const [calendarDeleteTokens, setCalendarDeleteTokens] = useState({});
+  const [calendarDeleteApprovalIds, setCalendarDeleteApprovalIds] = useState({});
   const [calendarDeleteResult, setCalendarDeleteResult] = useState("");
   const [workdaySyncToken, setWorkdaySyncToken] = useState("");
+  const [workdaySyncApprovalId, setWorkdaySyncApprovalId] = useState("");
   const [workdaySyncResult, setWorkdaySyncResult] = useState("");
   const [workdaySyncPreview, setWorkdaySyncPreview] = useState(null);
   const [actionBusy, setActionBusy] = useState(false);
@@ -1260,6 +1277,14 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
+    getApiTokenStatus()
+      .then((configured) => {
+        if (isMounted) {
+          setApiTokenConfigured(configured);
+        }
+      })
+      .catch(() => {});
+
     const ping = async () => {
       const ok = await checkHealth();
       if (isMounted) {
@@ -1280,8 +1305,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Best-effort push registration; the app works fine if it fails.
-    registerForPushNotifications().catch(() => null);
+    // Registration is idempotent. Retry periodically so a temporarily offline
+    // phone or backend registers automatically once connectivity returns.
+    const register = () => registerForPushNotifications().catch(() => null);
+    register();
+    const timer = setInterval(register, 60_000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -1653,6 +1682,36 @@ export default function App() {
       await refreshSyncStatusState();
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleSaveApiToken = async (remove = false) => {
+    const nextToken = remove ? "" : apiTokenDraft.trim();
+    if (nextToken && nextToken.length < 32) {
+      setApiTokenResult("Der API-Token muss mindestens 32 Zeichen lang sein.");
+      return;
+    }
+    setActionBusy(true);
+    try {
+      await saveApiToken(nextToken);
+      setApiTokenConfigured(Boolean(nextToken));
+      setApiTokenDraft("");
+      const reachable = await checkHealth();
+      await rememberOnlineState(reachable);
+      setApiTokenResult(
+        nextToken
+          ? reachable
+            ? "Token sicher gespeichert und von Friday akzeptiert."
+            : "Token wurde sicher gespeichert, aber die API hat ihn noch nicht akzeptiert."
+          : "Token entfernt. Ohne Token funktioniert Friday nur direkt auf demselben Gerät.",
+      );
+      if (reachable) {
+        await loadScreenData(currentScreen).catch(() => null);
+      }
+    } catch (err) {
+      setApiTokenResult(normalizeApiError(err));
+    } finally {
+      setActionBusy(false);
     }
   };
 
@@ -2066,6 +2125,27 @@ export default function App() {
     }
   };
 
+  const handleActivateEmailSend = async (tokenOverride) => {
+    setActionBusy(true);
+    setEmailAccountResult("");
+    try {
+      const result = await activateEmailSend({
+        approval_token: (tokenOverride || emailActivationToken).trim(),
+        execute_write: true,
+      });
+      setEmailAccountResult(
+        result?.config_write_performed
+          ? "Real-E-Mail wurde aktiviert. Jede einzelne Mail braucht weiterhin EMAIL SENDEN."
+          : `E-Mail-Aktivierung blockiert: ${(result?.blocked_reasons || []).join(" / ") || "Gate nicht erfüllt"}`,
+      );
+      setEmailAccountStatus(await getEmailAccountStatus());
+    } catch (err) {
+      setEmailAccountResult(`E-Mail-Aktivierung blockiert: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const handleSaveEmailAgentNotes = async () => {
     setActionBusy(true);
     setEmailAgentNotesResult("");
@@ -2090,6 +2170,27 @@ export default function App() {
       setWhatsappAgentNotesResult("WhatsApp-Agent-Notiz wurde lokal gespeichert.");
     } catch (err) {
       setWhatsappAgentNotesResult(`WhatsApp-Agent-Notiz konnte nicht gespeichert werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleActivateWhatsAppReadBridge = async (tokenOverride) => {
+    setActionBusy(true);
+    setWhatsappActivationResult("");
+    try {
+      const result = await activateWhatsAppReadBridge({
+        approval_token: (tokenOverride || whatsappActivationToken).trim(),
+        execute_write: true,
+      });
+      setWhatsappActivationResult(
+        result?.applied
+          ? "WhatsApp Read-Bridge wurde aktiviert. API und Bridge müssen danach neu gestartet werden."
+          : result?.message || `Aktivierung blockiert: ${(result?.blocked_reasons || []).join(" / ")}`,
+      );
+      setWhatsappStatus(await getWhatsAppStatus());
+    } catch (err) {
+      setWhatsappActivationResult(`WhatsApp-Aktivierung blockiert: ${normalizeApiError(err)}`);
     } finally {
       setActionBusy(false);
     }
@@ -2169,7 +2270,6 @@ export default function App() {
     try {
       const result = await activateMsMailRead({
         approval_token: (tokenOverride || msMailActivationToken).trim(),
-        scanner_smoke_passed: true,
         execute_write: true,
       });
       setMsMailResult(
@@ -2295,7 +2395,6 @@ export default function App() {
     try {
       const result = await activateImapMailRead({
         approval_token: (tokenOverride || imapMailActivationToken).trim(),
-        scanner_smoke_passed: true,
         execute_write: true,
       });
       setImapMailResult(
@@ -2317,7 +2416,6 @@ export default function App() {
     try {
       const result = await activateMailOrganize({
         approval_token: mailOrganizeToken.trim(),
-        scanner_smoke_passed: true,
         execute_write: true,
       });
       setMailOrganizeResult(result?.message || "Gmail-Aufraeumen geprueft.");
@@ -2334,8 +2432,27 @@ export default function App() {
     setActionBusy(true);
     setMailOrganizeResult("");
     try {
-      const result = await runMailOrganize({ top: 25, dry_run: false });
-      setMailOrganizeResult(`${result?.moved_count || 0} Mail(s) nach Friday/Aussortiert verschoben.`);
+      const approvalId = mailOrganizeApproval?.id || "";
+      const result = await runMailOrganize({
+        top: 25,
+        dry_run: !approvalId,
+        approval_token: mailOrganizeToken.trim(),
+        approval_id: approvalId,
+      });
+      if (result?.external_write_used) {
+        setMailOrganizeApproval(null);
+        setMailOrganizeResult(`${result?.moved_count || 0} Mail(s) nach Friday/Aussortiert verschoben.`);
+      } else if (result?.approval?.id) {
+        setMailOrganizeApproval(result.approval);
+        setMailOrganizeResult(
+          `Vorschau: ${result?.candidate_count || 0} Kandidat(en). Erneut bestätigen, um exakt diese Auswahl zu verschieben.`,
+        );
+      } else {
+        setMailOrganizeApproval(null);
+        setMailOrganizeResult(
+          `Keine Verschiebung: ${(result?.blocked_reasons || []).join(" / ") || "keine Kandidaten"}`,
+        );
+      }
       setMailOrganizeLog(await getMailOrganizeLog());
       await refreshActive();
     } catch (err) {
@@ -2349,8 +2466,26 @@ export default function App() {
     setActionBusy(true);
     setMailOrganizeResult("");
     try {
-      const result = await undoMailOrganize(logId);
-      setMailOrganizeResult(result?.message || "Mail wurde zurueckgeholt.");
+      const approvalId =
+        mailOrganizeUndoApproval?.logId === logId
+          ? mailOrganizeUndoApproval?.approval?.id || ""
+          : "";
+      const result = await undoMailOrganize(logId, {
+        approval_token: mailOrganizeToken.trim(),
+        approval_id: approvalId,
+      });
+      if (result?.undone) {
+        setMailOrganizeUndoApproval(null);
+        setMailOrganizeResult(result?.message || "Mail wurde zurueckgeholt.");
+      } else if (result?.approval?.id) {
+        setMailOrganizeUndoApproval({ logId, approval: result.approval });
+        setMailOrganizeResult("Rueckgabe vorbereitet. Erneut bestaetigen, um exakt diese Mail zurueckzuholen.");
+      } else {
+        setMailOrganizeUndoApproval(null);
+        setMailOrganizeResult(
+          `Rueckgabe blockiert: ${(result?.blocked_reasons || []).join(" / ") || "Freigabe fehlt"}`,
+        );
+      }
       setMailOrganizeLog(await getMailOrganizeLog());
       await refreshActive();
     } catch (err) {
@@ -2484,7 +2619,6 @@ export default function App() {
     try {
       const result = await checkCalendarActivationGate({
         approval_token: calendarActivationToken.trim(),
-        scanner_smoke_passed: true,
       });
       setCalendarActivationResult(
         result?.allowed
@@ -2527,6 +2661,7 @@ export default function App() {
     try {
       const result = await createCalendarEventFromMessage({
         approval_token: (tokenOverride || calendarWriteToken).trim(),
+        approval_id: calendarWriteApprovalId,
         text: calendarMessageText.trim(),
         title: calendarDraftTitle.trim() || undefined,
         date: calendarDraftDate.trim() || undefined,
@@ -2537,9 +2672,16 @@ export default function App() {
       if (result?.provider_event_created) {
         setCalendarWriteResult("Termin wurde im Google-Kalender gespeichert.");
         setCalendarWriteToken("");
+        setCalendarWriteApprovalId("");
         await refreshActive();
+      } else if (result?.approval?.id) {
+        setCalendarWriteApprovalId(result.approval.id);
+        setCalendarWriteResult("Termin-Vorschau ist fünf Minuten gültig. Bitte dieselbe Aktion jetzt erneut bestätigen.");
       } else {
         const reasons = result?.guard?.blocked_reasons || [];
+        if (reasons.includes("one_time_approval_invalid")) {
+          setCalendarWriteApprovalId("");
+        }
         setCalendarWriteResult(`Termin wurde nicht gespeichert: ${reasons.join(", ") || result?.guard?.message || "unbekannt"}`);
       }
     } catch (err) {
@@ -2560,15 +2702,23 @@ export default function App() {
     try {
       const result = await deleteCalendarEvent({
         approval_token: (tokenOverride || calendarDeleteTokens[eventId] || "").trim(),
+        approval_id: calendarDeleteApprovalIds[eventId] || "",
         provider_event_id: eventId,
         calendar_id: entry?.calendar_id || calendarAccountStatus?.google?.calendar_id || "primary",
       });
       if (result?.provider_event_deleted) {
         setCalendarDeleteResult("Termin wurde geloescht.");
         setCalendarDeleteTokens((current) => ({ ...current, [eventId]: "" }));
+        setCalendarDeleteApprovalIds((current) => ({ ...current, [eventId]: "" }));
         await refreshActive();
+      } else if (result?.approval?.id) {
+        setCalendarDeleteApprovalIds((current) => ({ ...current, [eventId]: result.approval.id }));
+        setCalendarDeleteResult("Löschvorschau ist fünf Minuten gültig. Bitte denselben Termin jetzt erneut bestätigen.");
       } else {
         const reasons = result?.guard?.blocked_reasons || [];
+        if (reasons.includes("one_time_approval_invalid")) {
+          setCalendarDeleteApprovalIds((current) => ({ ...current, [eventId]: "" }));
+        }
         setCalendarDeleteResult(`Termin wurde nicht geloescht: ${reasons.join(", ") || result?.guard?.message || "unbekannt"}`);
       }
     } catch (err) {
@@ -2582,11 +2732,13 @@ export default function App() {
     setActionBusy(true);
     setWorkdaySyncResult("");
     try {
-      const result = await syncWorkdaysToGoogle({ dry_run: true, days: 14 });
+      const result = await syncWorkdaysToGoogle({ dry_run: true, days: 365 });
       setWorkdaySyncPreview(result);
+      setWorkdaySyncApprovalId(result?.approval?.id || "");
       setWorkdaySyncResult(result?.message || "Vorschau geladen.");
     } catch (err) {
       setWorkdaySyncPreview(null);
+      setWorkdaySyncApprovalId("");
       setWorkdaySyncResult(`Vorschau fehlgeschlagen: ${normalizeApiError(err)}`);
     } finally {
       setActionBusy(false);
@@ -2599,14 +2751,20 @@ export default function App() {
     try {
       const result = await syncWorkdaysToGoogle({
         dry_run: false,
-        days: 14,
+        days: 365,
         approval_token: (tokenOverride || workdaySyncToken).trim(),
+        approval_id: workdaySyncApprovalId,
       });
       setWorkdaySyncPreview(result);
-      setWorkdaySyncResult(result?.message || "Arbeitstage-Sync ausgeführt.");
+      setWorkdaySyncResult(result?.message || "Kalenderquellen wurden synchronisiert.");
       if (isArray(result?.created).length) {
         setWorkdaySyncToken("");
+        setWorkdaySyncApprovalId("");
         await refreshActive();
+      } else if (result?.approval?.id) {
+        setWorkdaySyncApprovalId(result.approval.id);
+      } else if (isArray(result?.guard?.blocked_reasons).includes("one_time_approval_invalid")) {
+        setWorkdaySyncApprovalId("");
       }
     } catch (err) {
       setWorkdaySyncResult(`Eintragen fehlgeschlagen: ${normalizeApiError(err)}`);
@@ -3128,336 +3286,140 @@ export default function App() {
     }
 
     if (currentScreen === "Nachrichten") {
+      const inboxGroups = groupInboxItems({
+        messages,
+        emailItems: isArray(emailInbox?.items),
+        mailItems: isArray(msMailInbox?.items),
+        whatsappItems: isArray(whatsappInbox?.items),
+      });
       return (
         <View>
-          <SectionTitle>Nachrichten ({messages.length})</SectionTitle>
-          {messages.map((message) => (
-            <View key={message.id} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{message.sender || "Unbekannt"}</Text>
-                <Text style={styles.cardMeta}>#{message.id}</Text>
-              </View>
-              <Text style={styles.cardBody}>{message.text || ""}</Text>
-              <View style={styles.row}>
-                <ActionButton
-                  small
-                  variant="light"
-                  label="Antwort-Vorschlag"
-                  onPress={() => handleMessageSuggestionReply(message.id)}
-                  disabled={actionBusy}
-                />
-                <ActionButton
-                  small
-                  variant="ghost"
-                  label="Aufgabe ableiten"
-                  onPress={() => handleGenerateTaskSuggestionForMessage(message.id)}
-                  disabled={actionBusy}
-                />
-                <ActionButton
-                  small
-                  variant="ghost"
-                  label="Termin erkennen"
-                  onPress={() => handleGenerateCalendarSuggestionForMessage(message.id)}
-                  disabled={actionBusy}
-                />
-                <ActionButton
-                  small
-                  variant="danger"
-                  label="Spam / Absender blockieren"
-                  onPress={() => handleMarkMessageSpam(message.source || "message", spamMessageRef(message), message.sender)}
-                  disabled={actionBusy}
-                />
-              </View>
-              {!senderHasContact(message.sender, contacts) && (
-                <View style={styles.assignmentBox}>
-                  <Text style={styles.forwardLabel}>Unbekannter Absender</Text>
-                  <Text style={styles.cardMeta}>
-                    Lege lokal fest, wer diese Person ist. Bei Kunden steuert der Betreuer die To-do-Regel.
-                  </Text>
-                  <View style={styles.row}>
-                    {contactTypeOptions.map((option) => {
-                      const draft = senderAssignmentDrafts[message.sender] || {
-                        contact_type: "arbeit",
-                        betreuer: "philip",
-                      };
-                      return (
-                        <ActionButton
-                          key={`${message.id}-${option.value}`}
-                          small
-                          variant={draft.contact_type === option.value ? "success" : "ghost"}
-                          label={option.label}
-                          onPress={() =>
-                            updateSenderAssignmentDraft(message.sender, {
-                              contact_type: option.value,
-                            })
-                          }
-                        />
-                      );
-                    })}
-                  </View>
-                  {(senderAssignmentDrafts[message.sender]?.contact_type || "arbeit") === "kunde" && (
+          <SectionTitle>Posteingang ({inboxGroups.length} Kontakte)</SectionTitle>
+          <View style={styles.card}>
+            <View style={styles.privacyRow}>
+              <Text style={styles.privacyLabel}>E-Mail</Text>
+              <Chip label={emailInbox?.connected ? "verbunden" : "nicht verbunden"} color={emailInbox?.connected ? colors.sage : colors.textSoft} />
+            </View>
+            <View style={styles.privacyRow}>
+              <Text style={styles.privacyLabel}>Microsoft / Gmail</Text>
+              <Chip label={msMailInbox?.status?.read_enabled ? "verbunden" : "nicht verbunden"} color={msMailInbox?.status?.read_enabled ? colors.sage : colors.textSoft} />
+            </View>
+            <View style={styles.privacyRow}>
+              <Text style={styles.privacyLabel}>WhatsApp</Text>
+              <Chip label={whatsappInbox?.status?.read_enabled ? "verbunden" : "nicht verbunden"} color={whatsappInbox?.status?.read_enabled ? colors.sage : colors.textSoft} />
+            </View>
+            <Text style={styles.forwardSafety}>
+              Nachrichten derselben Person werden als ein Verlauf zusammengefasst. Erledigte WhatsApp-Verläufe verschwinden automatisch aus dieser Ansicht.
+            </Text>
+            <View style={styles.row}>
+              <ActionButton small variant="ghost" label="Mails synchronisieren" onPress={handleSyncMsMail} disabled={actionBusy} />
+              <ActionButton small variant="ghost" label={msMailIncludeAll ? "Nur relevante" : "Alle anzeigen"} onPress={handleToggleMsMailIncludeAll} disabled={actionBusy} />
+            </View>
+          </View>
+
+          {inboxGroups.map((group) => {
+            const expanded = Boolean(expandedInboxGroups[group.key]);
+            const latest = group.items[0];
+            return (
+              <View key={group.key} style={styles.card}>
+                <TouchableOpacity
+                  activeOpacity={0.78}
+                  onPress={() => setExpandedInboxGroups((current) => ({ ...current, [group.key]: !expanded }))}
+                >
+                  <View style={styles.cardHeader}>
                     <View style={styles.row}>
-                      {betreuerOptions.map((option) => {
-                        const draft = senderAssignmentDrafts[message.sender] || {
-                          contact_type: "kunde",
-                          betreuer: "philip",
-                        };
+                      <Avatar name={group.sender} />
+                      <View>
+                        <Text style={styles.cardTitle}>{group.sender}</Text>
+                        <Text style={styles.cardMeta}>{group.count} Nachricht{group.count === 1 ? "" : "en"} · {group.sources.join(" / ")}</Text>
+                      </View>
+                    </View>
+                    <Chip label={expanded ? "schliessen" : "oeffnen"} color={colors.accent} />
+                  </View>
+                  {!expanded && (
+                    <>
+                      <Text style={styles.cardMeta}>{latest?.receivedAt || ""}</Text>
+                      <Text style={styles.cardBody} numberOfLines={2}>{latest?.body || latest?.title || ""}</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {expanded && group.items.map((entry) => (
+                  <View key={entry.key} style={styles.cardCompact}>
+                    <View style={styles.cardHeader}>
+                      <Text style={styles.cardMeta}>{entry.sourceLabel} · {entry.receivedAt || ""}</Text>
+                      <Chip label={entry.sourceLabel} color={entry.source === "whatsapp" ? colors.sage : colors.accent} />
+                    </View>
+                    {!!entry.title && entry.title !== "Nachricht" && <Text style={styles.cardTitle}>{entry.title}</Text>}
+                    <Text style={styles.cardBody}>{entry.body || ""}</Text>
+                    <View style={styles.row}>
+                      {!!entry.localMessageId && (
+                        <>
+                          <ActionButton small variant="light" label="Antwort" onPress={() => handleMessageSuggestionReply(entry.localMessageId)} disabled={actionBusy} />
+                          <ActionButton small variant="ghost" label="Aufgabe" onPress={() => handleGenerateTaskSuggestionForMessage(entry.localMessageId)} disabled={actionBusy} />
+                          <ActionButton small variant="ghost" label="Termin" onPress={() => handleGenerateCalendarSuggestionForMessage(entry.localMessageId)} disabled={actionBusy} />
+                        </>
+                      )}
+                      {["ms_mail", "imap_mail"].includes(entry.source) && (
+                        <ActionButton small variant="ghost" label="Details" onPress={() => handleOpenMsMailDetail(entry.raw)} disabled={actionBusy} />
+                      )}
+                      <ActionButton small variant="danger" label="Spam" onPress={() => handleMarkMessageSpam(entry.source, entry.spamRef, group.sender)} disabled={actionBusy} />
+                    </View>
+                  </View>
+                ))}
+
+                {!senderHasContact(group.sender, contacts) && expanded && (
+                  <View style={styles.assignmentBox}>
+                    <Text style={styles.forwardLabel}>Unbekannter Absender</Text>
+                    <View style={styles.row}>
+                      {contactTypeOptions.map((option) => {
+                        const draft = senderAssignmentDrafts[group.sender] || { contact_type: "arbeit", betreuer: "philip" };
                         return (
                           <ActionButton
-                            key={`${message.id}-betreuer-${option.value}`}
+                            key={`${group.key}-${option.value}`}
                             small
-                            variant={draft.betreuer === option.value ? "success" : "ghost"}
+                            variant={draft.contact_type === option.value ? "success" : "ghost"}
                             label={option.label}
-                            onPress={() =>
-                              updateSenderAssignmentDraft(message.sender, {
-                                contact_type: "kunde",
-                                betreuer: option.value,
-                              })
-                            }
+                            onPress={() => updateSenderAssignmentDraft(group.sender, { contact_type: option.value })}
                           />
                         );
                       })}
                     </View>
-                  )}
-                  <ActionButton
-                    small
-                    variant="ghost"
-                    label="Absender lokal speichern"
-                    onPress={() => handleAssignSenderContact(message.sender)}
-                    disabled={actionBusy}
-                  />
-                </View>
-              )}
-            </View>
-          ))}
-          {!!senderAssignmentResult && (
-            <Text style={styles.approvalResultText}>{senderAssignmentResult}</Text>
-          )}
+                    <ActionButton small variant="ghost" label="Kontakt speichern" onPress={() => handleAssignSenderContact(group.sender)} disabled={actionBusy} />
+                  </View>
+                )}
+              </View>
+            );
+          })}
+          {inboxGroups.length === 0 && <EmptyState icon="mail" text="Keine offenen Nachrichten." />}
+          {!!senderAssignmentResult && <Text style={styles.approvalResultText}>{senderAssignmentResult}</Text>}
           {!!calendarSuggestionResult && (
             <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>Termin-Erkennung</Text>
-                <Chip label="Review" color={colors.warn} />
-              </View>
+              <Text style={styles.cardTitle}>Termin-Erkennung</Text>
               <Text style={styles.cardBody}>{calendarSuggestionResult}</Text>
-              <Text style={styles.forwardSafety}>
-                Friday erstellt nur einen lokalen Vorschlag. Es wird kein Kalendertermin geschrieben.
-              </Text>
-            </View>
-          )}
-          {messages.length === 0 && <EmptyState icon="mail" text="Keine Nachrichten." />}
-          <SectionTitle>E-Mail-Posteingang (nur lesen)</SectionTitle>
-          {!emailInbox?.connected && (
-            <View style={styles.card}>
-              <Text style={styles.cardBody}>
-                {emailInbox?.message || "Kein E-Mail-Konto verbunden."}
-              </Text>
-            </View>
-          )}
-          {emailInbox?.connected && isArray(emailInbox.items).map((item, index) => (
-            <View key={`${item.subject || "mail"}-${index}`} style={styles.card}>
-              <Text style={styles.cardTitle}>{item.subject || "(ohne Betreff)"}</Text>
-              <Text style={styles.cardMeta}>Von: {item.sender || "-"}</Text>
-              <Text style={styles.cardMeta}>{item.date || ""}</Text>
-              <Text style={styles.cardBody}>{item.text_preview || ""}</Text>
-            </View>
-          ))}
-
-          <SectionTitle>Familienhelden-Postfach (nur lesen)</SectionTitle>
-          <View style={styles.card}>
-            <View style={styles.privacyRow}>
-              <Text style={styles.privacyLabel}>Microsoft Graph Mail.Read</Text>
-              <Chip
-                label={msMailInbox?.status?.read_enabled ? "aktiv" : "aus"}
-                color={msMailInbox?.status?.read_enabled ? colors.warn : colors.textSoft}
-              />
-            </View>
-            <Text style={styles.forwardSafety}>
-              Nur Lesen. Friday synchronisiert Betreff, Absender, Empfaenger und Vorschau lokal
-              und sendet nichts. Office@ zeigt standardmaessig nur fuer dich relevante Mails.
-            </Text>
-            <View style={styles.row}>
-              <ActionButton
-                small
-                variant="ghost"
-                label="Familienhelden-Mails synchronisieren"
-                onPress={handleSyncMsMail}
-                disabled={actionBusy}
-              />
-              <ActionButton
-                small
-                variant="ghost"
-                label={msMailIncludeAll ? "Nur relevante anzeigen" : "Alle anzeigen"}
-                onPress={handleToggleMsMailIncludeAll}
-                disabled={actionBusy}
-              />
-            </View>
-            {!!msMailInbox?.message && <Text style={styles.cardMeta}>{msMailInbox.message}</Text>}
-          </View>
-          {!!selectedMsMailDetail && (
-            <View style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{selectedMsMailDetail.subject || "(ohne Betreff)"}</Text>
-                <Chip
-                  label={msMailRelevanceLabel(selectedMsMailDetail.relevance_reason)}
-                  color={selectedMsMailDetail.relevance_method === "ai" ? colors.warn : colors.sage}
-                />
-              </View>
-              <Text style={styles.cardMeta}>Von: {selectedMsMailDetail.sender || "-"}</Text>
-              <Text style={styles.cardMeta}>
-                Empfaenger: {msMailRecipientsText(selectedMsMailDetail)}
-              </Text>
-              <Text style={styles.cardMeta}>
-                Postfach: {selectedMsMailDetail.account_username || selectedMsMailDetail.account_id || "-"}
-              </Text>
-              <Text style={styles.cardMeta}>{selectedMsMailDetail.received_at || ""}</Text>
-              <Text style={styles.cardBody}>{selectedMsMailDetail.body_full || selectedMsMailDetail.snippet || ""}</Text>
-              <Text style={styles.forwardSafety}>
-                Volltext ist lokal in SQLite gespeichert. Friday sendet diese Mail nicht extern.
-              </Text>
-              <ActionButton
-                small
-                variant="ghost"
-                label="Detail schließen"
-                onPress={() => setSelectedMsMailDetail(null)}
-                disabled={actionBusy}
-              />
-            </View>
-          )}
-          {isArray(msMailInbox?.items).map((item, index) => (
-            <TouchableOpacity
-              key={`${item.message_id || "ms-mail"}-${index}`}
-              style={styles.card}
-              activeOpacity={0.84}
-              onPress={() => handleOpenMsMailDetail(item)}
-            >
-              <Text style={styles.cardTitle}>{item.subject || "(ohne Betreff)"}</Text>
-              <Text style={styles.cardMeta}>Von: {item.sender || "-"}</Text>
-              <Text style={styles.cardMeta}>Quelle: {item.source === "imap_mail" ? "Gmail" : "Microsoft"} / Postfach: {item.account_username || item.account_id || "-"}</Text>
-              <Text style={styles.cardMeta}>
-                Relevanz: {msMailRelevanceLabel(item.relevance_reason)}
-                {Number(item.relevant_for_user || 0) === 0 ? " (nur in Alle anzeigen)" : ""}
-              </Text>
-              <Text style={styles.cardMeta}>{item.received_at || ""}</Text>
-              <Text style={styles.cardBody}>{item.snippet || ""}</Text>
-              <View style={styles.row}>
-                <ActionButton
-                  small
-                  variant="danger"
-                  label="Spam / Absender blockieren"
-                  onPress={() => handleMarkMessageSpam(item.source || "ms_mail", spamMessageRef(item), item.sender)}
-                  disabled={actionBusy}
-                />
-              </View>
-            </TouchableOpacity>
-          ))}
-          {isArray(msMailInbox?.items).length === 0 && (
-            <View style={styles.card}>
-              <Text style={styles.cardBody}>Noch keine lokal synchronisierten Familienhelden-Mails.</Text>
             </View>
           )}
 
-          <SectionTitle>WhatsApp (mitgelesen, letzte 10)</SectionTitle>
-          <View style={styles.card}>
-            <View style={styles.privacyRow}>
-              <Text style={styles.privacyLabel}>Read-Bridge</Text>
-              <Chip
-                label={whatsappInbox?.status?.read_enabled ? "aktiv" : "aus"}
-                color={whatsappInbox?.status?.read_enabled ? colors.warn : colors.textSoft}
-              />
-            </View>
-            <Text style={styles.forwardSafety}>
-              Nur Mitlesen. Senden nur durch dich per WhatsApp-Link. Nutzung auf eigenes Risiko.
-            </Text>
-          </View>
-          {isArray(whatsappInbox?.items).map((item, index) => (
-            <View key={`${item.synthetic_message_id || "wa"}-${index}`} style={styles.card}>
-              <Text style={styles.cardTitle}>{item.sender_name || "WhatsApp"}</Text>
-              <Text style={styles.cardMeta}>{item.received_at || ""}</Text>
-              <Text style={styles.cardMeta}>Nummer: {item.sender_number_masked || "hash:unknown"}</Text>
-              <Text style={styles.cardBody}>{item.body || ""}</Text>
-              <View style={styles.row}>
-                <ActionButton
-                  small
-                  variant="danger"
-                  label="Spam / Absender blockieren"
-                  onPress={() => handleMarkMessageSpam("whatsapp", item.id, item.sender_name || "WhatsApp")}
-                  disabled={actionBusy}
-                />
-              </View>
-            </View>
-          ))}
-          {isArray(whatsappInbox?.items).length === 0 && (
-            <View style={styles.card}>
-              <Text style={styles.cardBody}>Keine lokal gespiegelten WhatsApp-Nachrichten.</Text>
-            </View>
-          )}
-
-          <SectionTitle>Antwort-Vorschläge</SectionTitle>
+          {(messageSuggestions.length > 0 || taskSuggestions.length > 0) && <SectionTitle>Offene Vorschlaege</SectionTitle>}
           {messageSuggestions.map((suggestion) => (
             <View key={suggestion.id} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardMeta}>
-                  Nachricht #{suggestion.message_id || "-"} | {suggestion.suggestion_type || "reply"}
-                </Text>
-                <Chip
-                  label={suggestion.status || "offen"}
-                  color={suggestion.status === "preview" ? colors.sage : colors.warn}
-                />
-              </View>
               <Text style={styles.cardBody}>{suggestion.draft_text || "(keine Vorlage)"}</Text>
-              {!!suggestion.notes && <Text style={styles.cardMeta}>{suggestion.notes}</Text>}
               <View style={styles.row}>
-                <ActionButton
-                  small
-                  variant="success"
-                  label="Annehmen"
-                  onPress={() => handleMessageSuggestionDecision(suggestion.id, "approved")}
-                  disabled={actionBusy || suggestion.id.toString().startsWith("preview-")}
-                />
-                <ActionButton
-                  small
-                  variant="danger"
-                  label="Ablehnen"
-                  onPress={() => handleMessageSuggestionDecision(suggestion.id, "rejected")}
-                  disabled={actionBusy || suggestion.id.toString().startsWith("preview-")}
-                />
+                <ActionButton small variant="success" label="Annehmen" onPress={() => handleMessageSuggestionDecision(suggestion.id, "approved")} disabled={actionBusy || suggestion.id.toString().startsWith("preview-")} />
+                <ActionButton small variant="danger" label="Ablehnen" onPress={() => handleMessageSuggestionDecision(suggestion.id, "rejected")} disabled={actionBusy || suggestion.id.toString().startsWith("preview-")} />
               </View>
             </View>
           ))}
-
-          <SectionTitle>Aufgaben-Vorschläge</SectionTitle>
           {taskSuggestions.map((suggestion) => (
             <View key={suggestion.id} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{suggestion.title}</Text>
-                <Chip label={toPriorityLabel(suggestion.priority)} color={priorityColor(suggestion.priority)} />
-              </View>
-              <Text style={styles.cardMeta}>
-                Aus Nachricht #{suggestion.message_id || "-"} | {suggestion.status || "offen"}
-              </Text>
+              <Text style={styles.cardTitle}>{suggestion.title}</Text>
               {!!suggestion.notes && <Text style={styles.cardBody}>{suggestion.notes}</Text>}
               <View style={styles.row}>
-                <ActionButton
-                  small
-                  variant="success"
-                  label="Annehmen"
-                  onPress={() => handleTaskSuggestionDecision(suggestion.id, "approved")}
-                  disabled={actionBusy}
-                />
-                <ActionButton
-                  small
-                  variant="danger"
-                  label="Ablehnen"
-                  onPress={() => handleTaskSuggestionDecision(suggestion.id, "rejected")}
-                  disabled={actionBusy}
-                />
+                <ActionButton small variant="success" label="Annehmen" onPress={() => handleTaskSuggestionDecision(suggestion.id, "approved")} disabled={actionBusy} />
+                <ActionButton small variant="danger" label="Ablehnen" onPress={() => handleTaskSuggestionDecision(suggestion.id, "rejected")} disabled={actionBusy} />
               </View>
             </View>
           ))}
-          {messageSuggestions.length === 0 && taskSuggestions.length === 0 && (
-            <EmptyState icon="lightbulb" text="Noch keine Vorschläge." />
-          )}
         </View>
       );
     }
@@ -3531,20 +3493,39 @@ export default function App() {
 
     if (currentScreen === "Kalender") {
       const items = isArray(calendar?.merged_items || calendar?.items || calendar?.calendar_items || []);
-      const slots = isArray(calendar?.free_slots || []);
-      const googleEvents = isArray(googleCalendarPreview?.events);
-      const sourceEvents = isArray(calendar?.source_events);
-      const sourceErrors = isArray(calendar?.source_errors);
       const googleConnected = Boolean(calendarAccountStatus?.google?.connected);
+      const policies = isArray(accountPolicies?.items || accountPolicies?.policies || accountPolicies);
       const weekDays = buildWeekDays(weekCalendar, googleCalendarPreview);
       const weekTodayKey = formatDateOnly(new Date());
       const weekFirst = weekDays[0];
       const weekLast = weekDays[weekDays.length - 1];
+      const upcomingItems = [...items]
+        .sort((left, right) => String(left.start || left.date || "").localeCompare(String(right.start || right.date || "")))
+        .slice(0, 12);
       return (
         <View>
+          <SectionTitle>Verbundene Kalender</SectionTitle>
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Google Kalender</Text>
+              <Chip label={googleConnected ? "verbunden" : "nicht verbunden"} color={googleConnected ? colors.sage : colors.textSoft} />
+            </View>
+            <Text style={styles.cardMeta}>{calendarAccountStatus?.google?.calendar_id || "Kein Google-Kalender verbunden"}</Text>
+          </View>
+          {policies.map((policy, index) => (
+            <View key={policy.id || `${policy.provider || "calendar"}-${index}`} style={styles.cardCompact}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>{policy.label || policy.name || policy.provider || "Kalenderquelle"}</Text>
+                <Chip label={policy.enabled === false ? "pausiert" : "verbunden"} color={policy.enabled === false ? colors.textSoft : colors.sage} />
+              </View>
+              <Text style={styles.cardMeta}>{policy.provider || policy.role || "lokale Kalenderquelle"}</Text>
+            </View>
+          ))}
+          {!googleConnected && policies.length === 0 && <EmptyState icon="calendar" text="Noch kein Kalender verbunden." />}
+
           <SectionTitle>Wochenkalender</SectionTitle>
           <Text style={styles.cardMeta}>
-            {weekdayLabel(weekFirst.date)} {shortDateLabel(weekFirst.date)} bis {weekdayLabel(weekLast.date)} {shortDateLabel(weekLast.date)} · verplante Stunden pro Tag
+            {weekdayLabel(weekFirst.date)} {shortDateLabel(weekFirst.date)} bis {weekdayLabel(weekLast.date)} {shortDateLabel(weekLast.date)}
           </Text>
           <View style={styles.weekGrid}>
             {weekDays.map((day) => {
@@ -3554,334 +3535,33 @@ export default function App() {
               return (
                 <View key={day.key} style={[styles.weekTile, isToday && styles.weekTileToday]}>
                   <View style={styles.weekTileHeader}>
-                    <Text style={[styles.weekTileDay, isToday && styles.weekTileDayToday]}>
-                      {isToday ? "Heute" : weekdayLabel(day.date)}
-                    </Text>
+                    <Text style={[styles.weekTileDay, isToday && styles.weekTileDayToday]}>{isToday ? "Heute" : weekdayLabel(day.date)}</Text>
                     <Text style={styles.weekTileDate}>{shortDateLabel(day.date)}</Text>
                   </View>
-                  <Text style={[styles.weekTileHours, day.hours === 0 && styles.weekTileHoursFree]}>
-                    {day.hours > 0 ? `${formatHoursLabel(day.hours)} verplant` : "frei"}
-                  </Text>
+                  <Text style={[styles.weekTileHours, day.hours === 0 && styles.weekTileHoursFree]}>{day.hours > 0 ? `${formatHoursLabel(day.hours)} verplant` : "frei"}</Text>
                   {visibleEvents.map((entry, index) => (
-                    <Text
-                      key={`${day.key}-event-${index}`}
-                      style={styles.weekTileEvent}
-                      numberOfLines={1}
-                    >
-                      {eventTimeLabel(entry) ? `${eventTimeLabel(entry)} · ` : ""}
-                      {entry.title || entry.summary || "Termin"}
+                    <Text key={`${day.key}-event-${index}`} style={styles.weekTileEvent} numberOfLines={1}>
+                      {eventTimeLabel(entry) ? `${eventTimeLabel(entry)} · ` : ""}{entry.title || entry.summary || "Termin"}
                     </Text>
                   ))}
-                  {hiddenCount > 0 && (
-                    <Text style={styles.weekTileMore}>+{hiddenCount} weitere</Text>
-                  )}
+                  {hiddenCount > 0 && <Text style={styles.weekTileMore}>+{hiddenCount} weitere</Text>}
                 </View>
               );
             })}
           </View>
-          <SectionTitle>Kalenderansicht</SectionTitle>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Zeitraum und Tagesfenster</Text>
-            <Text style={styles.cardMeta}>
-              Aktuell: {calendarRangeLabel(calendar)} · {calendar?.day_start || "00:00"} bis {calendar?.day_end || "23:59"}
-            </Text>
-            <View style={styles.row}>
-              {[
-                ["heute", "Heute"],
-                ["7tage", "7 Tage"],
-                ["30tage", "30 Tage"],
-                ["custom", "Eigen"],
-              ].map(([value, label]) => (
-                <ActionButton
-                  key={value}
-                  small
-                  variant={calendarViewPrefs.range_preset === value ? "success" : "ghost"}
-                  label={label}
-                  onPress={() =>
-                    setCalendarViewPrefs((current) => ({ ...current, range_preset: value }))
-                  }
-                />
-              ))}
-            </View>
-            {calendarViewPrefs.range_preset === "custom" && (
-              <View style={styles.row}>
-                <TextInput
-                  value={calendarViewPrefs.custom_from || ""}
-                  onChangeText={(value) =>
-                    setCalendarViewPrefs((current) => ({ ...current, custom_from: value }))
-                  }
-                  style={[styles.input, styles.inputHalf]}
-                  placeholder="Von: 2026-07-09"
-                  placeholderTextColor={colors.textSoft}
-                  autoCapitalize="none"
-                />
-                <TextInput
-                  value={calendarViewPrefs.custom_to || ""}
-                  onChangeText={(value) =>
-                    setCalendarViewPrefs((current) => ({ ...current, custom_to: value }))
-                  }
-                  style={[styles.input, styles.inputHalf]}
-                  placeholder="Bis: 2026-07-16"
-                  placeholderTextColor={colors.textSoft}
-                  autoCapitalize="none"
-                />
-              </View>
-            )}
-            <View style={styles.row}>
-              <TextInput
-                value={calendarViewPrefs.day_start || "00:00"}
-                onChangeText={(value) =>
-                  setCalendarViewPrefs((current) => ({ ...current, day_start: value }))
-                }
-                style={[styles.input, styles.inputHalf]}
-                placeholder="Tag Start: 08:00"
-                placeholderTextColor={colors.textSoft}
-                autoCapitalize="none"
-              />
-              <TextInput
-                value={calendarViewPrefs.day_end || "23:59"}
-                onChangeText={(value) =>
-                  setCalendarViewPrefs((current) => ({ ...current, day_end: value }))
-                }
-                style={[styles.input, styles.inputHalf]}
-                placeholder="Tag Ende: 18:00"
-                placeholderTextColor={colors.textSoft}
-                autoCapitalize="none"
-              />
-            </View>
-            <ActionButton
-              label="Ansicht speichern und laden"
-              onPress={handleSaveCalendarViewPrefs}
-              disabled={actionBusy}
-            />
-            {!!calendarPrefsResult && <Text style={styles.approvalResultText}>{calendarPrefsResult}</Text>}
-          </View>
-          <SectionTitle>Termin übernehmen</SectionTitle>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Nachricht in Kalendertermin umwandeln</Text>
-            <Text style={styles.cardBody}>
-              Friday erkennt den Termin lokal, du kannst alles bearbeiten und erst `TERMIN SPEICHERN` schreibt in Google.
-            </Text>
-            <TextInput
-              value={calendarMessageText}
-              onChangeText={setCalendarMessageText}
-              style={styles.input}
-              placeholder="Nachricht mit Termintext"
-              placeholderTextColor={colors.textSoft}
-              multiline
-            />
-            <TextInput
-              value={calendarDraftTitle}
-              onChangeText={setCalendarDraftTitle}
-              style={styles.input}
-              placeholder="Titel optional überschreiben"
-              placeholderTextColor={colors.textSoft}
-            />
-            <TextInput
-              value={calendarDraftDate}
-              onChangeText={setCalendarDraftDate}
-              style={styles.input}
-              placeholder="Datum optional: 2026-07-15"
-              placeholderTextColor={colors.textSoft}
-              autoCapitalize="none"
-            />
-            <TextInput
-              value={calendarDraftStart}
-              onChangeText={setCalendarDraftStart}
-              style={styles.input}
-              placeholder="Start optional: 10:00"
-              placeholderTextColor={colors.textSoft}
-              autoCapitalize="none"
-            />
-            <TextInput
-              value={calendarDraftEnd}
-              onChangeText={setCalendarDraftEnd}
-              style={styles.input}
-              placeholder="Ende optional: 11:00"
-              placeholderTextColor={colors.textSoft}
-              autoCapitalize="none"
-            />
-            <TextInput
-              value={calendarDraftLocation}
-              onChangeText={setCalendarDraftLocation}
-              style={styles.input}
-              placeholder="Ort optional"
-              placeholderTextColor={colors.textSoft}
-            />
-            <TextInput
-              value={calendarWriteToken}
-              onChangeText={setCalendarWriteToken}
-              style={styles.input}
-              placeholder="TERMIN SPEICHERN"
-              placeholderTextColor={colors.textSoft}
-              autoCapitalize="characters"
-            />
-            <ActionButton
-              label="Termin übernehmen"
-              onPress={() => openTokenModal({ title: "Termin speichern", explanation: "Erst nach exaktem Token wird ein Google-Termin geschrieben.", expectedToken: "TERMIN SPEICHERN", onConfirm: handleCreateCalendarEventFromMessage })}
-              disabled={actionBusy || !calendarMessageText.trim() || calendarWriteToken.trim() !== "TERMIN SPEICHERN"}
-            />
-            {!!calendarWriteResult && <Text style={styles.approvalResultText}>{calendarWriteResult}</Text>}
-          </View>
-          <SectionTitle>Google-Kalender</SectionTitle>
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Google-Verbindung</Text>
-              <Chip
-                label={googleConnected ? "verbunden" : "nicht verbunden"}
-                color={googleConnected ? colors.success : colors.textSoft}
-              />
-            </View>
-            <Text style={styles.cardMeta}>
-              Kalender: {calendarAccountStatus?.google?.calendar_id || "-"}
-            </Text>
-            <Text style={styles.cardMeta}>
-              Verbindungstest: {calendarAccountStatus?.google?.last_test_ok ? "OK" : "nicht geprüft"}
-            </Text>
-            <Text style={styles.cardMeta}>
-              Modus: nur lesen · Schreiben {googleCalendarPreview?.write_enabled ? "aktiv" : "aus"}
-            </Text>
-            {!!googleCalendarPreview?.message && (
-              <Text style={styles.cardBody}>{googleCalendarPreview.message}</Text>
-            )}
-          </View>
-          <SectionTitle>Arbeitstage nach Google</SectionTitle>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>PH-Arbeitstage eintragen</Text>
-            <Text style={styles.cardBody}>
-              Friday nimmt aus dem team-hampejs-Kalender nur die PH/Philip/Phips-Einträge und trägt
-              sie immer als Block 08:00-18:00 in deinen Google-Kalender ein. Alle anderen Termine der
-              Quelle werden ignoriert; schon vorhandene Tage werden übersprungen.
-            </Text>
-            <ActionButton
-              small
-              variant="ghost"
-              label="Vorschau laden (ohne Schreiben)"
-              onPress={handlePreviewWorkdaySync}
-              disabled={actionBusy}
-            />
-            {!!workdaySyncPreview && (
-              <View style={styles.cardCompact}>
-                {isArray(workdaySyncPreview.created).map((day) => (
-                  <Text key={`wd-created-${day.date}`} style={styles.cardMeta}>
-                    Eingetragen: {day.date} - {day.title}
-                  </Text>
-                ))}
-                {isArray(workdaySyncPreview.to_create).map((day) => (
-                  <Text key={`wd-create-${day.date}`} style={styles.cardMeta}>
-                    Geplant: {day.date} - {day.title} ({String(day.start).slice(11, 16)}-{String(day.end).slice(11, 16)})
-                  </Text>
-                ))}
-                {isArray(workdaySyncPreview.already_in_google).map((day) => (
-                  <Text key={`wd-existing-${day.date}`} style={styles.cardMeta}>
-                    Schon in Google: {day.date} - {day.title}
-                  </Text>
-                ))}
-                {isArray(workdaySyncPreview.failed).map((day) => (
-                  <Text key={`wd-failed-${day.date}`} style={styles.cardMeta}>
-                    Fehlgeschlagen: {day.date} - {day.message || "fehlgeschlagen"}
-                  </Text>
-                ))}
-                {workdaySyncPreview.workdays_found === 0 && (
-                  <Text style={styles.cardMeta}>Keine PH-Arbeitstage im Zeitraum gefunden.</Text>
-                )}
-              </View>
-            )}
-            <TextInput
-              value={workdaySyncToken}
-              onChangeText={setWorkdaySyncToken}
-              style={styles.input}
-              placeholder="TERMIN SPEICHERN"
-              placeholderTextColor={colors.textSoft}
-              autoCapitalize="characters"
-            />
-            <ActionButton
-              label="Arbeitstage jetzt eintragen"
-              onPress={() => openTokenModal({ title: "Arbeitstage eintragen", explanation: "Fehlende PH-Arbeitstage der nächsten 14 Tage werden als Termine in Google geschrieben.", expectedToken: "TERMIN SPEICHERN", onConfirm: handleRunWorkdaySync })}
-              disabled={actionBusy || workdaySyncToken.trim() !== "TERMIN SPEICHERN"}
-            />
-            {!!workdaySyncResult && <Text style={styles.approvalResultText}>{workdaySyncResult}</Text>}
-            <Text style={styles.forwardSafety}>
-              Es wird erst nach exaktem Token geschrieben. Vorschau ist jederzeit ohne Änderung möglich.
-            </Text>
-          </View>
-          {googleEvents.map((entry) => (
-            <View key={entry.id ?? `${entry.calendar_id}-${entry.start}-${entry.end}`} style={styles.card}>
+
+          <SectionTitle>Anstehende Termine</SectionTitle>
+          {upcomingItems.map((entry) => (
+            <View key={`${entry.provider || entry.item_type || "local"}-${entry.id ?? `${entry.date}-${entry.start}`}`} style={styles.card}>
               <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{entry.title || "Google-Termin"}</Text>
-                <Chip label="Google" color={colors.sage} />
+                <Text style={styles.cardTitle}>{entry.title || entry.summary || "Termin"}</Text>
+                <Chip label={entry.policy_label || entry.provider || entry.item_type || "Kalender"} color={colors.accent} />
               </View>
-              <Text style={styles.cardMeta}>
-                {formatCalendarMoment(entry.start)} - {formatCalendarMoment(entry.end)}
-              </Text>
-              {!!entry.location && <Text style={styles.cardMeta}>Ort: {entry.location}</Text>}
-              <TextInput
-                value={calendarDeleteTokens[entry.id] || ""}
-                onChangeText={(value) =>
-                  setCalendarDeleteTokens((current) => ({ ...current, [entry.id]: value }))
-                }
-                style={styles.input}
-                placeholder="TERMIN LOESCHEN"
-                placeholderTextColor={colors.textSoft}
-                autoCapitalize="characters"
-              />
-              <ActionButton
-                label="Termin löschen"
-                onPress={() => openTokenModal({ title: "Termin löschen", explanation: "Dieser Termin wird nur nach hartem Token gelöscht.", expectedToken: "TERMIN LOESCHEN", onConfirm: (token) => handleDeleteCalendarEvent(entry, token) })}
-                disabled={actionBusy || !entry.id || (calendarDeleteTokens[entry.id] || "").trim() !== "TERMIN LOESCHEN"}
-                variant="danger"
-              />
-            </View>
-          ))}
-          {!!calendarDeleteResult && <Text style={styles.approvalResultText}>{calendarDeleteResult}</Text>}
-          {googleConnected && googleEvents.length === 0 && (
-            <EmptyState icon="calendar" text="Keine Google-Termine in den nächsten 30 Tagen gefunden." />
-          )}
-          {!googleConnected && (
-            <EmptyState icon="calendar" text="Google-Kalender ist noch nicht verbunden." />
-          )}
-          <SectionTitle>Kalender-Quellen</SectionTitle>
-          {sourceEvents.map((entry) => (
-            <View key={`${entry.provider}-${entry.id}-${entry.start}`} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{entry.title || "Quellen-Termin"}</Text>
-                <Chip label={entry.policy_label || entry.provider || "Quelle"} color={colors.sage} />
-              </View>
-              <Text style={styles.cardMeta}>
-                {formatCalendarMoment(entry.start)} - {formatCalendarMoment(entry.end)}
-              </Text>
+              <Text style={styles.cardMeta}>{formatCalendarMoment(entry.start)} - {formatCalendarMoment(entry.end)}</Text>
               {!!entry.location && <Text style={styles.cardMeta}>Ort: {entry.location}</Text>}
             </View>
           ))}
-          {sourceEvents.length === 0 && <EmptyState icon="calendar" text="Keine gefilterten Quellen-Termine gefunden." />}
-          {sourceErrors.map((error, index) => (
-            <Text key={`${error.policy_id}-${index}`} style={styles.cardMeta}>
-              Quelle nicht geladen: {error.provider} · {(error.blocked_reasons || []).join(", ")}
-            </Text>
-          ))}
-          <SectionTitle>Termine: {calendarRangeLabel(calendar)}</SectionTitle>
-          {items.map((entry) => (
-            <View key={`${entry.provider || entry.item_type || "local"}-${entry.id ?? `${entry.date}-${entry.start}-${entry.end}`}`} style={styles.card}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{entry.title || "Termin"}</Text>
-                <Chip label={entry.policy_label || entry.provider || entry.item_type || "busy"} color={colors.accent} />
-              </View>
-              <Text style={styles.cardMeta}>
-                {formatCalendarMoment(entry.start)} - {formatCalendarMoment(entry.end)} | {entry.date || calendar?.date || entry.start?.slice?.(0, 10)}
-              </Text>
-            </View>
-          ))}
-          {items.length === 0 && <EmptyState icon="calendar" text="Keine Termine im gewählten Zeitraum." />}
-          <SectionTitle>Freie Slots</SectionTitle>
-          {slots.map((slot, index) => (
-            <View key={`${slot.start}-${slot.end}-${index}`} style={styles.slotCard}>
-              <Text style={styles.slotText}>
-                {slot.start || "-"} - {slot.end || "-"}
-              </Text>
-              <Text style={styles.slotFree}>frei</Text>
-            </View>
-          ))}
-          {slots.length === 0 && <EmptyState icon="clock" text="Keine Freizeiten im Standardfenster." />}
+          {upcomingItems.length === 0 && <EmptyState icon="calendar" text="Keine anstehenden Termine in dieser Woche." />}
         </View>
       );
     }
@@ -4129,6 +3809,45 @@ export default function App() {
               Modus: {privacy?.mode || "local"}. Daten bleiben auf deinen Geräten; externe Aktionen sind hart begrenzt.
             </Text>
           </View>
+          <SectionTitle>API-Sicherheit</SectionTitle>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>
+              Netzwerkzugriff: {apiTokenConfigured ? "Token eingerichtet" : "nur lokal"}
+            </Text>
+            <Text style={styles.cardBody}>
+              Für WLAN, Tailscale oder Tunnel muss derselbe FRIDAY_API_TOKEN auf Server und Handy
+              eingerichtet sein. Der Token wird ausschließlich im Geräte-Keystore gespeichert.
+            </Text>
+            <TextInput
+              value={apiTokenDraft}
+              onChangeText={setApiTokenDraft}
+              style={styles.input}
+              placeholder="API-Token einfügen (mindestens 32 Zeichen)"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+            />
+            <View style={styles.row}>
+              <ActionButton
+                small
+                variant="success"
+                label="Token sicher speichern"
+                onPress={() => handleSaveApiToken(false)}
+                disabled={actionBusy || !apiTokenDraft.trim()}
+              />
+              {apiTokenConfigured && (
+                <ActionButton
+                  small
+                  variant="ghost"
+                  label="Token entfernen"
+                  onPress={() => handleSaveApiToken(true)}
+                  disabled={actionBusy}
+                />
+              )}
+            </View>
+            {!!apiTokenResult && <Text style={styles.approvalResultText}>{apiTokenResult}</Text>}
+          </View>
           <SectionTitle>Status</SectionTitle>
           <View style={styles.card}>
             {services.map(([label, value]) => (
@@ -4243,6 +3962,26 @@ export default function App() {
               />
             </View>
             {!!emailAccountResult && <Text style={styles.approvalResultText}>{emailAccountResult}</Text>}
+            <TextInput
+              value={emailActivationToken}
+              onChangeText={setEmailActivationToken}
+              style={styles.input}
+              placeholder="EMAIL AKTIVIEREN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <ActionButton
+              small
+              variant="danger"
+              label="Real-E-Mail separat aktivieren"
+              onPress={() => openTokenModal({
+                title: "Real-E-Mail aktivieren",
+                explanation: "Aktiviert nur den Versandpfad. Jede konkrete Mail braucht zusätzlich EMAIL SENDEN.",
+                expectedToken: "EMAIL AKTIVIEREN",
+                onConfirm: handleActivateEmailSend,
+              })}
+              disabled={actionBusy || emailActivationToken.trim() !== "EMAIL AKTIVIEREN"}
+            />
             {emailAccountStatus?.connected && (
               <ActionButton
                 small
@@ -4542,6 +4281,29 @@ export default function App() {
             <Text style={styles.forwardSafety}>
               Risiko: WhatsApp-Web-Bridges koennen gegen WhatsApp-Regeln verstossen. Nutzung auf eigenes Risiko.
             </Text>
+            <TextInput
+              value={whatsappActivationToken}
+              onChangeText={setWhatsappActivationToken}
+              style={styles.input}
+              placeholder="WHATSAPP BRIDGE AKTIVIEREN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <ActionButton
+              small
+              variant="danger"
+              label="Read-Bridge auf eigenes Risiko aktivieren"
+              onPress={() => openTokenModal({
+                title: "WhatsApp Read-Bridge aktivieren",
+                explanation: "Inoffizielle WhatsApp-Web-Bridges können eine Kontosperre auslösen. Senden bleibt deaktiviert.",
+                expectedToken: "WHATSAPP BRIDGE AKTIVIEREN",
+                onConfirm: handleActivateWhatsAppReadBridge,
+              })}
+              disabled={actionBusy || whatsappActivationToken.trim() !== "WHATSAPP BRIDGE AKTIVIEREN"}
+            />
+            {!!whatsappActivationResult && (
+              <Text style={styles.approvalResultText}>{whatsappActivationResult}</Text>
+            )}
           </View>
         </View>
       );
@@ -4769,9 +4531,13 @@ export default function App() {
                 disabled={actionBusy || mailOrganizeToken.trim() !== "POSTFACH AUFRAEUMEN"}
               />
               <ActionButton
-                label="Jetzt aufraeumen"
+                label={mailOrganizeApproval?.id ? "Exakte Auswahl bestätigen" : "Kandidaten prüfen"}
                 onPress={handleRunMailOrganize}
-                disabled={actionBusy || !privacy?.external_services?.mail_organize}
+                disabled={
+                  actionBusy ||
+                  !privacy?.external_services?.mail_organize ||
+                  mailOrganizeToken.trim() !== "POSTFACH AUFRAEUMEN"
+                }
               />
             </View>
             {!!mailOrganizeResult && <Text style={styles.approvalResultText}>{mailOrganizeResult}</Text>}
@@ -4784,9 +4550,17 @@ export default function App() {
                 </Text>
                 {!entry.undone && (
                   <ActionButton
-                    label="Zurueck in Posteingang"
+                    label={
+                      mailOrganizeUndoApproval?.logId === entry.id
+                        ? "Rueckgabe bestätigen"
+                        : "Zurueck in Posteingang"
+                    }
                     onPress={() => handleUndoMailOrganize(entry.id)}
-                    disabled={actionBusy || !privacy?.external_services?.mail_organize}
+                    disabled={
+                      actionBusy ||
+                      !privacy?.external_services?.mail_organize ||
+                      mailOrganizeToken.trim() !== "POSTFACH AUFRAEUMEN"
+                    }
                   />
                 )}
               </View>

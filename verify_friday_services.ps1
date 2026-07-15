@@ -20,7 +20,7 @@ if ([string]::IsNullOrWhiteSpace($apiHost)) {
 
 $apiPort = $env:FRIDAY_API_PORT
 if ([string]::IsNullOrWhiteSpace($apiPort)) {
-    $apiPort = "8000"
+    $apiPort = "8001"
 }
 
 $projectRoot = $PSScriptRoot
@@ -29,6 +29,14 @@ $desktopDir = Join-Path $projectRoot "friday-desktop"
 $mobileEnvPath = Join-Path $mobileDir ".env"
 
 $baseUrl = "http://${apiHost}:${apiPort}"
+$apiToken = [string]$env:FRIDAY_API_TOKEN
+if ([string]::IsNullOrWhiteSpace($apiToken)) {
+    $apiToken = [Environment]::GetEnvironmentVariable("FRIDAY_API_TOKEN", "User")
+}
+$apiHeaders = @{}
+if (-not [string]::IsNullOrWhiteSpace($apiToken)) {
+    $apiHeaders.Authorization = "Bearer $($apiToken.Trim())"
+}
 $endpoints = @(
     "/health",
     "/api/dashboard",
@@ -116,19 +124,19 @@ function Get-EndpunktFailureRecommendation {
     $combined = "$message $innerMessage".ToLower()
 
     if ($combined -match "connection refused|actively refused") {
-        return "API-Dienst auf $baseUrl scheint nicht zu laufen. Starte ihn über `start_friday_api.bat` und prüfe, ob Port $apiPort belegt ist."
+        return "API-Dienst auf $baseUrl scheint nicht zu laufen. Starte ihn über start_friday_api.bat und prüfe, ob Port $apiPort belegt ist."
     }
     if ($combined -match "timed out|timeout") {
         return "Zeitüberschreitung beim Zugriff auf $endpoint. Prüfe Host/Port und lokale Firewall/Proxy-Einstellungen."
     }
     if ($combined -match "name resolution|could not resolve host|no such host|dns") {
-        return "DNS/Hostname ungültig. Überprüfe EXPO_PUBLIC_FRIDAY_API_URL und `FRIDAY_API_HOST` (`127.0.0.1`, `10.0.2.2` oder LAN-IP)."
+        return "DNS/Hostname ungültig. Überprüfe EXPO_PUBLIC_FRIDAY_API_URL und FRIDAY_API_HOST (127.0.0.1, 10.0.2.2 oder LAN-IP)."
     }
     if ($combined -match "404") {
-        return "Der API-Pfad existiert nicht oder Routing ist falsch. Prüfe, dass der FastAPI-Server mit `uvicorn main:app` läuft."
+        return "Der API-Pfad existiert nicht oder Routing ist falsch. Prüfe, dass der FastAPI-Server mit uvicorn main:app läuft."
     }
 
-    return "Starte die API erneut (`start_friday_api.bat`) und prüfe Netzwerkzugriff auf $baseUrl."
+    return "Starte die API erneut (start_friday_api.bat) und prüfe Netzwerkzugriff auf $baseUrl."
 }
 
 function Write-OutputLine {
@@ -173,6 +181,19 @@ function Write-SummaryJson {
 Write-OutputLine "Friday service check (API)" -ForegroundColor Cyan -Always
 Write-OutputLine "API base URL: $baseUrl" -Always
 
+$isLoopbackApiHost = $apiHost -in @("127.0.0.1", "localhost", "::1")
+if (-not [string]::IsNullOrWhiteSpace($apiToken) -and $apiToken.Trim().Length -lt 32) {
+    Add-Failure "FRIDAY_API_TOKEN ist kürzer als 32 Zeichen." "Erzeuge einen neuen zufälligen Token mit mindestens 32 Zeichen."
+    Add-CheckResult -Status "FAIL" -Message "FRIDAY_API_TOKEN is too short."
+}
+elseif (-not $isLoopbackApiHost -and [string]::IsNullOrWhiteSpace($apiToken)) {
+    Add-Failure "Netzwerk-Host '$apiHost' ist ohne FRIDAY_API_TOKEN konfiguriert." "Setze einen starken Token oder binde die API an 127.0.0.1."
+    Add-CheckResult -Status "FAIL" -Message "Network API host has no authentication token."
+}
+else {
+    Add-CheckResult -Status "OK" -Message "API bind/auth configuration is safe for the selected host."
+}
+
 try {
     $listener = Get-NetTCPConnection -State Listen -LocalPort $apiPort -ErrorAction SilentlyContinue
     if ($null -eq $listener) {
@@ -192,7 +213,7 @@ catch {
 foreach ($endpoint in $endpoints) {
     $url = "$baseUrl$endpoint"
     try {
-        $response = Invoke-RestMethod -Uri $url -Method Get -TimeoutSec 5 -ErrorAction Stop
+        $response = Invoke-RestMethod -Uri $url -Method Get -TimeoutSec 5 -Headers $apiHeaders -ErrorAction Stop
         if ($response.PSObject.Properties.Name -contains "ok" -and $response.ok -eq $true) {
             Write-OutputLine "OK: $endpoint" Green
             Add-CheckResult -Status "OK" -Message "$endpoint returned ok=true."
@@ -232,16 +253,20 @@ if (Test-Path $mobileEnvPath) {
     }
 
     if (-not $mobileApiUrl) {
-        $warning = "friday-mobile/.env hat keine EXPO_PUBLIC_FRIDAY_API_URL. Beispiel: EXPO_PUBLIC_FRIDAY_API_URL=http://127.0.0.1:8000"
+        $warning = "friday-mobile/.env hat keine EXPO_PUBLIC_FRIDAY_API_URL. Beispiel: EXPO_PUBLIC_FRIDAY_API_URL=https://pc.example.ts.net"
         $warnings.Add($warning)
         Add-CheckResult -Status "WARN" -Message $warning
     }
     else {
         try {
             $uri = [System.Uri]$mobileApiUrl
-            if ($uri.Port -ne [int]$apiPort) {
+            $isPublicHttps = $uri.Scheme -eq "https" -and $uri.Host -notin @("127.0.0.1", "localhost", "10.0.2.2")
+            if (-not $isPublicHttps -and $uri.Port -ne [int]$apiPort) {
                 $warnings.Add("EXPO_PUBLIC_FRIDAY_API_URL verweist auf Port '$($uri.Port)' statt '$apiPort'.")
                 Add-CheckResult -Status "WARN" -Message "EXPO_PUBLIC_FRIDAY_API_URL uses port '$($uri.Port)' instead of '$apiPort'."
+            }
+            elseif ($isPublicHttps) {
+                Add-CheckResult -Status "OK" -Message "EXPO_PUBLIC_FRIDAY_API_URL uses protected HTTPS transport."
             }
             else {
                 Add-CheckResult -Status "OK" -Message "EXPO_PUBLIC_FRIDAY_API_URL uses API port $apiPort."
@@ -253,8 +278,13 @@ if (Test-Path $mobileEnvPath) {
                 $uri.Host -notlike "10.*" -and
                 $uri.Host -notlike "172.*"
             ) {
-                $warnings.Add("EXPO_PUBLIC_FRIDAY_API_URL verwendet Host '$($uri.Host)'. Für Gerät-Tests meist LAN-IP (192.168.x.x) verwenden.")
-                Add-CheckResult -Status "WARN" -Message "EXPO_PUBLIC_FRIDAY_API_URL uses host '$($uri.Host)' (not local default)."
+                if ($isPublicHttps) {
+                    Add-CheckResult -Status "OK" -Message "EXPO_PUBLIC_FRIDAY_API_URL uses remote HTTPS host '$($uri.Host)'."
+                }
+                else {
+                    $warnings.Add("EXPO_PUBLIC_FRIDAY_API_URL verwendet externen Host '$($uri.Host)' ohne HTTPS.")
+                    Add-CheckResult -Status "WARN" -Message "EXPO_PUBLIC_FRIDAY_API_URL uses a non-local host without HTTPS."
+                }
             }
             else {
                 Add-CheckResult -Status "OK" -Message "EXPO_PUBLIC_FRIDAY_API_URL host '$($uri.Host)' is a local-friendly value."

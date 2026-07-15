@@ -7,6 +7,8 @@ other module network/provider-free.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
+import hmac
 import os
 from pathlib import Path
 from typing import Any
@@ -17,12 +19,14 @@ from friday.app.calendar_google_account_store import (
     load_google_calendar_account,
 )
 from friday.app.calendar_provider_base import CalendarProviderEvent, CalendarProviderResult
+from friday.app.oauth_transaction_store import extract_oauth_state
 
 
 GOOGLE_CALENDAR_SCOPES = (
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/calendar.events",
 )
+DEFAULT_GOOGLE_EVENT_TIME_ZONE = "Europe/Berlin"
 
 
 def _to_rfc3339(value: str, *, end_of_day: bool = False) -> str:
@@ -36,6 +40,32 @@ def _to_rfc3339(value: str, *, end_of_day: bool = False) -> str:
     if not text or "T" in text:
         return text
     return f"{text}T23:59:59Z" if end_of_day else f"{text}T00:00:00Z"
+
+
+def _google_event_time(value: str, *, time_zone: str) -> dict[str, str]:
+    """Build a Google event time value, preserving all-day dates.
+
+    Google accepts offset-aware RFC3339 timestamps directly. Naive local
+    timestamps require an IANA time-zone name so daylight-saving rules remain
+    correct instead of being guessed from the machine clock.
+    """
+    text = str(value or "").strip()
+    if len(text) == 10:
+        try:
+            date.fromisoformat(text)
+        except ValueError:
+            pass
+        else:
+            return {"date": text}
+
+    result = {"dateTime": text}
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        parsed = None
+    if parsed is None or parsed.tzinfo is None:
+        result["timeZone"] = time_zone
+    return result
 
 
 @dataclass(frozen=True)
@@ -79,6 +109,8 @@ def _load_google_dependencies() -> dict[str, Any]:
 def build_google_oauth_authorization_url(
     *,
     client_secrets_path: str | Path,
+    state: str,
+    code_verifier: str,
 ) -> GoogleOAuthPreview:
     """Build an OAuth URL for the local desktop loopback flow."""
     path = Path(client_secrets_path)
@@ -91,17 +123,35 @@ def build_google_oauth_authorization_url(
             external_call_used=False,
         )
     deps = _load_google_dependencies()
+    if len(str(state or "")) < 32 or not 43 <= len(str(code_verifier or "")) <= 128:
+        return GoogleOAuthPreview(
+            ok=False,
+            authorization_url=None,
+            message="Google OAuth Sicherheitszustand ist ungültig.",
+            blocked_reasons=("oauth_transaction_invalid",),
+            external_call_used=False,
+        )
     flow = deps["InstalledAppFlow"].from_client_secrets_file(
         str(path),
         scopes=list(GOOGLE_CALENDAR_SCOPES),
         redirect_uri="http://localhost",
+        state=state,
+        code_verifier=code_verifier,
         autogenerate_code_verifier=False,
     )
-    authorization_url, _state = flow.authorization_url(
+    authorization_url, returned_state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
     )
+    if not hmac.compare_digest(str(returned_state or ""), str(state)):
+        return GoogleOAuthPreview(
+            ok=False,
+            authorization_url=None,
+            message="Google OAuth State konnte nicht sicher erzeugt werden.",
+            blocked_reasons=("oauth_state_generation_failed",),
+            external_call_used=False,
+        )
     return GoogleOAuthPreview(
         ok=True,
         authorization_url=authorization_url,
@@ -115,6 +165,8 @@ def exchange_google_oauth_authorization_response(
     *,
     client_secrets_path: str | Path,
     authorization_response: str,
+    expected_state: str,
+    code_verifier: str,
 ) -> GoogleOAuthCredentialsPreview:
     """Exchange the browser callback URL for OAuth credentials."""
     path = Path(client_secrets_path)
@@ -135,17 +187,45 @@ def exchange_google_oauth_authorization_response(
             blocked_reasons=("authorization_response_missing",),
             external_call_used=False,
         )
+    response_state = extract_oauth_state(clean_response)
+    if not response_state or not hmac.compare_digest(response_state, str(expected_state or "")):
+        return GoogleOAuthCredentialsPreview(
+            ok=False,
+            credentials_json=None,
+            message="Google OAuth State ist ungültig oder abgelaufen.",
+            blocked_reasons=("oauth_state_invalid",),
+            external_call_used=False,
+        )
+    if not 43 <= len(str(code_verifier or "")) <= 128:
+        return GoogleOAuthCredentialsPreview(
+            ok=False,
+            credentials_json=None,
+            message="Google OAuth PKCE-Verifier ist ungültig.",
+            blocked_reasons=("oauth_pkce_invalid",),
+            external_call_used=False,
+        )
     deps = _load_google_dependencies()
     flow = deps["InstalledAppFlow"].from_client_secrets_file(
         str(path),
         scopes=list(GOOGLE_CALENDAR_SCOPES),
         redirect_uri="http://localhost",
+        state=expected_state,
+        code_verifier=code_verifier,
         autogenerate_code_verifier=False,
     )
     previous_insecure_transport = os.environ.get("OAUTHLIB_INSECURE_TRANSPORT")
     os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
     try:
-        flow.fetch_token(authorization_response=clean_response)
+        try:
+            flow.fetch_token(authorization_response=clean_response)
+        except Exception:
+            return GoogleOAuthCredentialsPreview(
+                ok=False,
+                credentials_json=None,
+                message="Google OAuth Antwort konnte nicht sicher verarbeitet werden.",
+                blocked_reasons=("oauth_exchange_failed",),
+                external_call_used=True,
+            )
     finally:
         if previous_insecure_transport is None:
             os.environ.pop("OAUTHLIB_INSECURE_TRANSPORT", None)
@@ -204,13 +284,35 @@ class GoogleCalendarProvider:
 
     @staticmethod
     def _event_to_google(event: CalendarProviderEvent) -> dict[str, Any]:
+        raw = event.raw if isinstance(event.raw, dict) else {}
+        time_zone = str(
+            raw.get("timeZone")
+            or raw.get("timezone")
+            or DEFAULT_GOOGLE_EVENT_TIME_ZONE
+        ).strip() or DEFAULT_GOOGLE_EVENT_TIME_ZONE
         body: dict[str, Any] = {
             "summary": event.title,
-            "start": {"dateTime": event.start},
-            "end": {"dateTime": event.end},
+            "start": _google_event_time(event.start, time_zone=time_zone),
+            "end": _google_event_time(event.end, time_zone=time_zone),
         }
+        if event.id:
+            body["id"] = str(event.id)
         if event.location:
             body["location"] = event.location
+        description = raw.get("description")
+        if isinstance(description, str) and description.strip():
+            body["description"] = description.strip()
+        extended_properties = raw.get("extendedProperties")
+        if isinstance(extended_properties, dict):
+            private = extended_properties.get("private")
+            if isinstance(private, dict):
+                clean_private = {
+                    str(key): str(value)
+                    for key, value in private.items()
+                    if str(key).strip() and str(value).strip()
+                }
+                if clean_private:
+                    body["extendedProperties"] = {"private": clean_private}
         return body
 
     def test_connection(self) -> CalendarProviderResult:
@@ -257,6 +359,42 @@ class GoogleCalendarProvider:
                 ok=False,
                 message=f"Google-Kalender-Lesen fehlgeschlagen: {exc}",
                 blocked_reasons=("google_list_failed",),
+                external_call_used=True,
+            )
+
+    def get_event(self, *, event_id: str, calendar_id: str) -> CalendarProviderResult:
+        """Read the exact event snapshot used by the destructive-action approval."""
+        try:
+            clean_event_id = str(event_id or "").strip()
+            if not clean_event_id:
+                return CalendarProviderResult(
+                    ok=False,
+                    message="Google-Kalendertermin konnte nicht gelesen werden: Event-ID fehlt.",
+                    blocked_reasons=("provider_event_id_missing",),
+                    external_call_used=False,
+                )
+            service = self._build_service()
+            target_calendar_id = str(calendar_id or "").strip() or (
+                self.account.calendar_id if self.account else "primary"
+            )
+            response = service.events().get(
+                calendarId=target_calendar_id,
+                eventId=clean_event_id,
+            ).execute()
+            event = self._event_from_google(response, calendar_id=target_calendar_id)
+            return CalendarProviderResult(
+                ok=True,
+                event=event,
+                message="Google-Kalendertermin gelesen.",
+                provider_event_id=clean_event_id,
+                external_call_used=True,
+            )
+        except Exception as exc:  # pragma: no cover - real provider defensive boundary
+            return CalendarProviderResult(
+                ok=False,
+                message=f"Google-Kalendertermin konnte nicht gelesen werden: {exc}",
+                blocked_reasons=("google_get_failed",),
+                provider_event_id=str(event_id or "").strip() or None,
                 external_call_used=True,
             )
 

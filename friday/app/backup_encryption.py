@@ -171,7 +171,7 @@ def decrypt_backup_archive(
                 )
         target.mkdir(parents=True, exist_ok=False)
         for member in members:
-            archive.extract(member, path=target, set_attrs=False)
+            archive.extract(member, path=target, set_attrs=False, filter="data")
             if member.isreg():
                 file_count += 1
 

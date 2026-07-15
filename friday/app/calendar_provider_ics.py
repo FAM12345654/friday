@@ -16,6 +16,7 @@ from friday.app.calendar_ics_account_store import (
     load_outlook_ics_account,
 )
 from friday.app.calendar_provider_base import CalendarProviderEvent, CalendarProviderResult
+from friday.app.network_url_safety import SafeHttpsRedirectHandler, validate_external_https_url
 
 
 FetchIcs = Callable[[str, int], bytes | str]
@@ -54,8 +55,14 @@ def _component_text(component: Any, name: str) -> str | None:
 
 
 def _default_fetch_ics(url: str, timeout_seconds: int) -> bytes:
-    with request.urlopen(url, timeout=timeout_seconds) as response:
-        return response.read()
+    safe_url = validate_external_https_url(url, resolve_dns=True)
+    opener = request.build_opener(SafeHttpsRedirectHandler())
+    req = request.Request(safe_url, headers={"Accept": "text/calendar"}, method="GET")
+    with opener.open(req, timeout=timeout_seconds) as response:
+        payload = response.read(10 * 1024 * 1024 + 1)
+    if len(payload) > 10 * 1024 * 1024:
+        raise ValueError("ICS-Datei überschreitet das Größenlimit von 10 MB.")
+    return payload
 
 
 class OutlookIcsCalendarProvider:
@@ -82,13 +89,13 @@ class OutlookIcsCalendarProvider:
 
     def _resolve_url(self) -> str:
         if self.ics_url:
-            return str(self.ics_url).strip()
+            return validate_external_https_url(self.ics_url)
         account = self.account
         if account is None and self.policy_id is not None:
             account = load_outlook_ics_account(int(self.policy_id))
         if account is None:
             raise RuntimeError("Keine Outlook-ICS-Quelle verbunden.")
-        return decrypt_outlook_ics_url(account)
+        return validate_external_https_url(decrypt_outlook_ics_url(account))
 
     def _fetch_calendar(self):
         from icalendar import Calendar

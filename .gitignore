@@ -18,6 +18,7 @@ logs/
 friday-mobile/node_modules/
 friday-mobile/.expo/
 friday-mobile/dist/
+friday-mobile/google-services.json
 friday-whatsapp-bridge/node_modules/
 friday-whatsapp-bridge/.wwebjs_auth/
 friday-whatsapp-bridge/.wwebjs_cache/

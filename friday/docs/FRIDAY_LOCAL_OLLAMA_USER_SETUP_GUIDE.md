@@ -65,7 +65,7 @@ Wichtig:
 Friday stellt einen read-only Status-Endpunkt bereit:
 
 ```powershell
-Invoke-RestMethod "http://127.0.0.1:8000/api/ai/status"
+Invoke-RestMethod "http://127.0.0.1:8001/api/ai/status"
 ```
 
 Dieser Standardaufruf startet keinen Live-Health-Check.
@@ -73,7 +73,7 @@ Dieser Standardaufruf startet keinen Live-Health-Check.
 Optionaler lokaler Health-Check:
 
 ```powershell
-Invoke-RestMethod "http://127.0.0.1:8000/api/ai/status?run_health_check=true"
+Invoke-RestMethod "http://127.0.0.1:8001/api/ai/status?run_health_check=true"
 ```
 
 Der Health-Check darf nur lokal gegen Ollama laufen.

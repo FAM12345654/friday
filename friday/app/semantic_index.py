@@ -107,8 +107,9 @@ def index_documents(
     embedder: Embedder,
     *,
     db_path: Path | str | None = None,
+    replace_existing: bool = False,
 ) -> int:
-    """Upsert documents ({source, source_id, title, text}) into the index."""
+    """Upsert documents, optionally replacing the complete current index."""
     setup_local_database(db_path)
     rows = [
         {
@@ -120,12 +121,33 @@ def index_documents(
         for doc in documents
         if _clip(doc.get("text", "")) or _clip(doc.get("title", ""))
     ]
-    if not rows:
+    if not rows and not replace_existing:
         return 0
 
-    vectors = embedder.embed([f"{row['title']} {row['text']}".strip() for row in rows])
+    vectors = (
+        embedder.embed([f"{row['title']} {row['text']}".strip() for row in rows])
+        if rows
+        else []
+    )
     now = datetime.now(timezone.utc).isoformat()
     with get_connection(db_path) as connection:
+        if replace_existing:
+            connection.execute(
+                """
+                CREATE TEMP TABLE semantic_reindex_keys (
+                    source TEXT NOT NULL,
+                    source_id TEXT NOT NULL,
+                    PRIMARY KEY (source, source_id)
+                )
+                """
+            )
+            connection.executemany(
+                """
+                INSERT OR IGNORE INTO semantic_reindex_keys (source, source_id)
+                VALUES (:source, :source_id)
+                """,
+                rows,
+            )
         for row, vector in zip(rows, vectors):
             connection.execute(
                 """
@@ -142,6 +164,18 @@ def index_documents(
                     "embedding": json.dumps(vector),
                     "updated_at": now,
                 },
+            )
+        if replace_existing:
+            connection.execute(
+                """
+                DELETE FROM semantic_index
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM semantic_reindex_keys AS current
+                    WHERE current.source = semantic_index.source
+                        AND current.source_id = semantic_index.source_id
+                )
+                """
             )
     return len(rows)
 

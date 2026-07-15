@@ -213,6 +213,9 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 processed INTEGER NOT NULL DEFAULT 0,
                 suggestion_created INTEGER NOT NULL DEFAULT 0,
                 is_spam INTEGER NOT NULL DEFAULT 0,
+                resolved_at TEXT,
+                resolution_reason TEXT,
+                resolution_confidence REAL NOT NULL DEFAULT 0,
                 UNIQUE (chat_id, received_at)
             );
 
@@ -302,6 +305,36 @@ def initialize_database(db_path: Path | str | None = None) -> None:
                 updated_at TEXT NOT NULL,
                 UNIQUE (source, source_id)
             );
+
+            CREATE TABLE IF NOT EXISTS action_approvals (
+                approval_key TEXT PRIMARY KEY,
+                action TEXT NOT NULL,
+                payload_digest TEXT NOT NULL,
+                operation_key TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                expires_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_action_approvals_expires
+                ON action_approvals(expires_at);
+
+            CREATE TABLE IF NOT EXISTS action_approval_claims (
+                operation_key TEXT PRIMARY KEY,
+                claimed_at REAL NOT NULL,
+                expires_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_action_approval_claims_expires
+                ON action_approval_claims(expires_at);
+
+            CREATE TABLE IF NOT EXISTS oauth_transactions (
+                state_key TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                encrypted_context TEXT NOT NULL,
+                encryption_method TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                expires_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_oauth_transactions_expires
+                ON oauth_transactions(expires_at);
             """
         )
         _ensure_task_priority_column(connection)
@@ -310,6 +343,7 @@ def initialize_database(db_path: Path | str | None = None) -> None:
         _ensure_contact_target_columns(connection)
         _ensure_account_policy_transform_column(connection)
         _ensure_message_spam_columns(connection)
+        _ensure_whatsapp_resolution_columns(connection)
         _ensure_ms_mail_message_account_columns(connection)
 
 
@@ -365,6 +399,20 @@ def _ensure_message_spam_columns(connection: sqlite3.Connection) -> None:
             connection.execute(
                 f"ALTER TABLE {table_name} ADD COLUMN is_spam INTEGER NOT NULL DEFAULT 0"
             )
+
+
+def _ensure_whatsapp_resolution_columns(connection: sqlite3.Connection) -> None:
+    """Add reversible local conversation-resolution metadata."""
+    columns = connection.execute("PRAGMA table_info(whatsapp_messages)").fetchall()
+    existing = {column[1] for column in columns}
+    if "resolved_at" not in existing:
+        connection.execute("ALTER TABLE whatsapp_messages ADD COLUMN resolved_at TEXT")
+    if "resolution_reason" not in existing:
+        connection.execute("ALTER TABLE whatsapp_messages ADD COLUMN resolution_reason TEXT")
+    if "resolution_confidence" not in existing:
+        connection.execute(
+            "ALTER TABLE whatsapp_messages ADD COLUMN resolution_confidence REAL NOT NULL DEFAULT 0"
+        )
 
 
 def _ensure_ms_mail_message_account_columns(connection: sqlite3.Connection) -> None:

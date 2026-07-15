@@ -31,7 +31,7 @@ Der Guard meldet nur: `ready_for_manual_config_edit`.
 ## Beispiel
 
 ```powershell
-Invoke-RestMethod "http://127.0.0.1:8000/api/ai/ollama/config-apply-gate" `
+Invoke-RestMethod "http://127.0.0.1:8001/api/ai/ollama/config-apply-gate" `
   -Method POST `
   -ContentType "application/json" `
   -Body '{"model":"llama3.1","base_url":"http://localhost:11434","approval_token":"OLLAMA AKTIVIEREN","scanner_smoke_passed":true,"health_check_passed":true}'

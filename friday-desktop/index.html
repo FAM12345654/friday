@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src http://127.0.0.1:* http://localhost:* https:; img-src friday: data:"
+  />
   <title>Friday Desktop</title>
   <style>
     :root {
@@ -283,8 +287,9 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     const API_HOST = params.get("apiHost") || "127.0.0.1";
-    const API_PORT = params.get("apiPort") || "8000";
+    const API_PORT = params.get("apiPort") || "8001";
     const API_BASE = `http://${API_HOST}:${API_PORT}`;
+    const API_TOKEN = String(window.fridayRuntime?.apiToken || "");
 
     const state = {
       active: "dashboard",
@@ -332,6 +337,7 @@
       const response = await fetch(API_BASE + path, {
         headers: {
           "Content-Type": "application/json",
+          ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
           ...(options.headers || {}),
         },
         ...options,

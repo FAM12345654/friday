@@ -19,7 +19,7 @@ Es wird keine Konfiguration geschrieben und kein Modell aufgerufen.
 ## Beispiel
 
 ```powershell
-Invoke-RestMethod "http://127.0.0.1:8000/api/ai/ollama/config-preview?model=llama3.1&base_url=http://localhost:11434"
+Invoke-RestMethod "http://127.0.0.1:8001/api/ai/ollama/config-preview?model=llama3.1&base_url=http://localhost:11434"
 ```
 
 ## Safety-Grenzen

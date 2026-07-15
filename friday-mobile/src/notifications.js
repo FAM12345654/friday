@@ -4,6 +4,7 @@
 // expo-notifications is not installed in the current build, the app keeps
 // working without push.
 import { Platform } from "react-native";
+import Constants from "expo-constants";
 
 import { registerPushToken } from "./api/client";
 
@@ -17,6 +18,13 @@ export async function registerForPushNotifications() {
   }
 
   try {
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("friday-reminders", {
+        name: "Friday Erinnerungen",
+        importance: Notifications.AndroidImportance.DEFAULT,
+      });
+    }
+
     const settings = await Notifications.getPermissionsAsync();
     let status = settings.status;
     if (status !== "granted") {
@@ -27,14 +35,14 @@ export async function registerForPushNotifications() {
       return { ok: false, reason: "Berechtigung abgelehnt" };
     }
 
-    if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync("friday-reminders", {
-        name: "Friday Erinnerungen",
-        importance: Notifications.AndroidImportance.DEFAULT,
-      });
+    const projectId =
+      Constants.expoConfig?.extra?.eas?.projectId ??
+      Constants.easConfig?.projectId;
+    if (!projectId) {
+      return { ok: false, reason: "Expo projectId fehlt" };
     }
 
-    const tokenResponse = await Notifications.getExpoPushTokenAsync();
+    const tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
     const token = tokenResponse?.data;
     if (!token) {
       return { ok: false, reason: "Kein Token erhalten" };

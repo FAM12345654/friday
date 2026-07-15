@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from friday import config
 from friday.app.safety_flag_regression_scanner import EXPECTED_SAFETY_FLAGS
 from friday.app.safety_smoke_runner import (
     DEFAULT_APPROVAL_TOKEN_EXCLUDED_FILES,
@@ -169,6 +170,25 @@ def test_safety_smoke_runner_defaults_are_release_pinned() -> None:
         "friday/agents/message_agent.py",
         "friday/app/approval_token_scanner.py",
     )
+
+
+def test_safety_smoke_defaults_are_independent_of_working_directory(monkeypatch) -> None:
+    monkeypatch.chdir(config.PROJECT_ROOT / "friday-api")
+
+    result = run_safety_smoke()
+
+    assert result.passed is True
+
+
+def test_safety_smoke_defaults_ignore_shadow_tree(tmp_path, monkeypatch) -> None:
+    shadow = tmp_path / "friday" / "app"
+    shadow.mkdir(parents=True)
+    (shadow / "shadow.py").write_text('APPROVAL = "ja"\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    result = run_safety_smoke()
+
+    assert result.passed is True
 
 
 def test_format_safety_smoke_result(tmp_path) -> None:

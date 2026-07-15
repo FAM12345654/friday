@@ -3,19 +3,24 @@
 ## Start
 
 ```bash
-cd friday-api
 python -m pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Start-Friday-API-Autostart.ps1 -Port 8001
 ```
+
+Der Launcher bindet ausschließlich an `127.0.0.1:8001` und verlangt einen
+starken `FRIDAY_API_TOKEN`. Geräte verwenden Tailscale Serve per HTTPS.
 
 ## Wichtige Settings
 
-- `FRIDAY_CORS_ORIGINS` (Komma-getrennte Liste) für Mobile/Desktop-Clients.
+- `FRIDAY_CORS_ORIGINS` (Komma-getrennte Liste) für Web-/Desktop-Origins.
+- `FRIDAY_API_TOKEN` ist für jeden LAN-, Docker-, Tailscale- oder
+  Tunnel-Zugriff erforderlich. Ohne Token werden nur direkte
+  Loopback-Anfragen akzeptiert.
 - `FRIDAY_API_PORT` / `FRIDAY_API_HOST` werden optional vom Desktop-Launcher genutzt.
-- `FRIDAY_API_TOKEN` (optional): Wenn gesetzt, verlangen alle Endpunkte außer
-  `/health` und den Docs einen `Authorization: Bearer <token>`- oder
-  `X-Friday-Token`-Header. Ohne die Variable bleibt die API offen (lokaler
-  Betrieb wie bisher).
+- `FRIDAY_OAUTH_LEDGER_SECRET` ist ein optionales separates Secret mit
+  mindestens 32 Zeichen für die verschlüsselten, kurzlebigen OAuth-Flows. Ohne
+  DPAPI wird andernfalls der starke `FRIDAY_API_TOKEN` als Schlüsselquelle
+  verwendet.
 
 ## API-Vereinheitlicher JSON-Vertrag
 

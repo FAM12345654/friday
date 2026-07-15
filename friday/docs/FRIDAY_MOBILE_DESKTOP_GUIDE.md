@@ -4,10 +4,10 @@
 
 Dieses Dokument beschreibt den lokalen Start von Friday auf Handy und Desktop nach dem Creme/Moos-Redesign.
 
-Friday bleibt lokal-first:
+Friday bleibt lokal-first und freigabegesteuert:
 
-- keine echten E-Mails,
-- kein echtes WhatsApp,
+- E-Mail-Versand nur nach separater Aktivierung und Einzelfreigabe,
+- WhatsApp ausschließlich als optionaler Read-Bridge-Pfad,
 - keine echte SMS,
 - echte Kalenderaktionen nur als bewusst aktivierte Ausnahme mit hartem Token pro Termin,
 - keine Cloud-AI,
@@ -15,13 +15,9 @@ Friday bleibt lokal-first:
 
 ## Handy-Installation
 
-Aktueller Android-Preview-Build im Creme/Moos-Design (inklusive Cleartext-Freigabe fuer lokales HTTP):
-
-`https://expo.dev/artifacts/eas/3cfGZ3nlTERdjOa7nHdsqlvatKwbk6veBVSWLd5KP3c.apk`
-
-Wichtig: Nur dieser Build (und neuere) kann die lokale API ueber `http://` erreichen.
-Aeltere Builds blockieren unverschluesseltes HTTP durch die Android-Netzwerkrichtlinie
-und zeigen dauerhaft `Offline`.
+Der aktuelle sichere Build wird mit `build_friday_mobile_android_preview.bat`
+erzeugt. Er nutzt Runtime `1.0.0-sdk54-secure-v2`, SecureStore und ausschließlich
+die HTTPS-Adresse von Tailscale Serve. Alte Cleartext-Builds sind außer Betrieb.
 
 Installation:
 
@@ -35,19 +31,18 @@ Hinweis: Der Build ist eine interne Preview-APK, keine Play-Store-Version.
 
 ## Verbindung zur lokalen Friday API
 
-Die Handy-App prueft beim Start mehrere API-Adressen parallel und nimmt automatisch
-die erste erreichbare (Failover-Reihenfolge):
+Die Handy-App verwendet beim Start die stabile HTTPS-Adresse:
 
-1. `http://192.168.178.42:8000` — Heim-WLAN (LAN, schnellster Weg)
-2. `http://100.122.129.101:8000` — Tailscale-VPN (unterwegs)
+1. `https://pc.tail4c6152.ts.net` — Tailscale Serve, zuhause und unterwegs
 
 Die aktive Adresse steht in der App unten im Footer.
 
-Voraussetzungen zuhause:
+Voraussetzungen:
 
-- PC und Handy sind im selben WLAN.
+- PC und Handy sind mit Tailscale verbunden.
 - Die Friday API laeuft auf dem PC.
-- Port `8000` ist in der Windows-Firewall erlaubt.
+- Die API bindet nur an `127.0.0.1:8001`; es ist keine LAN-Firewallfreigabe nötig.
+- Der starke API-Token ist in der App unter **Mehr > Datenschutz** gespeichert.
 
 ## Unterwegs (Tailscale)
 
@@ -64,9 +59,8 @@ Voraussetzungen unterwegs:
 
 Hinweise:
 
-- Die Tailscale-Adresse `100.122.129.101` ist dem PC fest zugeordnet und bleibt stabil.
-- Zuhause funktioniert die App auch ohne Tailscale (LAN-Fallback).
-- Faellt eine Adresse aus, wechselt die App automatisch zur naechsten erreichbaren.
+- Der Tailscale-DNS-Name bleibt stabil; die private IP muss nicht in der App stehen.
+- Direkter LAN-Zugriff und Cleartext-Fallback sind deaktiviert.
 
 API starten:
 
@@ -74,13 +68,8 @@ API starten:
 .\start_friday_api.bat
 ```
 
-Firewall-Regel, falls das Handy die API nicht erreicht:
-
-```powershell
-New-NetFirewallRule -DisplayName "Friday API" -Direction Inbound -LocalPort 8000 -Protocol TCP -Action Allow
-```
-
-Diese Firewall-Regel ist nur dokumentiert und wird von Friday nicht automatisch ausgefuehrt.
+Keine eingehende Firewall-Regel für Port 8001 anlegen. Tailscale Serve leitet
+HTTPS intern an den Loopback-Dienst weiter.
 
 ## Updates
 

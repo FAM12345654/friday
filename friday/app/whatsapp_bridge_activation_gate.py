@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from friday import config
 
@@ -68,6 +69,7 @@ def apply_whatsapp_bridge_read_activation_to_config(
     scanner_smoke_passed: bool,
     config_path: Path | str | None = None,
     execute_write: bool = False,
+    post_write_validation: Callable[[Path], bool] | None = None,
 ) -> WhatsAppBridgeApplyResult:
     """Enable the read bridge flag only through an explicit guarded writer."""
     gate = build_whatsapp_bridge_activation_gate(
@@ -91,7 +93,24 @@ def apply_whatsapp_bridge_read_activation_to_config(
             blocked_reasons=(),
         )
 
-    path = Path(config_path) if config_path is not None else Path(config.__file__).resolve()
+    if post_write_validation is None:
+        return WhatsAppBridgeApplyResult(
+            allowed=False,
+            applied=False,
+            message="Post-write Validation fehlt.",
+            backup_path=None,
+            blocked_reasons=("post_write_validation_required",),
+        )
+
+    path = Path(config_path).resolve() if config_path is not None else Path(config.__file__).resolve()
+    if path.name != "config.py" or path != (config.PACKAGE_DIR / "config.py").resolve():
+        return WhatsAppBridgeApplyResult(
+            allowed=False,
+            applied=False,
+            message="Config-Pfad wurde abgelehnt.",
+            backup_path=None,
+            blocked_reasons=("config_path_invalid",),
+        )
     text = path.read_text(encoding="utf-8")
     old_line = "ENABLE_WHATSAPP_BRIDGE_READ = False"
     new_line = "ENABLE_WHATSAPP_BRIDGE_READ = True"
@@ -115,6 +134,15 @@ def apply_whatsapp_bridge_read_activation_to_config(
     backup_path = path.with_suffix(path.suffix + ".whatsapp_bridge_backup")
     backup_path.write_text(text, encoding="utf-8")
     path.write_text(text.replace(old_line, new_line, 1), encoding="utf-8")
+    if not post_write_validation(path):
+        path.write_text(text, encoding="utf-8")
+        return WhatsAppBridgeApplyResult(
+            allowed=False,
+            applied=False,
+            message="Post-write Validation ist fehlgeschlagen; Config wurde zurückgesetzt.",
+            backup_path=str(backup_path),
+            blocked_reasons=("post_write_validation_failed",),
+        )
     return WhatsAppBridgeApplyResult(
         allowed=True,
         applied=True,

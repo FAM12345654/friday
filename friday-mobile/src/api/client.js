@@ -1,4 +1,65 @@
 import Constants from "expo-constants";
+import * as SecureStore from "expo-secure-store";
+
+const API_TOKEN_STORAGE_KEY = "friday_api_token";
+let apiTokenCache;
+
+async function secureStoreAvailable() {
+  try {
+    return await SecureStore.isAvailableAsync();
+  } catch (error) {
+    return false;
+  }
+}
+
+export async function getApiToken() {
+  if (apiTokenCache !== undefined) {
+    return apiTokenCache;
+  }
+  apiTokenCache = "";
+  if (await secureStoreAvailable()) {
+    apiTokenCache = String((await SecureStore.getItemAsync(API_TOKEN_STORAGE_KEY)) || "").trim();
+  }
+  return apiTokenCache;
+}
+
+export async function saveApiToken(value) {
+  const token = String(value || "").trim();
+  apiTokenCache = token;
+  if (await secureStoreAvailable()) {
+    if (token) {
+      await SecureStore.setItemAsync(API_TOKEN_STORAGE_KEY, token);
+    } else {
+      await SecureStore.deleteItemAsync(API_TOKEN_STORAGE_KEY);
+    }
+  }
+  activeUrl = null;
+  return Boolean(token);
+}
+
+export async function getApiTokenStatus() {
+  return Boolean(await getApiToken());
+}
+
+function secureApiTransport(baseUrl) {
+  try {
+    const parsed = new URL(baseUrl);
+    return (
+      parsed.protocol === "https:" ||
+      ["127.0.0.1", "localhost", "::1"].includes(parsed.hostname)
+    );
+  } catch (error) {
+    return false;
+  }
+}
+
+export async function getApiAuthHeaders(baseUrl = "") {
+  const token = await getApiToken();
+  if (token && baseUrl && !secureApiTransport(baseUrl)) {
+    throw new Error("API-Token wird nur über HTTPS oder direkte Loopback-Verbindungen gesendet.");
+  }
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 // Kandidaten-URLs: zuhause gewinnt das lokale WLAN, unterwegs der Tunnel.
 // Reihenfolge = Präferenz. Die App prüft alle parallel und nimmt den ersten
@@ -18,7 +79,7 @@ const buildCandidates = () => {
     fromEnvSingle,
     ...fromExtraList,
     fromExtraSingle,
-    "http://192.168.178.42:8000",
+    "https://pc.tail4c6152.ts.net",
   ].filter(Boolean);
 
   return [...new Set(merged)];
@@ -32,7 +93,10 @@ async function probe(url, timeoutMs = 4000) {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const response = await fetch(`${url}/health`, { signal: controller.signal });
+    const response = await fetch(`${url}/api/setup/status`, {
+      signal: controller.signal,
+      headers: await getApiAuthHeaders(url),
+    });
     clearTimeout(timer);
     const payload = await response.json().catch(() => null);
     return Boolean(response.ok && payload?.ok !== false);
@@ -65,12 +129,14 @@ const isNetworkError = (error) =>
   /network|abort|fehlgeschlagen|failed to fetch/i.test(String(error?.message || ""));
 
 async function request(baseUrl, path, options = {}) {
+  const headers = {
+    "Content-Type": "application/json",
+    ...(options.headers || {}),
+    ...(await getApiAuthHeaders(baseUrl)),
+  };
   const response = await fetch(`${baseUrl}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
     ...options,
+    headers,
   });
 
   const payload = await response.json().catch(() => ({ ok: false, message: "Ungültiges JSON" }));
@@ -101,6 +167,7 @@ async function requestMultipart(baseUrl, path, formData) {
   const response = await fetch(`${baseUrl}${path}`, {
     method: "POST",
     body: formData,
+    headers: await getApiAuthHeaders(baseUrl),
   });
   const payload = await response.json().catch(() => ({ ok: false, message: "Ungültiges JSON" }));
   if (!response.ok || payload?.ok === false) {
@@ -333,6 +400,13 @@ export async function connectEmailAccount(payload) {
   });
 }
 
+export async function activateEmailSend(payload) {
+  return callApi("/api/accounts/email/activation-gate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function updateEmailAgentNotes(payload) {
   return callApi("/api/accounts/email/notes", {
     method: "PATCH",
@@ -489,14 +563,22 @@ export async function getMailOrganizeLog(limit = 25, includeUndone = false) {
   return callApi(`/api/mail/organize/log?${params.toString()}`);
 }
 
-export async function undoMailOrganize(logId) {
+export async function undoMailOrganize(logId, payload) {
   return callApi(`/api/mail/organize/undo/${encodeURIComponent(String(logId))}`, {
     method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 
 export async function getWhatsAppStatus() {
   return callApi("/api/whatsapp/status");
+}
+
+export async function activateWhatsAppReadBridge(payload) {
+  return callApi("/api/whatsapp/activation-gate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getWhatsAppAgentNotes() {
@@ -611,6 +693,13 @@ export async function getGoogleCalendarReadPreview(rangeStart, rangeEnd) {
 
 export async function deleteCalendarEvent(payload) {
   return callApi("/api/calendar/events/delete-guard", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function syncWorkdaysToGoogle(payload) {
+  return callApi("/api/calendar/source-sync", {
     method: "POST",
     body: JSON.stringify(payload),
   });

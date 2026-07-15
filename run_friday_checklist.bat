@@ -166,9 +166,9 @@ if exist "!MobileEnv!" (
     echo [OK] friday-mobile\.env already exists.
     exit /b 0
 )
-> "!MobileEnv!" echo EXPO_PUBLIC_FRIDAY_API_URL=http://192.168.178.42:8000
+> "!MobileEnv!" echo EXPO_PUBLIC_FRIDAY_API_URL=https://pc.tail4c6152.ts.net
 if exist "!MobileEnv!" (
-    echo [OK] Created friday-mobile\.env with local API URL.
+    echo [OK] Created friday-mobile\.env with protected Tailscale HTTPS URL.
     exit /b 0
 )
 echo [FAIL] Could not create friday-mobile\.env.
