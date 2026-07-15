@@ -7,6 +7,7 @@ other module network/provider-free.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
 import hmac
 import os
 from pathlib import Path
@@ -25,6 +26,7 @@ GOOGLE_CALENDAR_SCOPES = (
     "https://www.googleapis.com/auth/calendar.readonly",
     "https://www.googleapis.com/auth/calendar.events",
 )
+DEFAULT_GOOGLE_EVENT_TIME_ZONE = "Europe/Berlin"
 
 
 def _to_rfc3339(value: str, *, end_of_day: bool = False) -> str:
@@ -38,6 +40,32 @@ def _to_rfc3339(value: str, *, end_of_day: bool = False) -> str:
     if not text or "T" in text:
         return text
     return f"{text}T23:59:59Z" if end_of_day else f"{text}T00:00:00Z"
+
+
+def _google_event_time(value: str, *, time_zone: str) -> dict[str, str]:
+    """Build a Google event time value, preserving all-day dates.
+
+    Google accepts offset-aware RFC3339 timestamps directly. Naive local
+    timestamps require an IANA time-zone name so daylight-saving rules remain
+    correct instead of being guessed from the machine clock.
+    """
+    text = str(value or "").strip()
+    if len(text) == 10:
+        try:
+            date.fromisoformat(text)
+        except ValueError:
+            pass
+        else:
+            return {"date": text}
+
+    result = {"dateTime": text}
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        parsed = None
+    if parsed is None or parsed.tzinfo is None:
+        result["timeZone"] = time_zone
+    return result
 
 
 @dataclass(frozen=True)
@@ -256,16 +284,21 @@ class GoogleCalendarProvider:
 
     @staticmethod
     def _event_to_google(event: CalendarProviderEvent) -> dict[str, Any]:
+        raw = event.raw if isinstance(event.raw, dict) else {}
+        time_zone = str(
+            raw.get("timeZone")
+            or raw.get("timezone")
+            or DEFAULT_GOOGLE_EVENT_TIME_ZONE
+        ).strip() or DEFAULT_GOOGLE_EVENT_TIME_ZONE
         body: dict[str, Any] = {
             "summary": event.title,
-            "start": {"dateTime": event.start},
-            "end": {"dateTime": event.end},
+            "start": _google_event_time(event.start, time_zone=time_zone),
+            "end": _google_event_time(event.end, time_zone=time_zone),
         }
         if event.id:
             body["id"] = str(event.id)
         if event.location:
             body["location"] = event.location
-        raw = event.raw if isinstance(event.raw, dict) else {}
         description = raw.get("description")
         if isinstance(description, str) and description.strip():
             body["description"] = description.strip()

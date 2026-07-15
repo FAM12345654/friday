@@ -148,6 +148,50 @@ def test_google_provider_passes_deterministic_event_id_to_google() -> None:
     assert _Events.last_insert_kwargs["body"]["id"] == "frd0123456789abcdef"
 
 
+def test_google_provider_adds_timezone_to_naive_event_times() -> None:
+    provider = GoogleCalendarProvider(service=_Service())
+
+    provider.create_event(
+        CalendarProviderEvent(
+            id="frd-naive-time",
+            provider="google_calendar",
+            calendar_id="primary",
+            title="Lokaler Termin",
+            start="2026-07-15T10:00:00",
+            end="2026-07-15T11:00:00",
+        )
+    )
+
+    body = _Events.last_insert_kwargs["body"]
+    assert body["start"] == {
+        "dateTime": "2026-07-15T10:00:00",
+        "timeZone": "Europe/Berlin",
+    }
+    assert body["end"] == {
+        "dateTime": "2026-07-15T11:00:00",
+        "timeZone": "Europe/Berlin",
+    }
+
+
+def test_google_provider_preserves_all_day_event_dates() -> None:
+    provider = GoogleCalendarProvider(service=_Service())
+
+    provider.create_event(
+        CalendarProviderEvent(
+            id="frd-all-day",
+            provider="google_calendar",
+            calendar_id="primary",
+            title="Ganztagstermin",
+            start="2026-07-15",
+            end="2026-07-16",
+        )
+    )
+
+    body = _Events.last_insert_kwargs["body"]
+    assert body["start"] == {"date": "2026-07-15"}
+    assert body["end"] == {"date": "2026-07-16"}
+
+
 def test_google_provider_maps_delete_event_without_real_network() -> None:
     provider = GoogleCalendarProvider(service=_Service())
 
