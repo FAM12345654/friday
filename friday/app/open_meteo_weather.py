@@ -145,7 +145,10 @@ def fetch_open_meteo_weather(
         payload = json.loads(response.read().decode("utf-8"))
 
     daily = payload.get("daily") or {}
-    weather_code = int((daily.get("weather_code") or [-1])[0])
+    codes = daily.get("weather_code") or []
+    first_code = codes[0] if codes else None
+    # Null-safe: a missing/None code maps to -1 (unknown -> default description).
+    weather_code = int(first_code) if first_code is not None else -1
     precipitation = int(round(float((daily.get("precipitation_probability_max") or [0])[0] or 0)))
     return WeatherBriefing(
         date=target_date.isoformat(),

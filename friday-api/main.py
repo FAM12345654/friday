@@ -1555,8 +1555,9 @@ async def voice_command_audio(
 ) -> dict[str, Any]:
     """Push-to-talk round trip: audio in -> transcribe -> execute -> spoken reply."""
     transcription = await _transcribe_upload(audio)
-    intent = _parse_with_fallback(transcription["text"])
-    reply_text, data = _execute_voice_intent(intent)
+    # Run the sync parse/execute pipeline off the event loop.
+    intent = await asyncio.to_thread(_parse_with_fallback, transcription["text"])
+    reply_text, data = await asyncio.to_thread(_execute_voice_intent, intent)
     response: dict[str, Any] = {
         "transcription": transcription,
         "intent": intent.to_dict(),
@@ -1584,15 +1585,27 @@ def voice_morning_briefing(
     that finished audio is returned instead of synthesizing live.
     """
     lang = normalize_language(language)
+    if prefer_pregenerated:
+        pregenerated = briefing_pregeneration.read_pregenerated_briefing(
+            date.fromisoformat(_today()), lang
+        )
+        if pregenerated is not None:
+            audio, stored_text = pregenerated
+            # Serve the finished file without any live work (text/weather).
+            # Only rebuild the text if it was not captured at generation time.
+            text = stored_text if stored_text is not None else _voice_briefing_text(lang)
+            return _envelope(
+                {
+                    "date": _today(),
+                    "language": lang,
+                    "text": text,
+                    "audio_base64": base64.b64encode(audio).decode("ascii"),
+                    "tts_error": None,
+                    "pregenerated": True,
+                }
+            )
     text = _voice_briefing_text(lang)
     response: dict[str, Any] = {"date": _today(), "language": lang, "text": text}
-    if prefer_pregenerated:
-        audio = briefing_pregeneration.read_pregenerated_audio(date.fromisoformat(_today()))
-        if audio is not None:
-            response["audio_base64"] = base64.b64encode(audio).decode("ascii")
-            response["tts_error"] = None
-            response["pregenerated"] = True
-            return _envelope(response)
     if speak:
         audio_base64, tts_error = _voice_audio_payload(text, lang)
         response["audio_base64"] = audio_base64

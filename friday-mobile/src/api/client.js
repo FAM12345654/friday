@@ -134,8 +134,15 @@ export async function getVoiceStatus() {
   return callApi("/api/voice/status");
 }
 
-export async function getVoiceMorningBriefing(language = "de", speak = true) {
+export async function getVoiceMorningBriefing(
+  language = "de",
+  speak = true,
+  preferPregenerated = false,
+) {
   const params = new URLSearchParams({ language, speak: speak ? "true" : "false" });
+  if (preferPregenerated) {
+    params.set("prefer_pregenerated", "true");
+  }
   return callApi(`/api/voice/morning-briefing?${params.toString()}`);
 }
 

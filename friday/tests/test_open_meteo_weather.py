@@ -50,6 +50,27 @@ def test_fetch_builds_rain_warning_in_both_languages() -> None:
     assert result.to_language("de").startswith("Regen")
 
 
+def test_fetch_null_weather_code_uses_default_and_keeps_temps() -> None:
+    payload = {
+        "daily": {
+            "weather_code": [None],
+            "temperature_2m_max": [24.2],
+            "temperature_2m_min": [16.8],
+            "precipitation_probability_max": [10],
+        }
+    }
+    result = fetch_open_meteo_weather(
+        date(2026, 7, 15),
+        opener=lambda *_a, **_k: _Response(payload),
+    )
+
+    # Null code degrades to the unknown-weather default, temps survive.
+    assert result.description_en == "mixed weather conditions"
+    assert result.description_de == "wechselhaftes Wetter"
+    assert "17 und 24 Grad Celsius" in result.to_german()
+    assert result.rain_warning is False
+
+
 def test_weather_text_disabled_returns_none(monkeypatch) -> None:
     monkeypatch.setattr(config, "ENABLE_WEATHER_BRIEFING", False)
     # Opener must never be called when the feature is off.

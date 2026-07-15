@@ -127,14 +127,34 @@ export async function restoreScheduledAlarm() {
   }
 }
 
-// Fetches today's briefing in the app language and speaks it.
+// Double-play guard: the alarm can fire DELIVERED and then PRESS (or repeat
+// rapidly), which would otherwise start a second overlapping playback. We skip
+// while a briefing playback is in flight or if one finished less than 60s ago.
+const BRIEFING_DEDUP_WINDOW_MS = 60 * 1000;
+let briefingPlaybackInFlight = false;
+let lastBriefingPlaybackAt = 0;
+
+// Fetches today's briefing in the app language and speaks it. Prefers the
+// pre-generated audio so the alarm plays instantly.
 // Returns the briefing payload so callers can show the text too.
 export async function playMorningBriefing() {
-  const data = await getVoiceMorningBriefing(getAppLocale(), true);
-  if (data?.audio_base64) {
-    await playBase64Wav(data.audio_base64, "friday-briefing.wav");
+  const now = Date.now();
+  if (briefingPlaybackInFlight || now - lastBriefingPlaybackAt < BRIEFING_DEDUP_WINDOW_MS) {
+    return null;
   }
-  return data;
+  briefingPlaybackInFlight = true;
+  try {
+    const data = await getVoiceMorningBriefing(getAppLocale(), true, true);
+    if (data?.audio_base64) {
+      await playBase64Wav(data.audio_base64, "friday-briefing.wav");
+    }
+    return data;
+  } finally {
+    // Always release the in-flight lock; record the finish time so a rapid
+    // repeat within the dedup window is skipped even after a failure.
+    briefingPlaybackInFlight = false;
+    lastBriefingPlaybackAt = Date.now();
+  }
 }
 
 // Wire up: app opened from the alarm notification (cold start), alarm tapped

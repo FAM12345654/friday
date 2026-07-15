@@ -23,12 +23,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from friday import config  # noqa: E402
 from friday.app.briefing_pregeneration import pregenerate_briefing  # noqa: E402
+from friday.app.date_utils import resolve_today  # noqa: E402
 from friday.app.push_notifications import notify_briefing_ready  # noqa: E402
 
 
 def main() -> int:
-    result = pregenerate_briefing(target_date=date.today())
+    # Derive the target date from resolve_today() (ISO string) so the script
+    # and the endpoint agree even in demo mode.
+    target_date = date.fromisoformat(resolve_today())
+    result = pregenerate_briefing(
+        target_date=target_date,
+        language=config.BRIEFING_PREGEN_LANGUAGE,
+    )
     if not result.ok:
         print(f"[FAIL] Briefing konnte nicht vorproduziert werden: {result.error}")
         return 1

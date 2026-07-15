@@ -35,8 +35,8 @@ def _pregen_dir(audio_dir: Path | str | None) -> Path:
     return Path(audio_dir) if audio_dir is not None else Path(config.BRIEFING_PREGEN_DIR)
 
 
-def briefing_file_name(target_date: date) -> str:
-    return f"briefing_{target_date.isoformat()}.wav"
+def briefing_file_name(target_date: date, language: str) -> str:
+    return f"briefing_{target_date.isoformat()}_{language}.wav"
 
 
 @dataclass(frozen=True)
@@ -111,20 +111,44 @@ def prune_old_briefings(directory: Path, *, keep_last: int) -> None:
         stale.unlink(missing_ok=True)
 
 
-def read_pregenerated_audio(
+def _read_stored_text(
+    directory: Path, target_date: date, language: str
+) -> str | None:
+    """Return the briefing text stored alongside the audio, or ``None``."""
+    status = read_briefing_status(audio_dir=directory)
+    briefings = status.get("briefings")
+    if isinstance(briefings, dict):
+        entry = briefings.get(language)
+        if isinstance(entry, dict) and entry.get("date") == target_date.isoformat():
+            text = entry.get("text")
+            if isinstance(text, str):
+                return text
+    return None
+
+
+def read_pregenerated_briefing(
     target_date: date,
+    language: str,
     *,
     audio_dir: Path | str | None = None,
-) -> bytes | None:
-    """Return the pre-generated WAV bytes for the date, or ``None`` if absent."""
-    path = _pregen_dir(audio_dir) / briefing_file_name(target_date)
+) -> tuple[bytes, str | None] | None:
+    """Return ``(audio_bytes, stored_text)`` for the date+language, or ``None``.
+
+    ``stored_text`` is the briefing text captured at generation time, or
+    ``None`` when no text was stored for this file. Returns ``None`` entirely
+    when no pre-generated audio exists for the requested date and language.
+    """
+    directory = _pregen_dir(audio_dir)
+    path = directory / briefing_file_name(target_date, language)
     if not path.exists():
         return None
     try:
         data = path.read_bytes()
     except OSError:
         return None
-    return data or None
+    if not data:
+        return None
+    return data, _read_stored_text(directory, target_date, language)
 
 
 def pregenerate_briefing(
@@ -171,20 +195,35 @@ def pregenerate_briefing(
             error=status["error"],
         )
 
-    final_path = directory / briefing_file_name(day)
-    temporary_path = directory / f"{briefing_file_name(day)}.tmp"
+    final_path = directory / briefing_file_name(day, lang)
+    temporary_path = directory / f"{briefing_file_name(day, lang)}.tmp"
     temporary_path.write_bytes(result.audio)
     temporary_path.replace(final_path)
     prune_old_briefings(directory, keep_last=keep)
 
+    generated_at = datetime.now(timezone.utc).isoformat()
+    # Preserve entries for other languages so their stored text survives.
+    existing = read_briefing_status(audio_dir=directory)
+    briefings = existing.get("briefings")
+    briefings = dict(briefings) if isinstance(briefings, dict) else {}
+    briefings[lang] = {
+        "date": day.isoformat(),
+        "language": lang,
+        "text": text,
+        "file_name": final_path.name,
+        "generated_at": generated_at,
+    }
+
     status = {
         "ok": True,
         "date": day.isoformat(),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": generated_at,
         "language": lang,
         "engine": result.engine,
         "file_name": final_path.name,
         "file_size": final_path.stat().st_size,
+        "text": text,
+        "briefings": briefings,
         "error": None,
     }
     status_path = _write_status(directory, status)
