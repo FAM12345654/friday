@@ -8,11 +8,10 @@ npm install
 copy .env.example .env
 ```
 
-Setze `EXPO_PUBLIC_FRIDAY_API_URL` in `.env` auf die erreichbare API-URL:
+Setze `EXPO_PUBLIC_FRIDAY_API_URL` in `.env` auf die geschützte Geräte-URL:
 
-- Emulator: `http://10.0.2.2:8000`
-- iOS Sim: `http://127.0.0.1:8000`
-- Physisches Gerät: HTTPS-Adresse von Tailscale Serve oder einem abgesicherten Tunnel
+- Android, iOS, Emulator und physisches Gerät: `https://pc.tail4c6152.ts.net`
+- Unverschlüsseltes LAN-HTTP ist absichtlich deaktiviert.
 
 ## Start
 

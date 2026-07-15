@@ -6,10 +6,11 @@ echo ========================================
 echo.
 echo Startet API, Mobile und Desktop in eigenen Fenstern.
 echo Desktop startet dabei mit deaktiviertem eingebetteten API-Start.
-echo Die API läuft nur im separaten API-Fenster auf Port 8000.
+if "%FRIDAY_API_PORT%"=="" set "FRIDAY_API_PORT=8001"
+echo Die API läuft nur im separaten API-Fenster auf Port %FRIDAY_API_PORT%.
 echo.
 
-start "Friday API (8000)" cmd /k "%~dp0start_friday_api.bat"
+start "Friday API (%FRIDAY_API_PORT%)" cmd /k "%~dp0start_friday_api.bat"
 timeout /t 2 >nul
 
 start "Friday Mobile" cmd /k "%~dp0start_friday_mobile.bat"

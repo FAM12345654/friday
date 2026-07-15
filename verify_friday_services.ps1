@@ -20,7 +20,7 @@ if ([string]::IsNullOrWhiteSpace($apiHost)) {
 
 $apiPort = $env:FRIDAY_API_PORT
 if ([string]::IsNullOrWhiteSpace($apiPort)) {
-    $apiPort = "8000"
+    $apiPort = "8001"
 }
 
 $projectRoot = $PSScriptRoot
@@ -30,6 +30,9 @@ $mobileEnvPath = Join-Path $mobileDir ".env"
 
 $baseUrl = "http://${apiHost}:${apiPort}"
 $apiToken = [string]$env:FRIDAY_API_TOKEN
+if ([string]::IsNullOrWhiteSpace($apiToken)) {
+    $apiToken = [Environment]::GetEnvironmentVariable("FRIDAY_API_TOKEN", "User")
+}
 $apiHeaders = @{}
 if (-not [string]::IsNullOrWhiteSpace($apiToken)) {
     $apiHeaders.Authorization = "Bearer $($apiToken.Trim())"
@@ -250,16 +253,20 @@ if (Test-Path $mobileEnvPath) {
     }
 
     if (-not $mobileApiUrl) {
-        $warning = "friday-mobile/.env hat keine EXPO_PUBLIC_FRIDAY_API_URL. Beispiel: EXPO_PUBLIC_FRIDAY_API_URL=http://127.0.0.1:8000"
+        $warning = "friday-mobile/.env hat keine EXPO_PUBLIC_FRIDAY_API_URL. Beispiel: EXPO_PUBLIC_FRIDAY_API_URL=https://pc.example.ts.net"
         $warnings.Add($warning)
         Add-CheckResult -Status "WARN" -Message $warning
     }
     else {
         try {
             $uri = [System.Uri]$mobileApiUrl
-            if ($uri.Port -ne [int]$apiPort) {
+            $isPublicHttps = $uri.Scheme -eq "https" -and $uri.Host -notin @("127.0.0.1", "localhost", "10.0.2.2")
+            if (-not $isPublicHttps -and $uri.Port -ne [int]$apiPort) {
                 $warnings.Add("EXPO_PUBLIC_FRIDAY_API_URL verweist auf Port '$($uri.Port)' statt '$apiPort'.")
                 Add-CheckResult -Status "WARN" -Message "EXPO_PUBLIC_FRIDAY_API_URL uses port '$($uri.Port)' instead of '$apiPort'."
+            }
+            elseif ($isPublicHttps) {
+                Add-CheckResult -Status "OK" -Message "EXPO_PUBLIC_FRIDAY_API_URL uses protected HTTPS transport."
             }
             else {
                 Add-CheckResult -Status "OK" -Message "EXPO_PUBLIC_FRIDAY_API_URL uses API port $apiPort."
@@ -271,8 +278,13 @@ if (Test-Path $mobileEnvPath) {
                 $uri.Host -notlike "10.*" -and
                 $uri.Host -notlike "172.*"
             ) {
-                $warnings.Add("EXPO_PUBLIC_FRIDAY_API_URL verwendet Host '$($uri.Host)'. Für Gerät-Tests meist LAN-IP (192.168.x.x) verwenden.")
-                Add-CheckResult -Status "WARN" -Message "EXPO_PUBLIC_FRIDAY_API_URL uses host '$($uri.Host)' (not local default)."
+                if ($isPublicHttps) {
+                    Add-CheckResult -Status "OK" -Message "EXPO_PUBLIC_FRIDAY_API_URL uses remote HTTPS host '$($uri.Host)'."
+                }
+                else {
+                    $warnings.Add("EXPO_PUBLIC_FRIDAY_API_URL verwendet externen Host '$($uri.Host)' ohne HTTPS.")
+                    Add-CheckResult -Status "WARN" -Message "EXPO_PUBLIC_FRIDAY_API_URL uses a non-local host without HTTPS."
+                }
             }
             else {
                 Add-CheckResult -Status "OK" -Message "EXPO_PUBLIC_FRIDAY_API_URL host '$($uri.Host)' is a local-friendly value."

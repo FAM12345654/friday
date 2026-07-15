@@ -393,6 +393,13 @@ export async function connectEmailAccount(payload) {
   });
 }
 
+export async function activateEmailSend(payload) {
+  return callApi("/api/accounts/email/activation-gate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function updateEmailAgentNotes(payload) {
   return callApi("/api/accounts/email/notes", {
     method: "PATCH",
@@ -549,14 +556,22 @@ export async function getMailOrganizeLog(limit = 25, includeUndone = false) {
   return callApi(`/api/mail/organize/log?${params.toString()}`);
 }
 
-export async function undoMailOrganize(logId) {
+export async function undoMailOrganize(logId, payload) {
   return callApi(`/api/mail/organize/undo/${encodeURIComponent(String(logId))}`, {
     method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 
 export async function getWhatsAppStatus() {
   return callApi("/api/whatsapp/status");
+}
+
+export async function activateWhatsAppReadBridge(payload) {
+  return callApi("/api/whatsapp/activation-gate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function getWhatsAppAgentNotes() {

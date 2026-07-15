@@ -13,11 +13,11 @@ services:
              (echo 'FRIDAY_API_TOKEN must contain at least 32 characters' >&2; exit 1);
              pip install --no-cache-dir -r friday-api/requirements.txt &&
              cd friday-api &&
-             python -m uvicorn main:app --host 0.0.0.0 --port 8000"
+             python -m uvicorn main:app --host 0.0.0.0 --port 8001"
     volumes:
       - .:/app
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8001:8001"
     environment:
       - FRIDAY_API_TOKEN=${FRIDAY_API_TOKEN:?FRIDAY_API_TOKEN must be set for Docker}
     restart: unless-stopped

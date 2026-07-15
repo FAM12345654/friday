@@ -3,10 +3,12 @@
 ## Start
 
 ```bash
-cd friday-api
 python -m pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Start-Friday-API-Autostart.ps1 -Port 8001
 ```
+
+Der Launcher bindet ausschließlich an `127.0.0.1:8001` und verlangt einen
+starken `FRIDAY_API_TOKEN`. Geräte verwenden Tailscale Serve per HTTPS.
 
 ## Wichtige Settings
 

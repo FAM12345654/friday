@@ -11,26 +11,24 @@ Friday ist als lokales Produkt fertiggestellt. Weiterarbeit erfolgt nur mit neue
 | Komponente | Status | Ergebnis |
 |---|---|---|
 | Python CLI | fertig | Lokale CLI mit Aufgaben, Review, Kontakten, Backup/Restore, Privacy, Safety, Export/Import und lokalen Preview-/Guard-Flows |
-| Friday API | fertig lokal | FastAPI auf Port `8000`, Health- und App-Endpunkte erfolgreich verifiziert |
-| Mobile App | fertig Preview | Expo/React-Native-App im Creme/Moos-Design mit LAN-API `http://192.168.178.42:8000` |
+| Friday API | fertig lokal | FastAPI ausschließlich auf `127.0.0.1:8001`, Token-Schutz und Tailscale-HTTPS verifiziert |
+| Mobile App | fertig Preview | Expo/React-Native-App mit Tailscale-HTTPS, SecureStore und deaktiviertem Cleartext |
 | Desktop App | fertig lokal | Electron-App im Creme/Moos-Design mit portablem Windows-Build |
 
 ## Mobile APK
 
-Aktueller Android-Preview-Build (final, mit `usesCleartextTraffic` fuer lokale HTTP-API):
-
-`https://expo.dev/artifacts/eas/3cfGZ3nlTERdjOa7nHdsqlvatKwbk6veBVSWLd5KP3c.apk`
+Ein neuer Android-Preview-Build wird aus Runtime `1.0.0-sdk54-secure-v2`
+erzeugt. Die unten dokumentierte frühere Cleartext-Generation ist überholt.
 
 EAS Build:
 
 - Build ID: `ad7d6749-21bf-409b-88c0-9941df70483f`
 - Status: `FINISHED`
 - Channel: `preview`
-- Runtime: `1.0.0-sdk54`
+- Runtime: `1.0.0-sdk54-secure-v2`
 
-Hinweis: Der Vorgaenger-Build `1ef0090b-481d-4077-a338-8b1154605368` enthielt das
-Creme/Moos-Design, aber noch keine Cleartext-Freigabe — er kann die lokale API nicht
-erreichen und ist damit ueberholt.
+Hinweis: Alle Builds der Runtime `1.0.0-sdk54` sind für den aktuellen sicheren
+Transport überholt und erhalten keine Updates der neuen Runtime.
 
 OTA-Update:
 

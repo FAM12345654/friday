@@ -287,7 +287,7 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     const API_HOST = params.get("apiHost") || "127.0.0.1";
-    const API_PORT = params.get("apiPort") || "8000";
+    const API_PORT = params.get("apiPort") || "8001";
     const API_BASE = `http://${API_HOST}:${API_PORT}`;
     const API_TOKEN = String(window.fridayRuntime?.apiToken || "");
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from friday.app.action_approval_store import ActionApprovalStore
 from friday.storage.database import setup_local_database
 
 
@@ -103,6 +104,93 @@ def test_mail_organize_dry_run_selects_only_gmail_noise(api_module, monkeypatch)
     assert data["moved_count"] == 0
 
 
+def test_mail_organize_requires_payload_bound_one_time_approval(
+    api_module, tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr(api_module.config, "ENABLE_MAIL_ORGANIZE", True)
+    api_module.action_approvals = ActionApprovalStore(db_path=tmp_path / "security.db")
+    account = api_module.build_imap_mail_account(
+        provider="gmail",
+        host="imap.gmail.com",
+        port=993,
+        username="test@example.com",
+        app_password="pw",
+        last_test_ok=True,
+    )
+    monkeypatch.setattr(api_module, "list_imap_mail_accounts", lambda: (account,))
+    monkeypatch.setattr(api_module, "decrypt_imap_mail_app_password", lambda _account: "pw")
+    repo = api_module.MsMailMessageRepository(api_module.message_agent.db_path)
+    repo.upsert_messages(
+        [
+            {
+                "source": "imap_mail",
+                "account_id": account.account_id,
+                "provider_message_id": "noise-1",
+                "sender": "Instagram <noreply@instagram.com>",
+                "subject": "Newsletter",
+            }
+        ],
+        account_id=account.account_id,
+        account_username=account.username,
+    )
+    moves: list[str] = []
+
+    def _move(**kwargs):
+        moves.append(kwargs["provider_message_id"])
+        return api_module.ImapMailWriteResult(
+            ok=True,
+            message="moved",
+            account_id=account.account_id,
+            provider_message_id=kwargs["provider_message_id"],
+            from_folder="INBOX",
+            to_label=kwargs["label"],
+        )
+
+    monkeypatch.setattr(api_module, "move_to_cleanup_label", _move)
+    client = TestClient(api_module.app)
+
+    preview = client.post(
+        "/api/mail/organize/run",
+        json={
+            "top": 10,
+            "dry_run": True,
+            "approval_token": "POSTFACH AUFRAEUMEN",
+        },
+    )
+    preview_data = preview.json()["data"]
+    approval_id = preview_data["approval"]["id"]
+
+    execute = client.post(
+        "/api/mail/organize/run",
+        json={
+            "top": 10,
+            "dry_run": False,
+            "approval_token": "POSTFACH AUFRAEUMEN",
+            "approval_id": approval_id,
+        },
+    )
+    replay = client.post(
+        "/api/mail/organize/run",
+        json={
+            "top": 10,
+            "dry_run": False,
+            "approval_token": "POSTFACH AUFRAEUMEN",
+            "approval_id": approval_id,
+        },
+    )
+
+    assert preview.status_code == 200
+    assert preview_data["moved_count"] == 0
+    assert "one_time_approval_required" in preview_data["blocked_reasons"]
+    assert execute.status_code == 200
+    assert execute.json()["data"]["moved_count"] == 1
+    assert execute.json()["data"]["external_write_used"] is True
+    assert replay.status_code == 200
+    assert replay.json()["data"]["moved_count"] == 0
+    assert "one_time_approval_invalid" in replay.json()["data"]["blocked_reasons"]
+    assert moves == ["noise-1"]
+
+
 def test_mail_organize_undo_marks_log_entry(api_module, monkeypatch) -> None:
     monkeypatch.setattr(api_module.config, "ENABLE_MAIL_ORGANIZE", True)
     account = api_module.build_imap_mail_account(
@@ -133,9 +221,26 @@ def test_mail_organize_undo_marks_log_entry(api_module, monkeypatch) -> None:
         sender="Noise",
         subject="Newsletter",
     )
+    api_module.action_approvals = ActionApprovalStore(
+        db_path=api_module.message_agent.db_path.parent / "undo-security.db"
+    )
     client = TestClient(api_module.app)
 
-    response = client.post(f"/api/mail/organize/undo/{entry['id']}")
+    preview = client.post(
+        f"/api/mail/organize/undo/{entry['id']}",
+        json={"approval_token": "POSTFACH AUFRAEUMEN"},
+    )
+    approval_id = preview.json()["data"]["approval"]["id"]
+    response = client.post(
+        f"/api/mail/organize/undo/{entry['id']}",
+        json={
+            "approval_token": "POSTFACH AUFRAEUMEN",
+            "approval_id": approval_id,
+        },
+    )
 
+    assert preview.status_code == 200
+    assert preview.json()["data"]["undone"] is False
     assert response.status_code == 200
     assert response.json()["data"]["undone"] is True
+    assert response.json()["data"]["external_write_used"] is True

@@ -106,9 +106,22 @@ def scan_python_source_for_string_literals(
     """Collect string literals from Python source via AST."""
     tree = ast.parse(source, filename=file_path)
     literals: list[ApprovalTokenLiteral] = []
+    # JSON/dict response keys such as {"ok": True} are data-shape labels, not
+    # approval tokens. Keep values and every other literal in scope.
+    structural_dict_key_ids = {
+        id(key)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Dict)
+        for key in node.keys
+        if isinstance(key, ast.Constant) and key.value == "ok"
+    }
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in structural_dict_key_ids
+        ):
             literals.append(
                 ApprovalTokenLiteral(
                     file_path=file_path,

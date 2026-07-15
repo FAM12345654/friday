@@ -5,7 +5,7 @@ cd "$(dirname "$0")/../friday-api"
 
 python3 -m pip install -r requirements.txt
 FRIDAY_API_HOST="${FRIDAY_API_HOST:-127.0.0.1}"
-FRIDAY_API_PORT="${FRIDAY_API_PORT:-8000}"
+FRIDAY_API_PORT="${FRIDAY_API_PORT:-8001}"
 FRIDAY_API_TOKEN="${FRIDAY_API_TOKEN:-}"
 if [[ "$FRIDAY_API_HOST" != "127.0.0.1" && "$FRIDAY_API_HOST" != "localhost" && ${#FRIDAY_API_TOKEN} -lt 32 ]]; then
   echo "FEHLER: FRIDAY_API_TOKEN muss fuer LAN- oder Tunnel-Zugriff mindestens 32 Zeichen haben." >&2

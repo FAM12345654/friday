@@ -47,7 +47,11 @@ ALLOWED_LOCAL_NETWORK_FILES: tuple[str, ...] = (
     "imap_mail_writer.py",
     "calendar_provider_google.py",
     "calendar_provider_ics.py",
+    "calendar_provider_caldav.py",
     "ms_mail_provider.py",
+    "push_notifications.py",
+    "semantic_index.py",
+    "voice_synthesis.py",
 )
 
 DEFAULT_EXCLUDED_PATH_PARTS: tuple[str, ...] = (

@@ -15,7 +15,7 @@
     "assetBundlePatterns": [
       "**/*"
     ],
-    "runtimeVersion": "1.0.0-sdk54",
+    "runtimeVersion": "1.0.0-sdk54-secure-v2",
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",

@@ -140,6 +140,21 @@ def test_approval_token_scanner_detects_soft_obsidian_token() -> None:
     )
 
 
+def test_approval_token_scanner_ignores_soft_structural_dict_key() -> None:
+    literals = scan_python_source_for_string_literals('payload = {"ok": True}')
+
+    assert not any(literal.value == "ok" for literal in literals)
+
+
+def test_approval_token_scanner_keeps_soft_approval_mapping_keys() -> None:
+    findings = _findings_for_source('approval_map = {"ja": True, "yes": True}')
+
+    assert {finding.token_value for finding in findings if finding.finding_type == "soft_token_detected"} >= {
+        "ja",
+        "yes",
+    }
+
+
 def test_approval_token_scanner_can_allow_existing_delete_policy_token() -> None:
     findings = _findings_for_source(
         "\n".join(

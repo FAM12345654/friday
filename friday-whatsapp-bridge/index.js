@@ -10,7 +10,7 @@ const projectRoot = path.resolve(__dirname, "..");
 const localDataDir = path.join(projectRoot, "local_data", "whatsapp");
 const tokenPath = path.join(localDataDir, "bridge_token.txt");
 const configPath = path.join(localDataDir, "bridge.config.json");
-const apiUrl = process.env.FRIDAY_API_URL || "http://127.0.0.1:8000";
+const apiUrl = process.env.FRIDAY_API_URL || "http://127.0.0.1:8001";
 const apiToken = String(process.env.FRIDAY_API_TOKEN || "").trim();
 
 process.env.PUPPETEER_CACHE_DIR = path.join(localDataDir, "puppeteer-cache");

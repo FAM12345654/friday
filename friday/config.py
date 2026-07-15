@@ -36,6 +36,21 @@ ENABLE_MAIL_ORGANIZE = False
 # Jede Aktion braucht eine Nutzerfreigabe im Vorschaumodus.
 REQUIRE_USER_APPROVAL = True
 
+# Kalenderquellen werden regelmäßig nur lesend auf neue Sync-Kandidaten geprüft.
+# Der Hintergrundlauf erzeugt weder Freigaben noch Google-Schreibvorgänge.
+CALENDAR_SOURCE_SYNC_PREVIEW_ENABLED = True
+CALENDAR_SOURCE_SYNC_PREVIEW_INTERVAL_SECONDS = 15 * 60
+CALENDAR_SOURCE_SYNC_PREVIEW_INITIAL_DELAY_SECONDS = 30
+CALENDAR_SOURCE_SYNC_DAYS_BACK = 30
+CALENDAR_SOURCE_SYNC_DAYS_FORWARD = 365
+
+# Microsoft-Mail wird nur mit Mail.Read regelmäßig gelesen. Der Scheduler
+# versendet nichts und serialisiert alle Läufe in einem Prozess.
+MS_MAIL_SYNC_SCHEDULER_ENABLED = True
+MS_MAIL_SYNC_INTERVAL_SECONDS = 15 * 60
+MS_MAIL_SYNC_INITIAL_DELAY_SECONDS = 60
+MS_MAIL_SYNC_TOP = 25
+
 # Feste Demo-Daten für die lokale Anzeige.
 DEMO_DATE = "2026-07-05"
 USE_REAL_TODAY = True

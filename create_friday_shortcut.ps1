@@ -3,7 +3,7 @@ $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ShortcutDefinitions = @(
     @{ Name = "Friday.lnk"; TargetFile = "start_friday.bat"; Description = "Start Friday local assistant" },
     @{ Name = "Friday Stack.lnk"; TargetFile = "start_friday_stack.bat"; Description = "Start API + Mobile + Desktop together" },
-    @{ Name = "Friday API.lnk"; TargetFile = "start_friday_api.bat"; Description = "Start Friday FastAPI backend on :8000" },
+    @{ Name = "Friday API.lnk"; TargetFile = "start_friday_api.bat"; Description = "Start protected Friday FastAPI backend on loopback :8001" },
     @{ Name = "Friday Mobile.lnk"; TargetFile = "start_friday_mobile.bat"; Description = "Start Friday Expo mobile app" },
     @{ Name = "Friday Desktop.lnk"; TargetFile = "start_friday_desktop.bat"; Description = "Start Friday Electron desktop app" },
     @{ Name = "Friday Desktop No API.lnk"; TargetFile = "start_friday_desktop_skip_api.bat"; Description = "Start Friday Electron desktop app without embedded API" },

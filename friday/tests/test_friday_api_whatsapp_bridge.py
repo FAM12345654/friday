@@ -137,8 +137,10 @@ def test_whatsapp_activation_gate_requires_hard_token(monkeypatch) -> None:
     ).json()["data"]
     allowed = client.post(
         "/api/whatsapp/activation-gate",
-        json={"approval_token": "WHATSAPP BRIDGE AKTIVIEREN", "scanner_smoke_passed": True},
+        json={"approval_token": "WHATSAPP BRIDGE AKTIVIEREN", "scanner_smoke_passed": False},
     ).json()["data"]
 
     assert blocked["allowed"] is False
     assert allowed["allowed"] is True
+    assert allowed["server_safety_smoke"]["passed"] is True
+    assert allowed["client_smoke_claim_ignored"] is True

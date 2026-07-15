@@ -12,7 +12,7 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 let apiProcess = null;
-const apiPort = process.env.FRIDAY_API_PORT || "8000";
+const apiPort = process.env.FRIDAY_API_PORT || "8001";
 const apiHost = process.env.FRIDAY_API_HOST || "127.0.0.1";
 const apiClientHost = process.env.FRIDAY_API_CLIENT_HOST || "127.0.0.1";
 const skipEmbeddedApi = [

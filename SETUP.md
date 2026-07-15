@@ -6,7 +6,7 @@
 start_friday_stack.bat
 ```
 
-Startet API (8000), Mobile und Desktop in separaten Fenstern.
+Startet die geschützte Loopback-API (8001), Mobile und Desktop in separaten Fenstern.
 
 Optionaler Check:
 
@@ -14,7 +14,7 @@ Optionaler Check:
 verify_friday_services.bat
 ```
 
-Kontrolliert, ob Port `8000` offen ist, die wichtigsten API-Endpunkte erreichbar sind und ob `friday-mobile/.env` eine passende `EXPO_PUBLIC_FRIDAY_API_URL` enthält.
+Kontrolliert, ob Port `8001` nur lokal offen ist, die geschützten API-Endpunkte erreichbar sind und ob `friday-mobile/.env` die HTTPS-Geräteadresse enthält.
 
 Ein-Befehl-Checkliste:
 
@@ -27,7 +27,7 @@ run_friday_checklist.bat --install --repair --start
 ```
 
 Die Checkliste kann Setup/Install ausführen, Shortcuts/Dateien prüfen, den Stack starten und danach die Service-Verifikation ausführen.
-Mit `--repair` werden fehlende Shortcuts repariert und `friday-mobile/.env` mit `EXPO_PUBLIC_FRIDAY_API_URL=http://127.0.0.1:8000` angelegt, falls sie fehlt.
+Mit `--repair` werden fehlende Shortcuts repariert und `friday-mobile/.env` mit `EXPO_PUBLIC_FRIDAY_API_URL=https://pc.tail4c6152.ts.net` angelegt, falls sie fehlt.
 Mit `--mobile-release` wird zusätzlich geprüft, ob EAS Build/Update für Handy-Download und automatische Updates vollständig verbunden ist.
 
 Für automatisierte Nutzung (z. B. CI, Skripte) kannst du die Ausgabe vereinfachen:
@@ -80,10 +80,10 @@ start_friday_desktop_skip_api.bat
 ### API antwortet nicht auf `/health`
 
 - Prüfe, ob `start_friday_api.bat` aktiv ist.
-- Prüfe, ob Port `8000` von einem anderen Dienst belegt ist.
+- Prüfe, ob Port `8001` von einem anderen Dienst belegt ist.
 - Wenn Desktop im Stack läuft, nutzt er `FRIDAY_SKIP_EMBEDDED_API=1`, damit kein zweiter API-Prozess startet.
 
-### Port 8000 ist belegt
+### Port 8001 ist belegt
 
 - Stoppe den alten API-Prozess und starte den Stack neu.
 - Alternativ kann der API-Port über `FRIDAY_API_PORT` im Desktop-Lauf geändert werden.
@@ -91,13 +91,12 @@ start_friday_desktop_skip_api.bat
 ### Mobile kann nicht verbinden
 
 - Prüfe `friday-mobile/.env` (`EXPO_PUBLIC_FRIDAY_API_URL`).
-- Emulator: `http://10.0.2.2:8000`
-- Sim/Tablet auf PC: `http://127.0.0.1:8000`
-- Physisches Gerät: `http://<pc-lan-ip>:8000`
+- Android/iOS/Tablet: `https://pc.tail4c6152.ts.net`
+- Direkter LAN-HTTP-Zugriff ist absichtlich deaktiviert.
 
 ### Desktop startet nicht (Skip-API-Modus)
 
-- `start_friday_desktop_skip_api.bat` erwartet einen laufenden API-Dienst auf `FRIDAY_API_PORT` (Standard `8000`).
+- `start_friday_desktop_skip_api.bat` erwartet einen laufenden API-Dienst auf `FRIDAY_API_PORT` (Standard `8001`).
 - Prüfe zuerst `start_friday_api.bat` oder `start_friday_stack.bat`.
 - Starte dann den Check:
 
@@ -114,13 +113,15 @@ verify_friday_services.bat
 ```bash
 cd friday-api
 python -m pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+cd ..
+scripts\Start-Friday-API-Autostart.ps1 -Port 8001
 ```
 
 Sicherstellen:
 
-- Port 8000 frei
-- `http://127.0.0.1:8000/health` liefert `{"ok":true,...}`
+- Port 8001 frei
+- `http://127.0.0.1:8001/health` liefert `{"ok":true,...}`
+- Geschützte Routen benötigen `Authorization: Bearer <FRIDAY_API_TOKEN>`.
 - CORS erlaubt die Mobile/Desktop-Origins (`FRIDAY_CORS_ORIGINS`)
 
 ## 2) Mobile (`friday-mobile`)
@@ -144,9 +145,8 @@ Der vollstaendige Mobile-/Desktop-Guide steht hier:
 friday/docs/FRIDAY_MOBILE_DESKTOP_GUIDE.md
 ```
 
-- Emulator (Android): `http://10.0.2.2:8000`
-- Simulator (iOS): `http://127.0.0.1:8000`
-- Physisches Gerät: `http://<pc-lan-ip>:8000`
+- Alle Geräte: `https://pc.tail4c6152.ts.net`
+- Lokal bleibt die API ausschließlich auf `127.0.0.1:8001` gebunden.
 
 ### Handy-Download und automatische Updates
 
@@ -204,14 +204,14 @@ Im Stack-Betrieb (`start_friday_stack.bat`) wird der eingebettete API-Start übe
 
 ### Port-Einheit
 
-- API Host/Port: `0.0.0.0:8000`
-- Mobile/Simulator/Devices: auf dasselbe API-Backend verweisen
-- Desktop: startet Backend intern über `FRIDAY_API_PORT` (Standard 8000)
+- API Host/Port: `127.0.0.1:8001`
+- Mobile/Simulator/Devices: geschütztes Tailscale-HTTPS verwenden
+- Desktop: startet Backend intern über `FRIDAY_API_PORT` (Standard 8001)
 
 ### CORS
 
 - Mobile + Desktop-Ziele in `friday-api/.env.example#FRIDAY_CORS_ORIGINS` pflegen.
-- Wenn `FRIDAY_CORS_ORIGINS` leer ist, erlaubt FastAPI standardmäßig `*`.
+- Wenn `FRIDAY_CORS_ORIGINS` leer ist, gelten nur die fest definierten lokalen Origins.
 
 ### Gemeinsames JSON-Schema
 
@@ -238,7 +238,7 @@ Im Stack-Betrieb (`start_friday_stack.bat`) wird der eingebettete API-Start übe
 Neben den `.bat`-Skripten gibt es Shell-Äquivalente:
 
 ```bash
-scripts/start_friday_api.sh        # API auf 0.0.0.0:8000
+scripts/start_friday_api.sh        # API auf 127.0.0.1:8001
 scripts/run_tests.sh               # friday/tests + friday-api/tests
 scripts/start_whatsapp_bridge.sh   # WhatsApp-Bridge (npm install bei Bedarf)
 ```
@@ -341,8 +341,9 @@ python scripts\benchmark_voice_tts.py --engine voicebox --profile-id <PROFILE_ID
 5. Testen ohne App:
 
 ```bash
-curl -s "http://127.0.0.1:8000/api/voice/morning-briefing" | python -m json.tool
-curl -s -X POST http://127.0.0.1:8000/api/voice/command \
+curl -s "http://127.0.0.1:8001/api/voice/morning-briefing" -H "Authorization: Bearer $FRIDAY_API_TOKEN" | python -m json.tool
+curl -s -X POST http://127.0.0.1:8001/api/voice/command \
+  -H "Authorization: Bearer $FRIDAY_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"text": "Was steht heute an?"}' | python -m json.tool
 ```

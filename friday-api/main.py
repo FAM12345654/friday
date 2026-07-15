@@ -8,7 +8,7 @@ import hashlib
 import os
 import sys
 import tempfile
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from datetime import date, timedelta
 import json
@@ -70,6 +70,7 @@ from friday.app.calendar_source_sync import (
     build_source_sync_plan,
     public_sync_item,
 )
+from friday.app.calendar_source_sync_scheduler import CalendarSourceSyncPreviewScheduler
 from friday.app.calendar_google_account_store import (
     GOOGLE_CALENDAR_CONNECT_TOKEN,
     build_google_calendar_account,
@@ -106,7 +107,11 @@ from friday.app.email_account_store import (
     save_email_account,
     save_email_account_agent_notes,
 )
-from friday.app.email_activation_gate import EMAIL_ACTIVATION_TOKEN, build_email_activation_gate
+from friday.app.email_activation_gate import (
+    EMAIL_ACTIVATION_TOKEN,
+    apply_email_activation_to_config,
+    build_email_activation_gate,
+)
 from friday.app.email_imap_reader import check_imap_login, read_recent_inbox_emails
 from friday.app.imap_mail_account_store import (
     build_imap_mail_account,
@@ -129,6 +134,7 @@ from friday.app.imap_mail_writer import (
     move_to_cleanup_label,
 )
 from friday.app.mailbox_cleanup import (
+    MAILBOX_CLEANUP_TOKEN,
     apply_mailbox_cleanup_activation_to_config,
     build_mailbox_cleanup_activation_gate,
     select_obvious_mailbox_cleanup_candidates,
@@ -192,10 +198,13 @@ from friday.app import voice_intent_llm
 from friday.app.voice_intent import VoiceIntent, match_task_by_title, parse_voice_command
 from friday.app.voice_synthesis import normalize_language
 from friday.app.setup_status import build_setup_status
+from friday.app.safety_smoke_runner import run_safety_smoke
 from friday.app.whatsapp_bridge_activation_gate import (
     WHATSAPP_BRIDGE_ACTIVATION_TOKEN,
+    apply_whatsapp_bridge_read_activation_to_config,
     build_whatsapp_bridge_activation_gate,
 )
+from friday.app.mail_read_sync_scheduler import MailReadSyncScheduler
 from friday.app.whatsapp_inbox_store import (
     bridge_token_matches,
     get_whatsapp_bridge_status,
@@ -240,7 +249,51 @@ def _allowed_origins() -> list[str]:
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     setup_local_database()
-    yield
+    background_tasks: list[asyncio.Task[None]] = []
+    background_schedulers_disabled = os.getenv(
+        "FRIDAY_DISABLE_BACKGROUND_SCHEDULERS", ""
+    ).strip().lower() in {"1", "true", "yes"}
+    if (
+        not background_schedulers_disabled
+        and getattr(config, "CALENDAR_SOURCE_SYNC_PREVIEW_ENABLED", False)
+    ):
+        background_tasks.append(
+            asyncio.create_task(
+                calendar_source_sync_preview_scheduler.run_forever(
+                    initial_delay_seconds=getattr(
+                        config,
+                        "CALENDAR_SOURCE_SYNC_PREVIEW_INITIAL_DELAY_SECONDS",
+                        30,
+                    ),
+                ),
+                name="friday-calendar-source-sync-preview",
+            )
+        )
+    if (
+        not background_schedulers_disabled
+        and getattr(config, "MS_MAIL_SYNC_SCHEDULER_ENABLED", False)
+        and config.ENABLE_MS_MAIL_READ
+    ):
+        background_tasks.append(
+            asyncio.create_task(
+                ms_mail_read_sync_scheduler.run_forever(
+                    initial_delay_seconds=getattr(
+                        config,
+                        "MS_MAIL_SYNC_INITIAL_DELAY_SECONDS",
+                        60,
+                    ),
+                ),
+                name="friday-ms-mail-read-sync",
+            )
+        )
+    try:
+        yield
+    finally:
+        for task in background_tasks:
+            task.cancel()
+        for task in background_tasks:
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 app = FastAPI(
@@ -263,10 +316,19 @@ app.add_middleware(
 )
 
 _APPROVAL_RESPONSE_PATHS = {
+    "/api/accounts/email/activation-gate",
+    "/api/accounts/ms-mail/activation-gate",
+    "/api/accounts/imap-mail/activation-gate",
+    "/api/mail/organize/activation-gate",
+    "/api/mail/organize/run",
+    "/api/whatsapp/activation-gate",
+    "/api/accounts/calendar/activation-gate",
     "/api/calendar/events/write-guard",
     "/api/calendar/events/from-message",
     "/api/calendar/events/delete-guard",
     "/api/calendar/source-sync",
+    "/api/calendar/source-sync/preview-status",
+    "/api/calendar/source-sync/preview-refresh",
     "/api/push/send-due-reminders",
 }
 
@@ -284,6 +346,40 @@ task_agent = TaskAgent()
 message_agent = MessageAgent(contact_agent=ContactContextAgent())
 calendar_agent = CalendarAgent()
 contact_agent = ContactContextAgent()
+calendar_source_sync_preview_scheduler = CalendarSourceSyncPreviewScheduler(
+    lambda: _build_automatic_calendar_source_sync_preview(),
+    interval_seconds=getattr(
+        config,
+        "CALENDAR_SOURCE_SYNC_PREVIEW_INTERVAL_SECONDS",
+        15 * 60,
+    ),
+)
+ms_mail_read_sync_scheduler = MailReadSyncScheduler(
+    lambda: _run_automatic_ms_mail_sync(),
+    interval_seconds=getattr(config, "MS_MAIL_SYNC_INTERVAL_SECONDS", 15 * 60),
+)
+
+
+def _run_server_safety_smoke() -> Any:
+    """Run the authoritative local scanners; client PASS claims are never trusted."""
+    return run_safety_smoke(
+        safety_flag_overrides={
+            # EMAIL AKTIVIEREN is an explicit persisted transition. The release
+            # scanner remains pinned to False; runtime gates accept the loaded,
+            # explicitly activated state after restart.
+            "ENABLE_REAL_EMAIL": bool(config.ENABLE_REAL_EMAIL),
+        }
+    )
+
+
+def _activation_payload(gate: Any, smoke: Any) -> dict[str, Any]:
+    payload = asdict(gate)
+    payload["server_safety_smoke"] = {
+        "passed": bool(smoke.passed),
+        "checks": [asdict(check) for check in smoke.checks],
+    }
+    payload["client_smoke_claim_ignored"] = True
+    return payload
 
 
 class TaskCreateRequest(BaseModel):
@@ -366,6 +462,7 @@ class EmailAccountDeleteRequest(BaseModel):
 class EmailActivationGateRequest(BaseModel):
     approval_token: str
     scanner_smoke_passed: bool = False
+    execute_write: bool = False
 
 
 class MsMailConnectRequest(BaseModel):
@@ -415,7 +512,14 @@ class MailboxCleanupActivationGateRequest(BaseModel):
 class MailboxCleanupRunRequest(BaseModel):
     top: int = 25
     account_id: str | None = None
-    dry_run: bool = False
+    dry_run: bool = True
+    approval_token: str = ""
+    approval_id: str = Field(default="", max_length=128)
+
+
+class MailboxCleanupUndoRequest(BaseModel):
+    approval_token: str = ""
+    approval_id: str = Field(default="", max_length=128)
 
 
 class EmailSendRequest(BaseModel):
@@ -443,6 +547,7 @@ class WhatsAppReplyRequest(BaseModel):
 class WhatsAppBridgeActivationGateRequest(BaseModel):
     approval_token: str
     scanner_smoke_passed: bool = False
+    execute_write: bool = False
 
 
 class CalendarEventExtractRequest(BaseModel):
@@ -1245,14 +1350,15 @@ def _run_mailbox_cleanup(payload: MailboxCleanupRunRequest | None = None) -> dic
         raise HTTPException(status_code=404, detail="Kein Gmail-IMAP-Konto verbunden.")
 
     top = payload.top if payload is not None else 25
-    dry_run = bool(payload.dry_run) if payload is not None else False
+    requested_dry_run = bool(payload.dry_run) if payload is not None else True
+    approval_token = str(payload.approval_token if payload is not None else "").strip()
+    approval_id = str(payload.approval_id if payload is not None else "").strip()
     message_repository = MsMailMessageRepository(message_agent.db_path)
     blocked_repository = BlockedSenderRepository(message_agent.db_path)
     contact_repository = ContactRepository(message_agent.db_path)
     log_repository = _mailbox_cleanup_log_repository()
-    moved: list[dict[str, Any]] = []
     candidates_payload: list[dict[str, Any]] = []
-    account_results: list[dict[str, Any]] = []
+    candidates_by_account: list[tuple[Any, tuple[Any, ...]]] = []
 
     for account in accounts:
         messages = message_repository.list_messages(
@@ -1269,7 +1375,53 @@ def _run_mailbox_cleanup(payload: MailboxCleanupRunRequest | None = None) -> dic
         )
         account_candidates = [candidate.to_dict() for candidate in candidates]
         candidates_payload.extend(account_candidates)
-        if dry_run:
+        candidates_by_account.append((account, candidates))
+
+    action_payload = {
+        "label": GMAIL_CLEANUP_LABEL,
+        "items": sorted(
+            (
+                {
+                    "account_id": str(item["account_id"]),
+                    "provider_message_id": str(item["provider_message_id"]),
+                }
+                for item in candidates_payload
+            ),
+            key=lambda item: (item["account_id"], item["provider_message_id"]),
+        ),
+    }
+    approval_payload: dict[str, Any] | None = None
+    blocked_reasons: list[str] = []
+    external_write_allowed = False
+    if candidates_payload:
+        if approval_token != MAILBOX_CLEANUP_TOKEN:
+            blocked_reasons.append("approval_token_invalid")
+        elif not approval_id:
+            approval_payload = _try_issue_action_approval(
+                action="mailbox.cleanup.move_batch",
+                payload=action_payload,
+            )
+            blocked_reasons.append(
+                "one_time_approval_required"
+                if approval_payload is not None
+                else "action_recently_consumed"
+            )
+        elif not action_approvals.consume(
+            approval_id=approval_id,
+            action="mailbox.cleanup.move_batch",
+            payload=action_payload,
+        ):
+            blocked_reasons.append("one_time_approval_invalid")
+        elif requested_dry_run:
+            blocked_reasons.append("dry_run_requested")
+        else:
+            external_write_allowed = True
+
+    moved: list[dict[str, Any]] = []
+    account_results: list[dict[str, Any]] = []
+    for account, candidates in candidates_by_account:
+        account_candidates = [candidate.to_dict() for candidate in candidates]
+        if not external_write_allowed:
             account_results.append(
                 {
                     "account_id": account.account_id,
@@ -1323,13 +1475,17 @@ def _run_mailbox_cleanup(payload: MailboxCleanupRunRequest | None = None) -> dic
 
     return {
         "enabled": config.ENABLE_MAIL_ORGANIZE,
-        "dry_run": dry_run,
+        "dry_run": not external_write_allowed,
         "label": GMAIL_CLEANUP_LABEL,
         "candidate_count": len(candidates_payload),
         "moved_count": len(moved),
         "candidates": candidates_payload,
         "moved": moved,
         "accounts": account_results,
+        "approval": approval_payload,
+        "approval_required": bool(candidates_payload),
+        "blocked_reasons": tuple(blocked_reasons),
+        "external_write_used": external_write_allowed,
         "deleted": False,
         "expunge_used": False,
         "real_email_enabled": config.ENABLE_REAL_EMAIL,
@@ -2352,13 +2508,14 @@ async def get_google_calendar_read_preview(
 @app.post("/api/accounts/calendar/activation-gate")
 def calendar_activation_gate(payload: CalendarActivationGateRequest) -> dict[str, Any]:
     account_status = google_calendar_account_status()
+    smoke = _run_server_safety_smoke()
     gate = build_calendar_activation_gate(
         approval_token=payload.approval_token,
         account_connected=bool(account_status["connected"]),
         connection_test_ok=bool(account_status["last_test_ok"]),
-        scanner_smoke_passed=payload.scanner_smoke_passed,
+        scanner_smoke_passed=smoke.passed,
     )
-    return _envelope(gate.to_dict())
+    return _envelope(_activation_payload(gate, smoke))
 
 
 @app.get("/api/tasks")
@@ -3189,11 +3346,28 @@ def delete_email_account_endpoint(payload: EmailAccountDeleteRequest) -> dict[st
 
 @app.post("/api/accounts/email/activation-gate")
 def get_email_activation_gate(payload: EmailActivationGateRequest) -> dict[str, Any]:
-    gate = build_email_activation_gate(
-        approval_token=payload.approval_token,
-        scanner_smoke_passed=payload.scanner_smoke_passed,
-    )
-    return _envelope(asdict(gate))
+    smoke = _run_server_safety_smoke()
+    if payload.execute_write:
+        gate = apply_email_activation_to_config(
+            config_path=config.PACKAGE_DIR / "config.py",
+            approval_token=payload.approval_token,
+            scanner_smoke_passed=smoke.passed,
+            execute_write=True,
+            post_write_validation=lambda path: (
+                "ENABLE_REAL_EMAIL = True" in path.read_text(encoding="utf-8")
+                and "REQUIRE_USER_APPROVAL = True" in path.read_text(encoding="utf-8")
+            ),
+        )
+    else:
+        gate = build_email_activation_gate(
+            approval_token=payload.approval_token,
+            scanner_smoke_passed=smoke.passed,
+        )
+    if gate.config_write_performed and gate.external_send_enabled:
+        # Keep the running process consistent with the validated persisted
+        # transition; every actual message still needs EMAIL SENDEN.
+        config.ENABLE_REAL_EMAIL = True
+    return _envelope(_activation_payload(gate, smoke))
 
 
 
@@ -3353,11 +3527,12 @@ def _prepare_ms_mail_token_bundle(account: Any) -> tuple[dict[str, Any] | None, 
 
 @app.post("/api/accounts/ms-mail/activation-gate")
 def get_ms_mail_activation_gate(payload: MsMailActivationGateRequest) -> dict[str, Any]:
+    smoke = _run_server_safety_smoke()
     if payload.execute_write:
         gate = apply_ms_mail_read_activation_to_config(
             config_path=config.PACKAGE_DIR / "config.py",
             approval_token=payload.approval_token,
-            scanner_smoke_passed=payload.scanner_smoke_passed,
+            scanner_smoke_passed=smoke.passed,
             execute_write=True,
             post_write_validation=lambda path: (
                 "ENABLE_MS_MAIL_READ = True" in path.read_text(encoding="utf-8")
@@ -3367,13 +3542,14 @@ def get_ms_mail_activation_gate(payload: MsMailActivationGateRequest) -> dict[st
     else:
         gate = build_ms_mail_read_activation_gate(
             approval_token=payload.approval_token,
-            scanner_smoke_passed=payload.scanner_smoke_passed,
+            scanner_smoke_passed=smoke.passed,
         )
-    return _envelope(asdict(gate))
+    return _envelope(_activation_payload(gate, smoke))
 
 
-@app.post("/api/accounts/ms-mail/sync")
-async def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str, Any]:
+async def _sync_ms_mail_messages_data(
+    payload: MsMailSyncRequest | None = None,
+) -> dict[str, Any]:
     if not config.ENABLE_MS_MAIL_READ:
         raise HTTPException(status_code=403, detail="Microsoft-Mail-Lesen ist deaktiviert.")
     requested_account_id = payload.account_id if payload is not None else None
@@ -3445,22 +3621,48 @@ async def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dic
             MailboxCleanupRunRequest(
                 top=top,
                 account_id=requested_account_id,
-                dry_run=False,
+                dry_run=True,
             )
         )
-    return _envelope(
-        {
-            "synced": True,
-            "accounts_synced": len([item for item in account_results if item["ok"]]),
-            "accounts": account_results,
-            "stored_count": stored_count,
-            "provider_count": provider_count,
-            "process_result": process_result,
-            "cleanup_result": cleanup_result,
-            "read_only": True,
-            "real_email_enabled": config.ENABLE_REAL_EMAIL,
-        }
+    return {
+        "synced": True,
+        "accounts_synced": len([item for item in account_results if item["ok"]]),
+        "accounts": account_results,
+        "stored_count": stored_count,
+        "provider_count": provider_count,
+        "process_result": process_result,
+        "cleanup_result": cleanup_result,
+        "read_only": True,
+        "real_email_enabled": config.ENABLE_REAL_EMAIL,
+    }
+
+
+@app.post("/api/accounts/ms-mail/sync")
+async def sync_ms_mail_messages(payload: MsMailSyncRequest | None = None) -> dict[str, Any]:
+    data = await ms_mail_read_sync_scheduler.run_serialized(
+        lambda: _sync_ms_mail_messages_data(payload),
+        propagate_errors=True,
     )
+    return _envelope(data)
+
+
+async def _run_automatic_ms_mail_sync() -> dict[str, Any]:
+    """Run the already-gated Mail.Read path; never enable or send anything."""
+    return await _sync_ms_mail_messages_data(
+        MsMailSyncRequest(top=getattr(config, "MS_MAIL_SYNC_TOP", 25))
+    )
+
+
+@app.get("/api/accounts/ms-mail/sync-status")
+def get_ms_mail_sync_status() -> dict[str, Any]:
+    return _envelope(ms_mail_read_sync_scheduler.status())
+
+
+@app.post("/api/accounts/ms-mail/sync-refresh")
+async def refresh_ms_mail_sync() -> dict[str, Any]:
+    if not config.ENABLE_MS_MAIL_READ:
+        raise HTTPException(status_code=403, detail="Microsoft-Mail-Lesen ist deaktiviert.")
+    return _envelope(await ms_mail_read_sync_scheduler.refresh_once())
 
 
 @app.get("/api/messages/ms-mail")
@@ -3595,11 +3797,12 @@ def connect_imap_mail_account(payload: ImapMailConnectRequest) -> dict[str, Any]
 
 @app.post("/api/accounts/imap-mail/activation-gate")
 def get_imap_mail_activation_gate(payload: ImapMailActivationGateRequest) -> dict[str, Any]:
+    smoke = _run_server_safety_smoke()
     if payload.execute_write:
         gate = apply_imap_mail_read_activation_to_config(
             config_path=config.PACKAGE_DIR / "config.py",
             approval_token=payload.approval_token,
-            scanner_smoke_passed=payload.scanner_smoke_passed,
+            scanner_smoke_passed=smoke.passed,
             execute_write=True,
             post_write_validation=lambda path: (
                 "ENABLE_IMAP_MAIL_READ = True" in path.read_text(encoding="utf-8")
@@ -3609,9 +3812,9 @@ def get_imap_mail_activation_gate(payload: ImapMailActivationGateRequest) -> dic
     else:
         gate = build_imap_mail_read_activation_gate(
             approval_token=payload.approval_token,
-            scanner_smoke_passed=payload.scanner_smoke_passed,
+            scanner_smoke_passed=smoke.passed,
         )
-    return _envelope(asdict(gate))
+    return _envelope(_activation_payload(gate, smoke))
 
 
 @app.post("/api/accounts/imap-mail/sync")
@@ -3692,11 +3895,12 @@ async def sync_imap_mail_messages(payload: ImapMailSyncRequest | None = None) ->
 
 @app.post("/api/mail/organize/activation-gate")
 def get_mailbox_cleanup_activation_gate(payload: MailboxCleanupActivationGateRequest) -> dict[str, Any]:
+    smoke = _run_server_safety_smoke()
     if payload.execute_write:
         gate = apply_mailbox_cleanup_activation_to_config(
             config_path=config.PACKAGE_DIR / "config.py",
             approval_token=payload.approval_token,
-            scanner_smoke_passed=payload.scanner_smoke_passed,
+            scanner_smoke_passed=smoke.passed,
             execute_write=True,
             post_write_validation=lambda path: (
                 "ENABLE_MAIL_ORGANIZE = True" in path.read_text(encoding="utf-8")
@@ -3706,9 +3910,11 @@ def get_mailbox_cleanup_activation_gate(payload: MailboxCleanupActivationGateReq
     else:
         gate = build_mailbox_cleanup_activation_gate(
             approval_token=payload.approval_token,
-            scanner_smoke_passed=payload.scanner_smoke_passed,
+            scanner_smoke_passed=smoke.passed,
         )
-    return _envelope(asdict(gate))
+    if gate.persisted and gate.mail_organize_enabled:
+        config.ENABLE_MAIL_ORGANIZE = True
+    return _envelope(_activation_payload(gate, smoke))
 
 
 @app.post("/api/mail/organize/run")
@@ -3734,7 +3940,10 @@ def get_mailbox_cleanup_log(
 
 
 @app.post("/api/mail/organize/undo/{log_id}")
-def undo_mailbox_cleanup(log_id: int) -> dict[str, Any]:
+def undo_mailbox_cleanup(
+    log_id: int,
+    payload: MailboxCleanupUndoRequest | None = None,
+) -> dict[str, Any]:
     if not config.ENABLE_MAIL_ORGANIZE:
         raise HTTPException(status_code=403, detail="Gmail-Aufraeumen ist deaktiviert.")
     repository = _mailbox_cleanup_log_repository()
@@ -3743,6 +3952,48 @@ def undo_mailbox_cleanup(log_id: int) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="Cleanup-Log wurde nicht gefunden.")
     if int(entry.get("undone") or 0) == 1:
         return _envelope({"undone": True, "entry": entry, "message": "Cleanup war bereits rueckgaengig."})
+    action_payload = {
+        "log_id": int(log_id),
+        "account_id": str(entry.get("account_id") or ""),
+        "provider_message_id": str(entry.get("provider_message_id") or ""),
+        "label": str(entry.get("to_label") or GMAIL_CLEANUP_LABEL),
+    }
+    approval_token = str(payload.approval_token if payload is not None else "").strip()
+    approval_id = str(payload.approval_id if payload is not None else "").strip()
+    approval_payload: dict[str, Any] | None = None
+    blocked_reasons: list[str] = []
+    if approval_token != MAILBOX_CLEANUP_TOKEN:
+        blocked_reasons.append("approval_token_invalid")
+    elif not approval_id:
+        approval_payload = _try_issue_action_approval(
+            action="mailbox.cleanup.undo",
+            payload=action_payload,
+        )
+        blocked_reasons.append(
+            "one_time_approval_required"
+            if approval_payload is not None
+            else "action_recently_consumed"
+        )
+    elif not action_approvals.consume(
+        approval_id=approval_id,
+        action="mailbox.cleanup.undo",
+        payload=action_payload,
+    ):
+        blocked_reasons.append("one_time_approval_invalid")
+    if blocked_reasons:
+        return _envelope(
+            {
+                "undone": False,
+                "entry": entry,
+                "message": "Rueckgabe braucht die exakte Einmalfreigabe.",
+                "approval": approval_payload,
+                "approval_required": True,
+                "blocked_reasons": tuple(blocked_reasons),
+                "external_write_used": False,
+                "deleted": False,
+                "expunge_used": False,
+            }
+        )
     account = load_imap_mail_account(account_id=str(entry.get("account_id") or ""))
     if account is None:
         raise HTTPException(status_code=404, detail="Gmail-IMAP-Konto wurde nicht gefunden.")
@@ -3761,6 +4012,10 @@ def undo_mailbox_cleanup(log_id: int) -> dict[str, Any]:
             "undone": True,
             "entry": updated,
             "message": result.message,
+            "approval": None,
+            "approval_required": True,
+            "blocked_reasons": (),
+            "external_write_used": True,
             "deleted": result.deleted,
             "expunge_used": result.expunge_used,
         }
@@ -3984,6 +4239,121 @@ def ingest_whatsapp_message(
             "send_via_bridge": False,
         }
     )
+
+
+async def _build_automatic_calendar_source_sync_preview() -> dict[str, Any]:
+    """Build the periodic read-only plan without issuing an approval capability."""
+    days_back = max(
+        0,
+        min(int(getattr(config, "CALENDAR_SOURCE_SYNC_DAYS_BACK", 30)), 365),
+    )
+    days_forward = max(
+        1,
+        min(int(getattr(config, "CALENDAR_SOURCE_SYNC_DAYS_FORWARD", 365)), 730),
+    )
+    today = date.today()
+    range_start = (today - timedelta(days=days_back)).isoformat()
+    range_end = (today + timedelta(days=days_forward)).isoformat()
+    policies = list_account_policies()
+    source_policies = [
+        policy
+        for policy in policies
+        if policy.enabled
+        and policy.role == "source"
+        and policy.access in {"read", "read_write"}
+        and policy.provider == "outlook_ics"
+    ]
+    source_events, source_errors = await _collect_source_calendar_events(
+        source_policies,
+        range_start=range_start,
+        range_end=range_end,
+    )
+    google_result = await _list_google_calendar_events_cached(
+        range_start=range_start,
+        range_end=range_end,
+    )
+    google_events = (
+        [event.to_dict() for event in google_result.events]
+        if google_result.ok
+        else []
+    )
+    plan = build_source_sync_plan(source_events, google_events)
+    preview = [public_sync_item(item) for item in plan["create"]]
+    skipped = [public_sync_item(item) for item in plan["skipped"]]
+    main_target = resolve_write_target(policies)
+    account_status = google_calendar_account_status()
+    readiness_guard = check_calendar_event_write_allowed(
+        approval_token=CALENDAR_EVENT_SAVE_TOKEN,
+        real_calendar_enabled=config.ENABLE_REAL_CALENDAR,
+        main_policy_ok=main_target.ok,
+        connection_ok=bool(account_status["last_test_ok"]) and google_result.ok,
+    )
+    batch_limit_exceeded = len(preview) > 100
+    readiness = readiness_guard.to_dict()
+    if batch_limit_exceeded:
+        readiness.update(
+            {
+                "allowed": False,
+                "message": "Synchronisierung überschreitet das Sicherheitslimit von 100 Terminen.",
+                "blocked_reasons": ("calendar_sync_batch_limit_exceeded",),
+                "preview_only": True,
+                "external_call_allowed": False,
+            }
+        )
+    else:
+        # A periodic refresh is always preview-only. A capability is intentionally
+        # issued only by the explicit source-sync preview endpoint.
+        if readiness_guard.allowed and preview:
+            readiness_message = (
+                "Neue Termine erkannt. Google-Schreiben benötigt eine explizite "
+                "payload-gebundene Einmalfreigabe."
+            )
+        elif readiness_guard.allowed:
+            readiness_message = "Keine neuen Termine für die Synchronisierung erkannt."
+        else:
+            readiness_message = str(readiness.get("message") or "Synchronisierung nicht bereit.")
+        readiness.update(
+            {
+                "allowed": False,
+                "message": readiness_message,
+                "preview_only": True,
+                "external_call_allowed": False,
+                "blocked_reasons": (
+                    ("one_time_approval_required",)
+                    if readiness_guard.allowed and preview
+                    else tuple(readiness.get("blocked_reasons", ()))
+                ),
+            }
+        )
+    return {
+        "range_start": range_start,
+        "range_end": range_end,
+        "sources": [policy.label for policy in source_policies],
+        "source_event_count": len(source_events),
+        "google_event_count": len(google_events),
+        "planned_count": len(preview),
+        "skipped_count": len(skipped),
+        "preview": preview,
+        "skipped": skipped,
+        "source_errors": source_errors,
+        "google_read_error": None if google_result.ok else google_result.message,
+        "readiness": readiness,
+        "approval": None,
+        "approval_required": True,
+        "external_write_used": False,
+    }
+
+
+@app.get("/api/calendar/source-sync/preview-status")
+def get_calendar_source_sync_preview_status() -> dict[str, Any]:
+    """Return the most recent automatic source-sync plan without refreshing it."""
+    return _envelope(calendar_source_sync_preview_scheduler.status())
+
+
+@app.post("/api/calendar/source-sync/preview-refresh")
+async def refresh_calendar_source_sync_preview() -> dict[str, Any]:
+    """Trigger one read-only refresh; this route never issues write approval."""
+    return _envelope(await calendar_source_sync_preview_scheduler.refresh_once())
 
 
 @app.post("/api/calendar/source-sync")
@@ -4244,11 +4614,24 @@ def process_whatsapp_reply(
 def get_whatsapp_bridge_activation_gate(
     payload: WhatsAppBridgeActivationGateRequest,
 ) -> dict[str, Any]:
-    gate = build_whatsapp_bridge_activation_gate(
-        approval_token=payload.approval_token,
-        scanner_smoke_passed=payload.scanner_smoke_passed,
-    )
-    return _envelope(asdict(gate))
+    smoke = _run_server_safety_smoke()
+    if payload.execute_write:
+        gate = apply_whatsapp_bridge_read_activation_to_config(
+            approval_token=payload.approval_token,
+            scanner_smoke_passed=smoke.passed,
+            config_path=config.PACKAGE_DIR / "config.py",
+            execute_write=True,
+            post_write_validation=lambda path: (
+                "ENABLE_WHATSAPP_BRIDGE_READ = True" in path.read_text(encoding="utf-8")
+                and "ENABLE_REAL_WHATSAPP = False" in path.read_text(encoding="utf-8")
+            ),
+        )
+    else:
+        gate = build_whatsapp_bridge_activation_gate(
+            approval_token=payload.approval_token,
+            scanner_smoke_passed=smoke.passed,
+        )
+    return _envelope(_activation_payload(gate, smoke))
 
 
 @app.post("/api/accounts/email/send-task-forward")
@@ -4350,13 +4733,14 @@ def get_ollama_config_apply_gate(payload: OllamaConfigApplyGateRequest) -> dict[
         base_url=payload.base_url,
         enable_requested=True,
     )
+    smoke = _run_server_safety_smoke()
     gate = build_local_ollama_config_apply_gate(
         preview=preview,
         approval_token=payload.approval_token,
-        scanner_smoke_passed=payload.scanner_smoke_passed,
+        scanner_smoke_passed=smoke.passed,
         health_check_passed=payload.health_check_passed,
     )
-    return _envelope(asdict(gate))
+    return _envelope(_activation_payload(gate, smoke))
 
 
 @app.get("/api/privacy")
@@ -4365,23 +4749,23 @@ def get_privacy() -> dict[str, Any]:
         {
             "mode": "local",
             "external_services": {
-                "email": False,
-                "whatsapp": False,
+                "email": config.ENABLE_REAL_EMAIL,
+                "whatsapp": config.ENABLE_REAL_WHATSAPP,
                 "whatsapp_bridge_read": config.ENABLE_WHATSAPP_BRIDGE_READ,
                 "ms_mail_read": config.ENABLE_MS_MAIL_READ,
                 "imap_mail_read": config.ENABLE_IMAP_MAIL_READ,
                 "mail_organize": config.ENABLE_MAIL_ORGANIZE,
-                "sms": False,
-                "calendar": False,
-                "weather": False,
-                "music": False,
+                "sms": config.ENABLE_REAL_SMS,
+                "calendar": config.ENABLE_REAL_CALENDAR,
+                "weather": config.ENABLE_REAL_WEATHER,
+                "music": config.ENABLE_REAL_MUSIC,
             },
             "writes": {
                 "exports": False,
-                "messages_send": False,
+                "messages_send": config.ENABLE_REAL_EMAIL or config.ENABLE_REAL_WHATSAPP or config.ENABLE_REAL_SMS,
                 "contacts_write": True,
                 "gmail_organize": config.ENABLE_MAIL_ORGANIZE,
             },
-            "notes": "Kontakte koennen lokal gespeichert werden; externe Nachrichten bleiben deaktiviert.",
+            "notes": "Externe Dienste und Schreibrechte entsprechen den wirksamen Safety-Flags; Einzelaktionen bleiben hart freigabepflichtig.",
         },
     )

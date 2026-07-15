@@ -43,6 +43,78 @@ def test_setup_status_endpoint_reports_local_only_safety_flags() -> None:
     assert payload["calendar"]["auto_write_enabled"] is False
 
 
+def test_setup_status_aliases_and_account_summaries_are_public(monkeypatch) -> None:
+    from friday.app import setup_status as status_module
+
+    monkeypatch.setattr(
+        status_module,
+        "email_account_status",
+        lambda: {"connected": True, "last_test_ok": True},
+    )
+    private_account = {
+        "account_id": "masked-id",
+        "username": "private@example.test",
+        "tenant": "private-tenant",
+        "client_id": "private-client",
+        "last_test_ok": True,
+    }
+    monkeypatch.setattr(
+        status_module,
+        "ms_mail_account_status",
+        lambda: {
+            "connected": True,
+            "account_count": 1,
+            "accounts": [private_account],
+            "last_test_ok": True,
+        },
+    )
+    monkeypatch.setattr(
+        status_module,
+        "imap_mail_account_status",
+        lambda: {
+            "connected": True,
+            "account_count": 1,
+            "accounts": [private_account],
+            "last_test_ok": True,
+        },
+    )
+    monkeypatch.setattr(
+        status_module,
+        "get_whatsapp_bridge_status",
+        lambda: {"read_enabled": True, "connected": True, "last_received_at": None},
+    )
+    monkeypatch.setattr(
+        status_module,
+        "google_calendar_account_status",
+        lambda: {"connected": False},
+    )
+    monkeypatch.setattr(status_module, "list_account_policies", lambda: ())
+
+    payload = status_module.build_setup_status()
+
+    assert payload["email"]["configured"] is True
+    assert payload["whatsapp"]["read_enabled"] is True
+    for area in ("ms_mail", "imap_mail"):
+        public_account = payload[area]["accounts"][0]
+        assert public_account["account_id"] == "masked-id"
+        assert "username" not in public_account
+        assert "tenant" not in public_account
+        assert "client_id" not in public_account
+
+
+def test_privacy_endpoint_reflects_runtime_integration_flags(monkeypatch) -> None:
+    api = _load_api_module()
+    monkeypatch.setattr(api.config, "ENABLE_REAL_EMAIL", True)
+    monkeypatch.setattr(api.config, "ENABLE_WHATSAPP_BRIDGE_READ", True)
+    monkeypatch.setattr(api.config, "ENABLE_MAIL_ORGANIZE", True)
+
+    payload = api.get_privacy()["data"]["external_services"]
+
+    assert payload["email"] is True
+    assert payload["whatsapp_bridge_read"] is True
+    assert payload["mail_organize"] is True
+
+
 def test_calendar_extract_event_endpoint_uses_review_only_preview() -> None:
     api = _load_api_module()
     client = TestClient(api.app)

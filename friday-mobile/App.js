@@ -46,7 +46,9 @@ import {
   buildTaskForwardDraft,
   checkHealth,
   completeTask,
+  activateEmailSend,
   activateMailOrganize,
+  activateWhatsAppReadBridge,
   connectEmailAccount,
   connectImapMailAccount,
   connectMsMailAccount,
@@ -1020,6 +1022,8 @@ export default function App() {
   const [mailOrganizeLog, setMailOrganizeLog] = useState(null);
   const [mailOrganizeResult, setMailOrganizeResult] = useState("");
   const [mailOrganizeToken, setMailOrganizeToken] = useState("");
+  const [mailOrganizeApproval, setMailOrganizeApproval] = useState(null);
+  const [mailOrganizeUndoApproval, setMailOrganizeUndoApproval] = useState(null);
   const [whatsappStatus, setWhatsappStatus] = useState(null);
   const [whatsappInbox, setWhatsappInbox] = useState(null);
   const [expandedInboxGroups, setExpandedInboxGroups] = useState({});
@@ -1033,6 +1037,7 @@ export default function App() {
   const [emailAgentNotes, setEmailAgentNotes] = useState("");
   const [emailAgentNotesResult, setEmailAgentNotesResult] = useState("");
   const [emailAccountToken, setEmailAccountToken] = useState("");
+  const [emailActivationToken, setEmailActivationToken] = useState("");
   const [emailAccountResult, setEmailAccountResult] = useState("");
   const [msMailClientId, setMsMailClientId] = useState("");
   const [msMailTenant, setMsMailTenant] = useState("common");
@@ -1049,6 +1054,8 @@ export default function App() {
   const [imapMailResult, setImapMailResult] = useState("");
   const [whatsappAgentNotes, setWhatsappAgentNotes] = useState("");
   const [whatsappAgentNotesResult, setWhatsappAgentNotesResult] = useState("");
+  const [whatsappActivationToken, setWhatsappActivationToken] = useState("");
+  const [whatsappActivationResult, setWhatsappActivationResult] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskForwardTo, setNewTaskForwardTo] = useState("");
   const [forwardTask, setForwardTask] = useState(null);
@@ -2118,6 +2125,27 @@ export default function App() {
     }
   };
 
+  const handleActivateEmailSend = async (tokenOverride) => {
+    setActionBusy(true);
+    setEmailAccountResult("");
+    try {
+      const result = await activateEmailSend({
+        approval_token: (tokenOverride || emailActivationToken).trim(),
+        execute_write: true,
+      });
+      setEmailAccountResult(
+        result?.config_write_performed
+          ? "Real-E-Mail wurde aktiviert. Jede einzelne Mail braucht weiterhin EMAIL SENDEN."
+          : `E-Mail-Aktivierung blockiert: ${(result?.blocked_reasons || []).join(" / ") || "Gate nicht erfüllt"}`,
+      );
+      setEmailAccountStatus(await getEmailAccountStatus());
+    } catch (err) {
+      setEmailAccountResult(`E-Mail-Aktivierung blockiert: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const handleSaveEmailAgentNotes = async () => {
     setActionBusy(true);
     setEmailAgentNotesResult("");
@@ -2142,6 +2170,27 @@ export default function App() {
       setWhatsappAgentNotesResult("WhatsApp-Agent-Notiz wurde lokal gespeichert.");
     } catch (err) {
       setWhatsappAgentNotesResult(`WhatsApp-Agent-Notiz konnte nicht gespeichert werden: ${normalizeApiError(err)}`);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleActivateWhatsAppReadBridge = async (tokenOverride) => {
+    setActionBusy(true);
+    setWhatsappActivationResult("");
+    try {
+      const result = await activateWhatsAppReadBridge({
+        approval_token: (tokenOverride || whatsappActivationToken).trim(),
+        execute_write: true,
+      });
+      setWhatsappActivationResult(
+        result?.applied
+          ? "WhatsApp Read-Bridge wurde aktiviert. API und Bridge müssen danach neu gestartet werden."
+          : result?.message || `Aktivierung blockiert: ${(result?.blocked_reasons || []).join(" / ")}`,
+      );
+      setWhatsappStatus(await getWhatsAppStatus());
+    } catch (err) {
+      setWhatsappActivationResult(`WhatsApp-Aktivierung blockiert: ${normalizeApiError(err)}`);
     } finally {
       setActionBusy(false);
     }
@@ -2221,7 +2270,6 @@ export default function App() {
     try {
       const result = await activateMsMailRead({
         approval_token: (tokenOverride || msMailActivationToken).trim(),
-        scanner_smoke_passed: true,
         execute_write: true,
       });
       setMsMailResult(
@@ -2347,7 +2395,6 @@ export default function App() {
     try {
       const result = await activateImapMailRead({
         approval_token: (tokenOverride || imapMailActivationToken).trim(),
-        scanner_smoke_passed: true,
         execute_write: true,
       });
       setImapMailResult(
@@ -2369,7 +2416,6 @@ export default function App() {
     try {
       const result = await activateMailOrganize({
         approval_token: mailOrganizeToken.trim(),
-        scanner_smoke_passed: true,
         execute_write: true,
       });
       setMailOrganizeResult(result?.message || "Gmail-Aufraeumen geprueft.");
@@ -2386,8 +2432,27 @@ export default function App() {
     setActionBusy(true);
     setMailOrganizeResult("");
     try {
-      const result = await runMailOrganize({ top: 25, dry_run: false });
-      setMailOrganizeResult(`${result?.moved_count || 0} Mail(s) nach Friday/Aussortiert verschoben.`);
+      const approvalId = mailOrganizeApproval?.id || "";
+      const result = await runMailOrganize({
+        top: 25,
+        dry_run: !approvalId,
+        approval_token: mailOrganizeToken.trim(),
+        approval_id: approvalId,
+      });
+      if (result?.external_write_used) {
+        setMailOrganizeApproval(null);
+        setMailOrganizeResult(`${result?.moved_count || 0} Mail(s) nach Friday/Aussortiert verschoben.`);
+      } else if (result?.approval?.id) {
+        setMailOrganizeApproval(result.approval);
+        setMailOrganizeResult(
+          `Vorschau: ${result?.candidate_count || 0} Kandidat(en). Erneut bestätigen, um exakt diese Auswahl zu verschieben.`,
+        );
+      } else {
+        setMailOrganizeApproval(null);
+        setMailOrganizeResult(
+          `Keine Verschiebung: ${(result?.blocked_reasons || []).join(" / ") || "keine Kandidaten"}`,
+        );
+      }
       setMailOrganizeLog(await getMailOrganizeLog());
       await refreshActive();
     } catch (err) {
@@ -2401,8 +2466,26 @@ export default function App() {
     setActionBusy(true);
     setMailOrganizeResult("");
     try {
-      const result = await undoMailOrganize(logId);
-      setMailOrganizeResult(result?.message || "Mail wurde zurueckgeholt.");
+      const approvalId =
+        mailOrganizeUndoApproval?.logId === logId
+          ? mailOrganizeUndoApproval?.approval?.id || ""
+          : "";
+      const result = await undoMailOrganize(logId, {
+        approval_token: mailOrganizeToken.trim(),
+        approval_id: approvalId,
+      });
+      if (result?.undone) {
+        setMailOrganizeUndoApproval(null);
+        setMailOrganizeResult(result?.message || "Mail wurde zurueckgeholt.");
+      } else if (result?.approval?.id) {
+        setMailOrganizeUndoApproval({ logId, approval: result.approval });
+        setMailOrganizeResult("Rueckgabe vorbereitet. Erneut bestaetigen, um exakt diese Mail zurueckzuholen.");
+      } else {
+        setMailOrganizeUndoApproval(null);
+        setMailOrganizeResult(
+          `Rueckgabe blockiert: ${(result?.blocked_reasons || []).join(" / ") || "Freigabe fehlt"}`,
+        );
+      }
       setMailOrganizeLog(await getMailOrganizeLog());
       await refreshActive();
     } catch (err) {
@@ -2536,7 +2619,6 @@ export default function App() {
     try {
       const result = await checkCalendarActivationGate({
         approval_token: calendarActivationToken.trim(),
-        scanner_smoke_passed: true,
       });
       setCalendarActivationResult(
         result?.allowed
@@ -3880,6 +3962,26 @@ export default function App() {
               />
             </View>
             {!!emailAccountResult && <Text style={styles.approvalResultText}>{emailAccountResult}</Text>}
+            <TextInput
+              value={emailActivationToken}
+              onChangeText={setEmailActivationToken}
+              style={styles.input}
+              placeholder="EMAIL AKTIVIEREN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <ActionButton
+              small
+              variant="danger"
+              label="Real-E-Mail separat aktivieren"
+              onPress={() => openTokenModal({
+                title: "Real-E-Mail aktivieren",
+                explanation: "Aktiviert nur den Versandpfad. Jede konkrete Mail braucht zusätzlich EMAIL SENDEN.",
+                expectedToken: "EMAIL AKTIVIEREN",
+                onConfirm: handleActivateEmailSend,
+              })}
+              disabled={actionBusy || emailActivationToken.trim() !== "EMAIL AKTIVIEREN"}
+            />
             {emailAccountStatus?.connected && (
               <ActionButton
                 small
@@ -4179,6 +4281,29 @@ export default function App() {
             <Text style={styles.forwardSafety}>
               Risiko: WhatsApp-Web-Bridges koennen gegen WhatsApp-Regeln verstossen. Nutzung auf eigenes Risiko.
             </Text>
+            <TextInput
+              value={whatsappActivationToken}
+              onChangeText={setWhatsappActivationToken}
+              style={styles.input}
+              placeholder="WHATSAPP BRIDGE AKTIVIEREN"
+              placeholderTextColor={colors.textSoft}
+              autoCapitalize="characters"
+            />
+            <ActionButton
+              small
+              variant="danger"
+              label="Read-Bridge auf eigenes Risiko aktivieren"
+              onPress={() => openTokenModal({
+                title: "WhatsApp Read-Bridge aktivieren",
+                explanation: "Inoffizielle WhatsApp-Web-Bridges können eine Kontosperre auslösen. Senden bleibt deaktiviert.",
+                expectedToken: "WHATSAPP BRIDGE AKTIVIEREN",
+                onConfirm: handleActivateWhatsAppReadBridge,
+              })}
+              disabled={actionBusy || whatsappActivationToken.trim() !== "WHATSAPP BRIDGE AKTIVIEREN"}
+            />
+            {!!whatsappActivationResult && (
+              <Text style={styles.approvalResultText}>{whatsappActivationResult}</Text>
+            )}
           </View>
         </View>
       );
@@ -4406,9 +4531,13 @@ export default function App() {
                 disabled={actionBusy || mailOrganizeToken.trim() !== "POSTFACH AUFRAEUMEN"}
               />
               <ActionButton
-                label="Jetzt aufraeumen"
+                label={mailOrganizeApproval?.id ? "Exakte Auswahl bestätigen" : "Kandidaten prüfen"}
                 onPress={handleRunMailOrganize}
-                disabled={actionBusy || !privacy?.external_services?.mail_organize}
+                disabled={
+                  actionBusy ||
+                  !privacy?.external_services?.mail_organize ||
+                  mailOrganizeToken.trim() !== "POSTFACH AUFRAEUMEN"
+                }
               />
             </View>
             {!!mailOrganizeResult && <Text style={styles.approvalResultText}>{mailOrganizeResult}</Text>}
@@ -4421,9 +4550,17 @@ export default function App() {
                 </Text>
                 {!entry.undone && (
                   <ActionButton
-                    label="Zurueck in Posteingang"
+                    label={
+                      mailOrganizeUndoApproval?.logId === entry.id
+                        ? "Rueckgabe bestätigen"
+                        : "Zurueck in Posteingang"
+                    }
                     onPress={() => handleUndoMailOrganize(entry.id)}
-                    disabled={actionBusy || !privacy?.external_services?.mail_organize}
+                    disabled={
+                      actionBusy ||
+                      !privacy?.external_services?.mail_organize ||
+                      mailOrganizeToken.trim() !== "POSTFACH AUFRAEUMEN"
+                    }
                   />
                 )}
               </View>

@@ -12,6 +12,15 @@ from friday.app.ms_mail_account_store import ms_mail_account_status
 from friday.app.whatsapp_inbox_store import get_whatsapp_bridge_status
 
 
+def _public_account_summaries(items: list[dict] | tuple[dict, ...]) -> list[dict]:
+    """Remove raw account identifiers that the mobile status view does not need."""
+    private_fields = {"username", "tenant", "client_id"}
+    return [
+        {key: value for key, value in dict(item).items() if key not in private_fields}
+        for item in items
+    ]
+
+
 def build_setup_status() -> dict:
     """Return a read-only setup summary for mobile and API clients."""
     email_status = email_account_status()
@@ -37,13 +46,14 @@ def build_setup_status() -> dict:
         },
         "email": {
             "connected": email_status["connected"],
+            "configured": email_status["connected"],
             "real_enabled": config.ENABLE_REAL_EMAIL,
             "last_test_ok": email_status["last_test_ok"],
         },
         "ms_mail": {
             "connected": ms_mail_status["connected"],
             "account_count": ms_mail_status.get("account_count", 0),
-            "accounts": ms_mail_status.get("accounts", []),
+            "accounts": _public_account_summaries(ms_mail_status.get("accounts", [])),
             "read_enabled": config.ENABLE_MS_MAIL_READ,
             "last_test_ok": ms_mail_status["last_test_ok"],
             "read_only": True,
@@ -52,7 +62,7 @@ def build_setup_status() -> dict:
         "imap_mail": {
             "connected": imap_mail_status["connected"],
             "account_count": imap_mail_status.get("account_count", 0),
-            "accounts": imap_mail_status.get("accounts", []),
+            "accounts": _public_account_summaries(imap_mail_status.get("accounts", [])),
             "read_enabled": config.ENABLE_IMAP_MAIL_READ,
             "organize_enabled": config.ENABLE_MAIL_ORGANIZE,
             "last_test_ok": imap_mail_status["last_test_ok"],
@@ -61,6 +71,7 @@ def build_setup_status() -> dict:
         },
         "whatsapp": {
             "read_bridge_enabled": whatsapp_status["read_enabled"],
+            "read_enabled": whatsapp_status["read_enabled"],
             "real_enabled": config.ENABLE_REAL_WHATSAPP,
             "connected": whatsapp_status["connected"],
             "last_received_at": whatsapp_status["last_received_at"],
