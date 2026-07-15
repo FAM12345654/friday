@@ -108,13 +108,27 @@ def scan_python_source_for_string_literals(
     literals: list[ApprovalTokenLiteral] = []
     # JSON/dict response keys such as {"ok": True} are data-shape labels, not
     # approval tokens. Keep values and every other literal in scope.
-    structural_dict_key_ids = {
-        id(key)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Dict)
-        for key in node.keys
-        if isinstance(key, ast.Constant) and key.value == "ok"
-    }
+    structural_dict_key_ids: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        string_keys = {
+            key.value
+            for key in node.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        structured_status = (
+            string_keys == {"ok", "error"}
+            or {"ok", "text", "language", "duration_seconds", "error"} <= string_keys
+            or {"ok", "date", "generated_at", "language", "engine"} <= string_keys
+        )
+        if not structured_status:
+            continue
+        structural_dict_key_ids.update(
+            id(key)
+            for key in node.keys
+            if isinstance(key, ast.Constant) and key.value == "ok"
+        )
 
     for node in ast.walk(tree):
         if (

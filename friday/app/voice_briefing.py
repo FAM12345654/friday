@@ -60,18 +60,26 @@ def build_briefing_text(
     overdue_tasks: Iterable[Mapping[str, Any]] = (),
     calendar_items: Iterable[Mapping[str, Any]] = (),
     language: str = "de",
+    weather_text: str | None = None,
 ) -> str:
-    """Build the spoken briefing for one day."""
+    """Build the spoken briefing for one day.
+
+    ``weather_text`` is an already-localized weather sentence (e.g. from
+    ``open_meteo_weather``); when given it is spoken right after the greeting.
+    """
     lang = "en" if str(language).lower().startswith("en") else "de"
     task_titles = _titles(tasks_today)
     overdue_titles = _titles(overdue_tasks)
     event_titles = _titles(calendar_items)
+    weather = " ".join(str(weather_text or "").split())
 
     parts: list[str] = []
     spoken_day = _spoken_date(day_iso, lang)
 
     if lang == "en":
         parts.append(f"Good morning! Today is {spoken_day}.")
+        if weather:
+            parts.append(f"The weather: {weather}")
         if task_titles:
             noun = "task" if len(task_titles) == 1 else "tasks"
             parts.append(f"You have {len(task_titles)} {noun} today: {_join(task_titles, lang)}.")
@@ -86,6 +94,8 @@ def build_briefing_text(
         parts.append("Have a great day!")
     else:
         parts.append(f"Guten Morgen! Heute ist {spoken_day}.")
+        if weather:
+            parts.append(f"Das Wetter: {weather}")
         if task_titles:
             noun = "Aufgabe" if len(task_titles) == 1 else "Aufgaben"
             parts.append(f"Du hast heute {len(task_titles)} {noun}: {_join(task_titles, lang)}.")

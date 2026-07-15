@@ -12,6 +12,11 @@ const tokenPath = path.join(localDataDir, "bridge_token.txt");
 const configPath = path.join(localDataDir, "bridge.config.json");
 const apiUrl = process.env.FRIDAY_API_URL || "http://127.0.0.1:8001";
 const apiToken = String(process.env.FRIDAY_API_TOKEN || "").trim();
+const pairingPhoneNumber = (
+  process.env.FRIDAY_WHATSAPP_PAIRING_PHONE ||
+  process.env.WHATSAPP_PAIRING_PHONE ||
+  ""
+).trim();
 
 process.env.PUPPETEER_CACHE_DIR = path.join(localDataDir, "puppeteer-cache");
 
@@ -73,6 +78,10 @@ function shouldMirrorChat(chatId, isGroup, bridgeConfig) {
   return true;
 }
 
+function maskPhoneNumber(phoneNumber) {
+  return phoneNumber.replace(/\d(?=\d{4})/g, "*");
+}
+
 async function postMessageToFriday(payload, token) {
   const response = await fetch(`${apiUrl}/api/whatsapp/ingest`, {
     method: "POST",
@@ -113,8 +122,14 @@ async function main() {
   console.log("Friday WhatsApp Read-Bridge startet.");
   console.log("Modus: nur eingehende Nachrichten lesen. Kein automatischer Versand.");
   console.log(`API: ${apiUrl}`);
+  if (pairingPhoneNumber) {
+    if (!/^\d+$/.test(pairingPhoneNumber)) {
+      throw new Error("FRIDAY_WHATSAPP_PAIRING_PHONE muss im internationalen Format nur aus Ziffern bestehen.");
+    }
+    console.log(`Pairing-Code Login aktiv fuer Nummer ${maskPhoneNumber(pairingPhoneNumber)}.`);
+  }
 
-  const client = new Client({
+  const clientOptions = {
     authStrategy: new LocalAuth({
       clientId: "friday-read-bridge",
       dataPath: path.join(localDataDir, "session")
@@ -122,9 +137,44 @@ async function main() {
     puppeteer: {
       headless: true
     }
+  };
+
+  const client = new Client(clientOptions);
+  // Only one pairing-code cycle may be pending at a time. Overlapping "qr"
+  // events must not stack a second timer; a retry is allowed only after the
+  // previous attempt has fully settled (timer fired and request resolved).
+  let pairingInFlight = false;
+
+  function requestPairingCodeAfterAuthFlow() {
+    if (!pairingPhoneNumber || pairingInFlight) {
+      return;
+    }
+    pairingInFlight = true;
+    console.log("WhatsApp Web Auth-Flow geladen. Pairing-Code wird in 5 Sekunden angefordert.");
+    setTimeout(async () => {
+      try {
+        await client.requestPairingCode(pairingPhoneNumber, true, 180000);
+      } catch (error) {
+        console.log(`WhatsApp Pairing-Code konnte nicht angefordert werden: ${error.message}`);
+      } finally {
+        // Release only after the attempt fully settled, so a new timer is
+        // never scheduled while one is still pending.
+        pairingInFlight = false;
+      }
+    }, 5000);
+  }
+
+  client.on("code", (code) => {
+    console.log("WhatsApp Pairing-Code:");
+    console.log(code);
+    console.log("WhatsApp -> Verknuepfte Geraete -> Mit Telefonnummer verknuepfen -> Code eingeben");
   });
 
   client.on("qr", (qr) => {
+    if (pairingPhoneNumber) {
+      requestPairingCodeAfterAuthFlow();
+      return;
+    }
     console.log("QR-Code fuer lokalen WhatsApp-Web-Login:");
     qrcode.generate(qr, { small: true });
   });

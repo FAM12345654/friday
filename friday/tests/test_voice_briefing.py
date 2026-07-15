@@ -22,6 +22,35 @@ def test_german_briefing_with_everything() -> None:
     assert text.endswith("Einen guten Start in den Tag!")
 
 
+def test_german_briefing_speaks_weather_after_greeting() -> None:
+    text = build_briefing_text(
+        day_iso=TODAY,
+        tasks_today=[{"title": "Milch kaufen"}],
+        language="de",
+        weather_text="Regen, bei Temperaturen zwischen 17 und 25 Grad Celsius.",
+    )
+    greeting_index = text.index("Guten Morgen")
+    weather_index = text.index("Das Wetter: Regen")
+    task_index = text.index("Milch kaufen")
+    assert greeting_index < weather_index < task_index
+
+
+def test_english_briefing_speaks_weather_after_greeting() -> None:
+    text = build_briefing_text(
+        day_iso=TODAY,
+        tasks_today=[{"title": "Buy milk"}],
+        language="en",
+        weather_text="rain, with temperatures between 17 and 25 degrees Celsius.",
+    )
+    assert "The weather: rain" in text
+    assert text.index("The weather:") < text.index("Buy milk")
+
+
+def test_briefing_without_weather_has_no_weather_sentence() -> None:
+    text = build_briefing_text(day_iso=TODAY, tasks_today=[], language="de")
+    assert "Das Wetter" not in text
+
+
 def test_german_briefing_empty_day() -> None:
     text = build_briefing_text(day_iso=TODAY, tasks_today=[], language="de")
     assert "keine Aufgaben" in text

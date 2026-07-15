@@ -52,6 +52,7 @@ ALLOWED_LOCAL_NETWORK_FILES: tuple[str, ...] = (
     "push_notifications.py",
     "semantic_index.py",
     "voice_synthesis.py",
+    "open_meteo_weather.py",
 )
 
 DEFAULT_EXCLUDED_PATH_PARTS: tuple[str, ...] = (

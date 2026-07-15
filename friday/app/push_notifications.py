@@ -125,6 +125,30 @@ def build_due_task_notifications(
     return notifications
 
 
+def build_briefing_ready_notification(day_iso: str) -> dict[str, str]:
+    """One 'briefing ready' notification for a freshly pre-generated briefing."""
+    return {
+        "title": "Friday: Briefing bereit",
+        "body": f"Dein Morning-Briefing für {day_iso} ist fertig und kann abgespielt werden.",
+    }
+
+
+def notify_briefing_ready(
+    day_iso: str,
+    *,
+    db_path: Path | str | None = None,
+    poster: Poster | None = None,
+    timeout_seconds: int = 10,
+) -> PushSendResult:
+    """Send a 'Briefing bereit' push after pre-generation (opt-in, reuses Expo)."""
+    return send_push_notifications(
+        [build_briefing_ready_notification(day_iso)],
+        db_path=db_path,
+        poster=poster,
+        timeout_seconds=timeout_seconds,
+    )
+
+
 def _default_poster(url: str, payload: bytes, timeout_seconds: int) -> tuple[int, bytes]:
     from urllib import error, request
 
