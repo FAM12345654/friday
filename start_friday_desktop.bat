@@ -17,7 +17,7 @@ if /I "%FRIDAY_SKIP_EMBEDDED_API%"=="true" (
 )
 
 if /I "%~1"=="stack" (
-    echo Desktop startet ohne eingebetteten API (Startet bereits im Stack).
+    echo Desktop startet ohne eingebetteten API - Start bereits im Stack.
     set "FRIDAY_SKIP_EMBEDDED_API=1"
 )
 
