@@ -306,6 +306,7 @@ app = FastAPI(
 register_timing(app)
 register_auth(app)
 cache = TTLCache(ttl=120)
+_CALENDAR_SOURCE_FETCH_TIMEOUT_SECONDS = 3
 
 app.add_middleware(
     CORSMiddleware,
@@ -1064,7 +1065,10 @@ async def _collect_source_calendar_events(
         try:
             if policy.provider == "outlook_ics":
                 result = await asyncio.to_thread(
-                    lambda: OutlookIcsCalendarProvider(policy_id=policy.id).list_events(
+                    lambda: OutlookIcsCalendarProvider(
+                        policy_id=policy.id,
+                        timeout_seconds=_CALENDAR_SOURCE_FETCH_TIMEOUT_SECONDS,
+                    ).list_events(
                         range_start=range_start,
                         range_end=range_end,
                     )
@@ -1101,7 +1105,27 @@ async def _collect_source_calendar_events(
                 }
             ]
 
-    collected = await asyncio.gather(*(_collect_policy(policy) for policy in policies))
+    async def _collect_policy_with_timeout(
+        policy: Any,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        try:
+            return await asyncio.wait_for(
+                _collect_policy(policy),
+                timeout=_CALENDAR_SOURCE_FETCH_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            return [], [
+                {
+                    "policy_id": policy.id,
+                    "provider": policy.provider,
+                    "message": "Kalender-Quelle hat das Zeitlimit überschritten.",
+                    "blocked_reasons": ("source_calendar_read_timeout",),
+                }
+            ]
+
+    collected = await asyncio.gather(
+        *(_collect_policy_with_timeout(policy) for policy in policies)
+    )
     events: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
     for policy_events, policy_errors in collected:
@@ -3326,6 +3350,7 @@ def connect_email_account(payload: EmailAccountConnectRequest) -> dict[str, Any]
         username=account.username,
         app_password=payload.app_password,
         last_test_ok=True,
+        agent_notes=account.agent_notes,
     )
     result = save_email_account(
         tested_account,

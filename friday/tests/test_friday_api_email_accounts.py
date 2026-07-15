@@ -84,6 +84,7 @@ def test_api_connect_email_account_uses_tests_and_save_token(monkeypatch) -> Non
             username="user@example.test",
             app_password="runtime-secret",
             approval_token="KONTO SPEICHERN",
+            agent_notes="Nur fuer lokale Entwuerfe.",
         )
     )
 
@@ -91,6 +92,7 @@ def test_api_connect_email_account_uses_tests_and_save_token(monkeypatch) -> Non
     assert response["data"]["saved"] is True
     assert saved["approval_token"] == "KONTO SPEICHERN"
     assert saved["account"].last_test_ok is True
+    assert saved["account"].agent_notes == "Nur fuer lokale Entwuerfe."
 
 
 def test_api_email_inbox_returns_read_only_preview(monkeypatch) -> None:

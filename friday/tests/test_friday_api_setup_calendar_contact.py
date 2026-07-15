@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import time
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -775,8 +776,9 @@ def test_calendar_endpoint_merges_and_filters_outlook_ics_source(monkeypatch) ->
     monkeypatch.setattr(api, "list_account_policies", lambda: [policy])
 
     class _Provider:
-        def __init__(self, policy_id):
+        def __init__(self, policy_id, timeout_seconds):
             self.policy_id = policy_id
+            assert timeout_seconds == 3
 
         def list_events(self, *, range_start: str, range_end: str):
             return CalendarProviderResult(
@@ -813,6 +815,51 @@ def test_calendar_endpoint_merges_and_filters_outlook_ics_source(monkeypatch) ->
     assert payload["source_events"][0]["time_window_source"] == "policy_transform.fixed_daily_window"
     assert payload["source_errors"] == []
     assert "PH nur als Quelle." in payload["policy_context"]
+
+
+def test_calendar_endpoint_fails_soft_when_source_times_out(monkeypatch) -> None:
+    api = _load_api_module()
+    client = TestClient(api.app)
+    policy = AccountPolicy(
+        id=9,
+        provider="outlook_ics",
+        label="Langsame Quelle",
+        role="source",
+        access="read",
+        include_filters={},
+        exclude_filters={},
+        transform={},
+        notes="",
+        enabled=True,
+        created_at="2026-07-09T00:00:00+00:00",
+    )
+    monkeypatch.setattr(api, "list_account_policies", lambda: [policy])
+    monkeypatch.setattr(api, "_CALENDAR_SOURCE_FETCH_TIMEOUT_SECONDS", 0.01)
+
+    class _SlowProvider:
+        def __init__(self, policy_id, timeout_seconds):
+            self.policy_id = policy_id
+            assert timeout_seconds == 0.01
+
+        def list_events(self, *, range_start: str, range_end: str):
+            time.sleep(0.05)
+            return CalendarProviderResult(ok=True, events=())
+
+    monkeypatch.setattr(api, "OutlookIcsCalendarProvider", _SlowProvider)
+
+    response = client.get("/api/calendar?date=2099-01-01")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["source_events"] == []
+    assert payload["source_errors"] == [
+        {
+            "policy_id": 9,
+            "provider": "outlook_ics",
+            "message": "Kalender-Quelle hat das Zeitlimit überschritten.",
+            "blocked_reasons": ["source_calendar_read_timeout"],
+        }
+    ]
 
 
 def test_calendar_endpoint_merges_google_main_and_outlook_source_over_range(monkeypatch) -> None:
@@ -870,8 +917,9 @@ def test_calendar_endpoint_merges_google_main_and_outlook_source_over_range(monk
             )
 
     class _OutlookProvider:
-        def __init__(self, policy_id):
+        def __init__(self, policy_id, timeout_seconds):
             self.policy_id = policy_id
+            assert timeout_seconds == 3
 
         def list_events(self, *, range_start: str, range_end: str):
             return CalendarProviderResult(
